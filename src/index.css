@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-feature-settings: 'cv11', 'ss01', 'ss02';
+}
+
+/* Recharts tooltip styling to match the Claude palette */
+.recharts-default-tooltip {
+  background-color: #1F1E1D !important;
+  color: #FAF9F5 !important;
+  border: 1px solid #3F3B32 !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18) !important;
+}
+.recharts-tooltip-item {
+  color: #FAF9F5 !important;
+}
+.recharts-tooltip-label {
+  color: #D7D3C7 !important;
+  margin-bottom: 4px !important;
+}
+.recharts-cartesian-axis-tick-value {
+  font-size: 11px;
+  fill: #8A8474;
+}
+.recharts-cartesian-grid line {
+  stroke: #EDEBE4;
+}
+
+/* Subtle paper grain */
+.grain {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(217,119,87,0.04), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(217,119,87,0.03), transparent 40%);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #F3F1EB 0%, #EDEBE4 50%, #F3F1EB 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}

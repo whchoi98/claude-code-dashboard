@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schemas.anthropic.com/claude-code/settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf *)",
+      "Bash(sudo rm:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard origin/main)",
+      "Bash(aws iam delete-user:*)",
+      "Bash(aws iam delete-role:*)",
+      "Bash(aws s3 rb s3://*--force)",
+      "Bash(aws cloudformation delete-stack:* --region us-east-1 --stack-name CDKToolkit)",
+      "Bash(kubectl delete ns:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/session-context.sh" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/secret-scan.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/check-doc-sync.sh" }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/notify.sh" }
+        ]
+      }
+    ]
+  }
+}

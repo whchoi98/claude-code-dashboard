@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+*/dist/
+build/
+
+# Environment / secrets (NEVER commit these)
+.env
+.env.local
+.env.*.local
+.claude/settings.local.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# CDK
+cdk.out/
+*/cdk.out/
+cdk-outputs.json
+*/cdk-outputs.json
+cdk.context.json
+*/cdk.context.json
+
+# Archive artifacts containing real user data
+data/
+" data"/
+
+# Lambda zips produced during CDK asset build
+collector/*.zip
+
+# Coverage
+coverage/
+.nyc_output/
+
+# TypeScript incremental
+*.tsbuildinfo
+
+# Local-only artifacts (real user emails, spend reports, etc.)
+_local/

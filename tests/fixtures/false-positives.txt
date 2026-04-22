@@ -1,0 +1,6 @@
+# These patterns look like secrets but should not be blocked
+ANTHROPIC_ANALYTICS_KEY=sk-ant-api01-your-key-here
+an example comment mentioning sk-ant-api keys in passing
+export AWS_ACCESS_KEY_ID="$MY_REAL_ENV_VAR"
+# See docs/onboarding.md for how to generate ghp_ tokens
+"description": "GitHub PAT docs link"
