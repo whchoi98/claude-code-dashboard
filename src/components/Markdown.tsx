@@ -2,11 +2,32 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 /**
+ * In masked emails like `ab*****@domain.com`, the LLM sometimes escapes
+ * every asterisk with backslashes when writing English prose (defensive
+ * against being read as **bold** syntax). That looks awful when rendered:
+ *   `ab\*\*\*\*\*@gmail.com`
+ * We strip the escapes here so the renderer shows the intended literal
+ * asterisks. The pattern is narrow — only (1–3 alphanum) followed by a
+ * run of backslash-escaped asterisks immediately before an @domain — so
+ * intentional `\*` in prose elsewhere is preserved.
+ */
+function stripMaskedEmailEscapes(text: string): string {
+  return text.replace(
+    /([A-Za-z0-9]{1,3})((?:\\+\*)+)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+    (_full, prefix: string, stars: string, domain: string) => {
+      const starCount = (stars.match(/\*/g) || []).length
+      return prefix + '*'.repeat(starCount) + domain
+    },
+  )
+}
+
+/**
  * Claude-tone markdown renderer: headings, lists, tables, inline code, links.
  * Tailwind typographic overrides applied per element; no global prose class
  * so we can tune spacing inside chat bubbles.
  */
 export function Markdown({ children }: { children: string }) {
+  const normalized = stripMaskedEmailEscapes(children)
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -48,7 +69,7 @@ export function Markdown({ children }: { children: string }) {
         hr: () => <hr className="my-3 border-ink-100" />,
       }}
     >
-      {children}
+      {normalized}
     </ReactMarkdown>
   )
 }

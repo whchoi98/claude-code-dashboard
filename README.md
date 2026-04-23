@@ -9,13 +9,44 @@ Enterprise analytics dashboard for Claude Code — engagement, productivity, cos
 
 Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생산성·비용·감사 지표를 통합하고 AI 질의응답 레이어를 제공합니다.
 
+## Screenshots
+
+### Overview — KPIs, DAU/WAU/MAU, tool acceptance
+![Overview](./screenshots/overview.png)
+
+### Users — per-user engagement with slide-in detail panel
+![Users](./screenshots/Users.png)
+
+### User Productivity — per-user score and ranking (joined with Spend CSV)
+![User Productivity](./screenshots/user_productivity.png)
+
+### Trends — DAU/WAU/MAU, seat utilization, adoption rate over time
+![Trends](./screenshots/trends.png)
+
+### Claude Code — LOC, commits, PRs, tool acceptance by kind
+![Claude Code](./screenshots/claude_code.png)
+
+### Productivity — organization productivity score + trend charts
+![Productivity](./screenshots/productivity.png)
+
+### Cost — Spend Report × Analytics join
+| KPIs + Model share | Daily trend + Top 10 | Economic productivity score |
+|---|---|---|
+| ![Cost 1](./screenshots/cost01.png) | ![Cost 2](./screenshots/cost02.png) | ![Cost 3](./screenshots/cost03.png) |
+
+### Audit — Compliance API activity feed with risk highlighting
+![Audit](./screenshots/audit.png)
+
+### Analyze — AI natural-language query (Claude Sonnet 4.6 via Bedrock)
+![AI Analyze](./screenshots/AI-Analytics.png)
+
 ---
 
 # English
 
 ## Overview
 
-`claude-code-dashboard` joins the Anthropic **Analytics**, **Admin**, and **Compliance** APIs — plus an uploaded Spend Report CSV and a daily S3 archive — into a single CloudFront-fronted dashboard. It answers five questions at once: *Who is using Claude?*, *How productive are they?*, *How much are we spending?*, *What did they do (audit)?*, *What does the data mean?* (AI analysis via Amazon Bedrock).
+`claude-code-dashboard` joins the Anthropic **Analytics**, **Admin**, and **Compliance** APIs — plus an uploaded Spend Report CSV and a daily S3 archive — into a single CloudFront-fronted dashboard. It answers five questions at once: *Who is using Claude?*, *How productive are they?*, *How much are we spending?*, *What did they do (audit)?*, *What does the data mean?* (AI analysis via Amazon Bedrock). See the [Screenshots](#screenshots) section above for each page.
 
 The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-dashboard) reference stack: CloudFront → WAF → ALB → ECS Fargate (private subnets) → NAT → external APIs, with S3 / Glue / Athena underneath for retention beyond the 90-day Analytics API window.
 
@@ -186,7 +217,7 @@ Released under the [MIT License](./LICENSE).
 
 ## 개요
 
-`claude-code-dashboard`는 Anthropic **Analytics**, **Admin**, **Compliance** API에 더해 업로드된 Spend Report CSV와 일일 S3 아카이브를 결합해 하나의 CloudFront 프론트 대시보드로 제공합니다. 다섯 가지 질문에 동시에 답합니다: *누가 Claude를 쓰는가?*, *얼마나 생산적인가?*, *얼마를 쓰고 있는가?*, *무슨 활동을 했는가(감사)?*, *데이터가 무엇을 의미하는가?* (Amazon Bedrock 기반 AI 분석).
+`claude-code-dashboard`는 Anthropic **Analytics**, **Admin**, **Compliance** API에 더해 업로드된 Spend Report CSV와 일일 S3 아카이브를 결합해 하나의 CloudFront 프론트 대시보드로 제공합니다. 다섯 가지 질문에 동시에 답합니다: *누가 Claude를 쓰는가?*, *얼마나 생산적인가?*, *얼마를 쓰고 있는가?*, *무슨 활동을 했는가(감사)?*, *데이터가 무엇을 의미하는가?* (Amazon Bedrock 기반 AI 분석). 페이지별 화면은 상단 [Screenshots](#screenshots) 섹션을 참고하세요.
 
 아키텍처는 [kiro-dashboard](https://github.com/whchoi98/kiro-dashboard) 레퍼런스 스택과 동일합니다: CloudFront → WAF → ALB → ECS Fargate (프라이빗 서브넷) → NAT → 외부 API. 그 아래 S3 / Glue / Athena가 90일 Analytics API 윈도우 이후의 장기 보관을 담당합니다.
 

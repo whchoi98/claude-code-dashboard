@@ -8,3 +8,10 @@ infra
 collector
 *.log
 README.md
+docs
+screenshots
+tests
+_local
+.harness-eval
+CHANGELOG.md
+CLAUDE.md

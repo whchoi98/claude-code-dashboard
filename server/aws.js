@@ -287,7 +287,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
       const languageNote = locale === 'ko'
         ? '답변은 반드시 한국어로 작성하세요. 한국어 마크다운 리포트 형식으로 3~5개 섹션(## 헤더)과 구체 수치, 계산 근거를 포함하세요.'
-        : 'Write in clear English. Markdown with 3-5 ## headings, specific numbers, and explicit rate/growth calculations.'
+        : 'Write in clear English. The output MUST be valid Markdown: 3–5 "## " headings, "-" bullet lists, and GFM pipe tables where numeric comparisons help. Include specific numbers and explicit rate/growth calculations.'
 
       const sys = [
         'You are an enterprise analytics analyst for Claude Code Enterprise.',
@@ -295,7 +295,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         'Rules:',
         '- Cite exact numbers and compute rates/growth explicitly.',
         '- Call out data caveats: 3-day buffer, 90-day max lookback, no Bedrock usage.',
-        '- PRIVACY: When citing any user email, keep only the first 2 characters of the local part, mask the rest with at least 3 asterisks, and keep the @domain visible. Example: alice.kim@acme.com → al*******@acme.com. Never emit raw full emails.',
+        '- PRIVACY: When citing any user email, keep only the first 2 characters of the local part, mask the rest with literal asterisks, and keep the @domain visible. Example: alice.kim@acme.com → al*******@acme.com. Never emit raw full emails.',
+        '- FORMATTING: Write plain Markdown that a standard Markdown renderer (GitHub/CommonMark) can parse. Do NOT escape asterisks with backslashes — write ab*****@domain.com, never ab\\*\\*\\*\\*\\*@domain.com. The asterisks inside masked emails are literal characters, not bold syntax, so a surrounding renderer will display them correctly.',
         languageNote,
       ].join('\n')
 
