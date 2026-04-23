@@ -5,6 +5,90 @@ import {
 } from '@aws-sdk/client-athena'
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
 
+// ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
+// Athena's IAM policy already restricts this task to the ccd workgroup, and
+// CDK grants glue:GetTable only on the ccd database. Even so, a naive regex
+// check on the `query` body lets an attacker:
+//   - chain a DDL after a semicolon (even if Athena rejects, UI errors leak)
+//   - hide intent inside block/line comments
+//   - read unlisted tables the Glue catalog would happily expose
+//
+// sanitizeAthenaQuery enforces:
+//   1. Strip `--` line and `/* */` block comments, then reject any remaining `;`.
+//   2. Must start with SELECT or WITH (AST-shape guard).
+//   3. Reject any forbidden keyword anywhere in the cleaned body.
+//   4. Every FROM/JOIN target must be in ALLOWED_TABLES.
+//
+// Throws Error with a user-friendly `message` on any violation; callers
+// should translate to HTTP 400.
+const ATHENA_ALLOWED_TABLES = new Set([
+  'claude_code_analytics',
+  'summaries_daily',
+  'skills_daily',
+  'connectors_daily',
+])
+const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
+
+export function sanitizeAthenaQuery(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('Query must be a non-empty string.')
+  }
+
+  // 1) Strip comments (do this BEFORE semicolon check so "SELECT 1 -- ; DROP" is caught)
+  const stripped = raw
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .trim()
+
+  // 2) Collapse a single trailing semicolon, reject any other
+  const normalized = stripped.replace(/;\s*$/, '')
+  if (/;/.test(normalized)) {
+    throw new Error('Multi-statement queries are not allowed. Remove intermediate semicolons.')
+  }
+
+  // 3) Must start with SELECT or WITH
+  if (!/^\s*(SELECT|WITH)\b/i.test(normalized)) {
+    throw new Error('Only SELECT or WITH...SELECT statements are permitted.')
+  }
+
+  // 4) Reject forbidden keywords anywhere in the body
+  const forbiddenMatch = normalized.match(ATHENA_FORBIDDEN_KEYWORDS)
+  if (forbiddenMatch) {
+    throw new Error(`Forbidden SQL keyword: "${forbiddenMatch[0]}". This endpoint is read-only over the approved tables.`)
+  }
+
+  // 5) Collect CTE (WITH name AS (...)) aliases — they are local and should
+  //    satisfy the allowlist check for any subsequent FROM/JOIN reference.
+  const cteNames = new Set()
+  if (/^\s*WITH\b/i.test(normalized)) {
+    for (const m of normalized.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/gi)) {
+      cteNames.add(m[1].toLowerCase())
+    }
+  }
+
+  // 6) Every FROM/JOIN target must be in ATHENA_ALLOWED_TABLES or in cteNames.
+  //    Schema-qualified (db.table) falls back to the final identifier. A
+  //    subquery like `FROM (SELECT ...)` has no identifier immediately after
+  //    FROM and is therefore NOT captured — but any inner FROM inside that
+  //    subquery IS captured by matchAll() and checked independently.
+  const tableRefs = [...normalized.matchAll(/\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_."]*)/gi)]
+    .map((m) => m[1].replace(/"/g, '').split('.').pop().toLowerCase())
+    .filter(Boolean)
+
+  if (tableRefs.length === 0) {
+    throw new Error('Query must reference at least one FROM/JOIN table.')
+  }
+  for (const t of tableRefs) {
+    if (!ATHENA_ALLOWED_TABLES.has(t) && !cteNames.has(t)) {
+      throw new Error(
+        `Table not allowed: "${t}". Permitted tables: ${[...ATHENA_ALLOWED_TABLES].join(', ')}.`,
+      )
+    }
+  }
+
+  return normalized
+}
+
 const ATHENA_SCHEMA_HINT = `
 Available Athena database: \`claude_code_analytics\`
 Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled from 2026-01-01):
@@ -156,6 +240,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   }
 
+  // Execute an Athena SQL that has already passed sanitizeAthenaQuery.
+  async function runAthenaSafe(rawQuery) {
+    const safe = sanitizeAthenaQuery(rawQuery)
+    return runAthena(safe)
+  }
+
   // ── /api/analyze — SSE streaming ─────────────────────────────────────────
   router.post('/analyze', async (req, res) => {
     const { question, locale = 'en', mode = 'direct' } = req.body || {}
@@ -176,7 +266,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         sseSend(res, 'sql', { sql })
 
         sseSend(res, 'status', { message: locale === 'ko' ? 'Athena 실행 중…' : 'Running Athena query…' })
-        const { columns, rows } = await runAthena(sql)
+        // Run through the same sanitizer as the direct /archive/query endpoint —
+        // the LLM is untrusted output and must not bypass our table allowlist.
+        const { columns, rows } = await runAthenaSafe(sql)
         rowsEcho = rows.slice(0, 200)
         sseSend(res, 'rows', { columns, rows: rowsEcho })
 
@@ -241,18 +333,29 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   })
 
-  // ── /api/archive/query — synchronous Athena SELECT ───────────────────────
+  // ── /api/archive/query — sanitized synchronous Athena SELECT ────────────
+  // Defence in depth against SQL injection: sanitizer rejects multi-statement,
+  // forbidden keywords, and any table not in the explicit allowlist. Athena IAM
+  // policy restricts the task role further, but we never rely on IAM alone —
+  // a bad query still leaks intent via error messages.
   router.post('/archive/query', async (req, res) => {
     const { query } = req.body || {}
-    if (!query || typeof query !== 'string') return res.status(400).json({ error: 'query is required' })
-    if (!/^\s*(SELECT|WITH)\b/i.test(query)) {
-      return res.status(400).json({ error: 'readonly', message: 'Only SELECT statements are permitted.' })
-    }
     try {
-      const { rows } = await runAthena(query)
+      const { rows } = await runAthenaSafe(query)
       res.json({ rows })
     } catch (err) {
-      res.status(500).json({ error: 'athena_error', message: err?.message || String(err) })
+      // sanitizeAthenaQuery throws Error with a helpful message — surface as 400.
+      const msg = err?.message || String(err)
+      const isValidation =
+        msg.startsWith('Query must') ||
+        msg.startsWith('Multi-statement') ||
+        msg.startsWith('Only SELECT') ||
+        msg.startsWith('Forbidden') ||
+        msg.startsWith('Table not allowed')
+      if (isValidation) {
+        return res.status(400).json({ error: 'query_rejected', message: msg })
+      }
+      res.status(500).json({ error: 'athena_error', message: msg })
     }
   })
 

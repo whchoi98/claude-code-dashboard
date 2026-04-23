@@ -39,5 +39,18 @@ for suite in "$ROOT"/hooks/*.sh "$ROOT"/structure/*.sh; do
   source "$suite"
 done
 
+# Node-based sanitizer tests — they have their own TAP output + exit code.
+for node_suite in "$ROOT"/server/*.mjs; do
+  [ -f "$node_suite" ] || continue
+  echo "# --- $(basename "$node_suite") ---"
+  if node "$node_suite"; then
+    TESTS=$((TESTS + 1)); PASS=$((PASS + 1))
+    echo "ok $TESTS - $(basename "$node_suite") passed"
+  else
+    TESTS=$((TESTS + 1)); FAIL=$((FAIL + 1))
+    echo "not ok $TESTS - $(basename "$node_suite") failed"
+  fi
+done
+
 echo "# passed: $PASS / $TESTS (failed: $FAIL)"
 [ "$FAIL" -eq 0 ]

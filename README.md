@@ -350,3 +350,9 @@ Express 프록시가 노출하는 전체 라우트는 [docs/api-reference.md](./
 
 - 메인테이너: [@whchoi98](https://github.com/whchoi98)
 - 이슈 트래커: [github.com/whchoi98/claude-code-dashboard/issues](https://github.com/whchoi98/claude-code-dashboard/issues)
+
+<!-- harness-eval-badge:start -->
+![Harness Score](https://img.shields.io/badge/harness-6.6%2F10-orange)
+![Harness Grade](https://img.shields.io/badge/grade-C-orange)
+![Last Eval](https://img.shields.io/badge/eval-2026--04--23-blue)
+<!-- harness-eval-badge:end -->

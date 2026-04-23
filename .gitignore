@@ -48,3 +48,4 @@ coverage/
 
 # Local-only artifacts (real user emails, spend reports, etc.)
 _local/
+.harness-eval/
