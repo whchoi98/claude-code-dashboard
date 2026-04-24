@@ -9,10 +9,12 @@ import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as logs from 'aws-cdk-lib/aws-logs'
+import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as athena from 'aws-cdk-lib/aws-athena'
 import * as path from 'path'
+import * as fs from 'fs'
 
 interface Props extends cdk.StackProps {
   vpc: ec2.IVpc
@@ -223,18 +225,65 @@ export class ComputeStack extends cdk.Stack {
       webAclArn: webAcl.attrArn,
     })
 
-    // CloudFront in front of the ALB — TLS termination + security headers + HTTP/3
+    // ─── Lambda@Edge: Cognito authentication ─────────────────────────────
+    // 4 viewer-request functions packaged from `infra/edge/dist/` — produced
+    // by `npm run build:edge` which injects the Cognito client secret from
+    // Secrets Manager into `_shared.js`. `dist/` is gitignored; the source
+    // handlers + template live one directory up and are committed.
+    const edgeDistDir = path.join(__dirname, '../edge/dist')
+    const sharedPath = path.join(edgeDistDir, '_shared.js')
+    if (!fs.existsSync(sharedPath)) {
+      throw new Error(
+        `[ComputeStack] ${sharedPath} is missing. Run \`npm run build:edge\` from the repo root before \`cdk synth\`/\`cdk deploy\` ` +
+        `— it reads ccd/cognito-config from Secrets Manager and generates the dist/ bundle.`,
+      )
+    }
+    const edgeCode = lambda.Code.fromAsset(edgeDistDir)
+
+    const mkEdgeFn = (id: string, handler: string) =>
+      new cf.experimental.EdgeFunction(this, id, {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler,
+        code: edgeCode,
+        memorySize: 128,
+        timeout: cdk.Duration.seconds(5),
+      })
+
+    const checkAuth   = mkEdgeFn('CheckAuthEdgeFn',   'check-auth.handler')
+    const parseAuth   = mkEdgeFn('ParseAuthEdgeFn',   'parse-auth.handler')
+    const refreshAuth = mkEdgeFn('RefreshAuthEdgeFn', 'refresh-auth.handler')
+    const signOut     = mkEdgeFn('SignOutEdgeFn',     'sign-out.handler')
+
+    const asVR = (fn: cf.experimental.EdgeFunction) => ({
+      edgeLambdas: [{
+        functionVersion: fn.currentVersion,
+        eventType: cf.LambdaEdgeEventType.VIEWER_REQUEST,
+      }],
+    })
+
+    const albOrigin = new origins.LoadBalancerV2Origin(alb, {
+      protocolPolicy: cf.OriginProtocolPolicy.HTTP_ONLY,
+      httpPort: 80,
+    })
+    const baseBehavior: cf.BehaviorOptions = {
+      origin: albOrigin,
+      viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      allowedMethods: cf.AllowedMethods.ALLOW_ALL,
+      cachePolicy: cf.CachePolicy.CACHING_DISABLED,
+      originRequestPolicy: cf.OriginRequestPolicy.ALL_VIEWER,
+      responseHeadersPolicy: cf.ResponseHeadersPolicy.SECURITY_HEADERS,
+    }
+
+    // CloudFront in front of the ALB — TLS termination + security headers + HTTP/3.
+    // Default behavior runs check-auth (redirects unauth'd users to Cognito).
+    // /parseauth, /refreshauth, /signout run their respective handlers which
+    // return 302s directly — the origin is never actually hit for those paths.
     const distribution = new cf.Distribution(this, 'Cdn', {
-      defaultBehavior: {
-        origin: new origins.LoadBalancerV2Origin(alb, {
-          protocolPolicy: cf.OriginProtocolPolicy.HTTP_ONLY,
-          httpPort: 80,
-        }),
-        viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        allowedMethods: cf.AllowedMethods.ALLOW_ALL,
-        cachePolicy: cf.CachePolicy.CACHING_DISABLED,
-        originRequestPolicy: cf.OriginRequestPolicy.ALL_VIEWER,
-        responseHeadersPolicy: cf.ResponseHeadersPolicy.SECURITY_HEADERS,
+      defaultBehavior: { ...baseBehavior, ...asVR(checkAuth) },
+      additionalBehaviors: {
+        '/parseauth':   { ...baseBehavior, ...asVR(parseAuth) },
+        '/refreshauth': { ...baseBehavior, ...asVR(refreshAuth) },
+        '/signout':     { ...baseBehavior, ...asVR(signOut) },
       },
       minimumProtocolVersion: cf.SecurityPolicyProtocol.TLS_V1_2_2021,
       httpVersion: cf.HttpVersion.HTTP2_AND_3,

@@ -36,6 +36,9 @@ const cloudfrontPrefixListId =
 
 const compute = new ComputeStack(app, `${prefix}-compute`, {
   env,
+  // Lambda@Edge functions live in us-east-1; this flag tells CDK to bridge
+  // their version ARNs back into this (ap-northeast-2) stack via SSM.
+  crossRegionReferences: true,
   vpc: network.vpc,
   archiveBucket: storage.archiveBucket,
   athenaWorkGroup: storage.athenaWorkGroup,

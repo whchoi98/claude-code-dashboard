@@ -26,6 +26,12 @@ infra/
   ```
 - **CloudFront prefix list** is region-specific; `bin/app.ts` has a built-in map (`CF_PREFIX_LIST_BY_REGION`) but can be overridden via `--context cloudfrontPrefixListId=pl-xxxxxxxx`.
 - **Secrets names are the contract**: `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`. Create them in Secrets Manager *before* the first `compute-stack` deploy or the stack will fail on secret lookup (using `Secret.fromSecretNameV2`).
+- **Lambda@Edge secret injection**: CDK packages `infra/edge/dist/` into each Lambda@Edge zip. `dist/` is **generated** by `npm run build:edge` and `.gitignore`d — the committable source lives directly in `infra/edge/` (handlers + `_shared.template.js`). Rebuild before every deploy:
+  ```bash
+  npm run build:edge        # → produces infra/edge/dist/{_shared.js, check-auth.js, …}
+  npx cdk deploy ...        # packages dist/ into the Lambda zips
+  ```
+  The template has an empty `CONFIG = /*__CCD_COGNITO_CONFIG__*/{…}/*__END_COGNITO_CONFIG__*/` sentinel; the build script replaces the whole expression with a JSON literal pulled from Secrets Manager (`ccd/cognito-config` — holds `userPoolId`, `clientId`, `clientSecret`, `domain`, `region`). Never commit these values to source.
 - **Fargate is ARM64**. Both the task runtime platform and the Docker image asset use `LINUX_ARM64`.
 - **Listener logical IDs** should be bumped (e.g., `Http` → `HttpV2`) if you need to force a listener recreation after drift. Deleting the listener out-of-band breaks CFN's reference.
 

@@ -34,8 +34,10 @@ cat > "$HOOK_DIR/pre-commit" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1) Block files that must never be committed
-blocked=$(git diff --cached --name-only | grep -E '^(\.env|\.env\..*|\.claude/settings\.local\.json|_local/|" data"/|.*\.csv|cdk\.out/|.*/cdk\.out/|cdk-outputs\.json|.*/cdk-outputs\.json)$' || true)
+# 1) Block files that must never be committed. infra/edge/dist/ is the
+# generated Lambda@Edge bundle with Cognito secrets baked in — the source
+# files in infra/edge/ (templates + handlers) are the only committable part.
+blocked=$(git diff --cached --name-only | grep -E '^(\.env|\.env\..*|\.claude/settings\.local\.json|_local/|" data"/|.*\.csv|cdk\.out/|.*/cdk\.out/|cdk-outputs\.json|.*/cdk-outputs\.json|infra/edge/dist/)' || true)
 if [ -n "$blocked" ]; then
   echo "🚨 pre-commit blocked: the following files must not be committed:" >&2
   echo "$blocked" | sed 's/^/   - /' >&2
@@ -50,6 +52,11 @@ patterns=(
   'AKIA[0-9A-Z]{16}'
   'ghp_[A-Za-z0-9]{36,}'
   '-----BEGIN (RSA|EC|OPENSSH|PGP|DSA|ENCRYPTED) PRIVATE KEY-----'
+  # Cognito OAuth client secret baked into source (Lambda@Edge/auth templates).
+  # Matches shapes like `clientSecret: '1mqf...'` or `client_secret=abc...`.
+  # The template `_shared.template.js` uses clientSecret:\s*'' (empty) and is safe.
+  "clientSecret[[:space:]]*[:=][[:space:]]*['\"][a-z0-9]{40,}"
+  "client_secret[[:space:]]*[:=][[:space:]]*['\"][a-z0-9]{40,}"
 )
 staged_diff=$(git diff --cached -U0)
 for pat in "${patterns[@]}"; do

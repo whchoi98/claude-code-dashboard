@@ -39,6 +39,11 @@ data/
 # Lambda zips produced during CDK asset build
 collector/*.zip
 
+# Lambda@Edge build output. scripts/build-edge.mjs produces infra/edge/dist/
+# (handlers + _shared.js with Cognito secret injected from Secrets Manager).
+# NEVER commit — the generated _shared.js contains the OAuth client secret.
+infra/edge/dist/
+
 # Coverage
 coverage/
 .nyc_output/

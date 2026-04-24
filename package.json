@@ -7,12 +7,14 @@
     "dev": "concurrently -k -n web,api -c magenta,cyan \"vite\" \"node --watch server/index.js\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "build:edge": "node scripts/build-edge.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-athena": "^3.675.0",
     "@aws-sdk/client-bedrock-runtime": "^3.675.0",
     "@aws-sdk/client-s3": "^3.675.0",
+    "@aws-sdk/client-secrets-manager": "^3.1037.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
