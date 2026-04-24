@@ -205,7 +205,23 @@ export class ComputeStack extends cdk.Stack {
       rules: [
         {
           name: 'AWSManagedCommon', priority: 1, overrideAction: { none: {} },
-          statement: { managedRuleGroupStatement: { vendorName: 'AWS', name: 'AWSManagedRulesCommonRuleSet' } },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+              // CommonRuleSet's `SizeRestrictions_BODY` blocks any request
+              // body > 8 KB, which kills CSV uploads at /api/cost/upload.
+              // Downgrade that one sub-rule to COUNT so it is still logged
+              // (for observability) but no longer blocks. Every other rule
+              // in the set (XSS, SQLi, LFI/RFI, bad UA, etc.) stays active.
+              // Upload path safety is preserved by:
+              //   - Cognito + Lambda@Edge auth gate
+              //   - multer server-side 25 MB cap + .csv ext + schema check
+              ruleActionOverrides: [
+                { name: 'SizeRestrictions_BODY', actionToUse: { count: {} } },
+              ],
+            },
+          },
           visibilityConfig: { cloudWatchMetricsEnabled: true, metricName: 'common', sampledRequestsEnabled: true },
         },
         {
