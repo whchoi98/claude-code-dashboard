@@ -64,6 +64,36 @@ export function Layout() {
         </nav>
 
         <div className="mt-auto space-y-3 pt-6">
+          {/* Sign out — full-page navigation to the /signout Lambda@Edge
+              handler which clears cookies + redirects to Cognito /logout.
+              Uses <a href> (not NavLink) so React Router doesn't intercept
+              and try to match /signout against the SPA route table. */}
+          <a
+            href="/signout"
+            className="group flex items-center justify-between rounded-lg border border-ink-100 bg-white px-3 py-2 text-sm text-ink-600 transition-colors hover:border-claude-500 hover:bg-claude-500 hover:text-white"
+          >
+            <span className="flex flex-col">
+              <span className="font-medium">{t('nav.logout')}</span>
+              <span className="text-[11px] opacity-70 group-hover:opacity-100">{t('nav.hint.logout')}</span>
+            </span>
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opacity-60 group-hover:opacity-100"
+            >
+              <path d="M12 3h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3" />
+              <path d="M8 10h9" />
+              <path d="M14 7l3 3-3 3" />
+            </svg>
+          </a>
+
           {/* Language toggle */}
           <div className="flex items-center gap-1 rounded-lg border border-ink-100 bg-white p-0.5 text-xs font-medium">
             {(['en', 'ko'] as const).map((l) => (
