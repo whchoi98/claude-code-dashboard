@@ -1,9 +1,12 @@
 import express from 'express'
+import multer from 'multer'
 import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
 } from '@aws-sdk/client-athena'
-import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
+import {
+  S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
+} from '@aws-sdk/client-s3'
 
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
 // Athena's IAM policy already restricts this task to the ccd workgroup, and
@@ -423,6 +426,135 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       })
     } catch (err) {
       res.status(500).json({ error: 's3_read_failed', message: err?.message || String(err) })
+    }
+  })
+
+  // ── CSV Spend Report Uploads (management) ───────────────────────────────
+  // Lets authenticated dashboard users upload / list / delete Spend Report
+  // CSVs without needing AWS CLI access. All requests already pass through
+  // Cognito (Lambda@Edge), so anyone reaching these endpoints is authorized.
+
+  // 10 MB is far above realistic spend-report sizes (~1 KB/user/month).
+  const CSV_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: CSV_UPLOAD_LIMIT_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      const okMime = /csv|excel|octet-stream|plain/i.test(file.mimetype || '')
+      const okExt  = /\.csv$/i.test(file.originalname || '')
+      cb(okMime || okExt ? null : new Error('Only .csv files are accepted.'), okMime || okExt)
+    },
+  })
+
+  // Columns the existing /cost/csv + /cost/efficiency pipelines depend on.
+  // Upload is rejected if any are missing — better to fail at ingest than to
+  // silently produce empty charts later.
+  const REQUIRED_CSV_COLUMNS = [
+    'user_email', 'product', 'model',
+    'total_requests', 'total_prompt_tokens', 'total_completion_tokens',
+    'total_net_spend_usd',
+  ]
+
+  // Sanitize filename: only allow the spend-report pattern we document.
+  // Anything else gets a safe derived name based on today's date so we never
+  // write attacker-controlled paths under spend-reports/.
+  function safeSpendReportKey(originalName) {
+    const base = String(originalName || '').split(/[/\\]/).pop() || ''
+    if (/^spend-report-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv$/i.test(base)) {
+      return `spend-reports/${base}`
+    }
+    // Fallback: derive a name from today so collisions are rare and filename is predictable.
+    const d = new Date().toISOString().slice(0, 10)
+    return `spend-reports/spend-report-${d}-uploaded.csv`
+  }
+
+  // POST /api/cost/upload (multipart, field name "file")
+  router.post('/cost/upload', upload.single('file'), async (req, res) => {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    if (!req.file) return res.status(400).json({ error: 'no_file', message: 'Attach a CSV file under field name "file".' })
+
+    try {
+      const body = req.file.buffer.toString('utf8')
+      const { rows, columns } = parseCsv(body)
+      const missing = REQUIRED_CSV_COLUMNS.filter((c) => !columns.includes(c))
+      if (missing.length) {
+        return res.status(400).json({
+          error: 'schema_mismatch',
+          message: `CSV is missing required columns: ${missing.join(', ')}`,
+          expected: REQUIRED_CSV_COLUMNS,
+          found: columns,
+        })
+      }
+      if (rows.length === 0) {
+        return res.status(400).json({ error: 'empty_csv', message: 'CSV has no data rows.' })
+      }
+
+      const key = safeSpendReportKey(req.file.originalname)
+      await s3.send(new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        Body: req.file.buffer,
+        ContentType: 'text/csv',
+        // Sidecar metadata so admins can trace provenance in the S3 console.
+        Metadata: { uploadedVia: 'dashboard', originalName: req.file.originalname },
+      }))
+
+      const m = key.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
+      res.json({
+        ok: true,
+        file: key.split('/').pop(),
+        key,
+        size_bytes: req.file.size,
+        rows: rows.length,
+        distinct_users: new Set(rows.map((r) => r.user_email)).size,
+        period: m ? { starting_date: m[1], ending_date: m[2] } : null,
+      })
+    } catch (err) {
+      res.status(500).json({ error: 'upload_failed', message: err?.message || String(err) })
+    }
+  })
+
+  // GET /api/cost/uploads — list all spend-report CSVs with parsed period.
+  router.get('/cost/uploads', async (_req, res) => {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    try {
+      const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'spend-reports/' }))
+      const items = (list.Contents || [])
+        .filter((o) => o.Key?.endsWith('.csv'))
+        .map((o) => {
+          const name = o.Key.split('/').pop()
+          const m = name.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
+          return {
+            file: name,
+            key: o.Key,
+            size_bytes: o.Size,
+            last_modified: o.LastModified,
+            period: m ? { starting_date: m[1], ending_date: m[2] } : null,
+          }
+        })
+        .sort((a, b) => (b.last_modified?.getTime?.() ?? 0) - (a.last_modified?.getTime?.() ?? 0))
+      res.json({ count: items.length, items })
+    } catch (err) {
+      res.status(500).json({ error: 's3_list_failed', message: err?.message || String(err) })
+    }
+  })
+
+  // DELETE /api/cost/uploads/:file — remove a single CSV from spend-reports/.
+  router.delete('/cost/uploads/:file', async (req, res) => {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    const file = String(req.params.file || '')
+    // Reject path traversal or any filename that isn't a plain CSV.
+    if (!/^[A-Za-z0-9._-]+\.csv$/i.test(file)) {
+      return res.status(400).json({ error: 'bad_filename', message: 'Filename must match [A-Za-z0-9._-]+.csv' })
+    }
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `spend-reports/${file}` }))
+      res.json({ ok: true, deleted: file })
+    } catch (err) {
+      res.status(500).json({ error: 'delete_failed', message: err?.message || String(err) })
     }
   })
 

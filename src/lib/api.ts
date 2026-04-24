@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export type FetchState<T> = {
   data: T | null
@@ -6,10 +6,19 @@ export type FetchState<T> = {
   error: string | null
   source?: 'live' | 'mock'
   reason?: string
+  /** Re-runs the fetch against the same URL. Used by mutation-triggering UIs
+   *  (e.g. CSV upload) that need to invalidate the cached response. */
+  refetch: () => Promise<void>
 }
 
 export function useFetch<T>(url: string): FetchState<T> {
-  const [state, setState] = useState<FetchState<T>>({ data: null, loading: true, error: null })
+  const [state, setState] = useState<Omit<FetchState<T>, 'refetch'>>({ data: null, loading: true, error: null })
+  const [nonce, setNonce] = useState(0)
+
+  const refetch = useCallback(async () => {
+    setNonce((n) => n + 1)
+  }, [])
+
   useEffect(() => {
     let aborted = false
     setState((s) => ({ ...s, loading: true, error: null }))
@@ -34,6 +43,7 @@ export function useFetch<T>(url: string): FetchState<T> {
         setState({ data: null, loading: false, error: String(err) })
       })
     return () => { aborted = true }
-  }, [url])
-  return state
+  }, [url, nonce])
+
+  return { ...state, refetch }
 }

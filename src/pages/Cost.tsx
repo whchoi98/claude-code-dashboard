@@ -7,6 +7,7 @@ import { PageHeader } from '../components/PageHeader'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
+import { CsvUploader } from '../components/CsvUploader'
 import { useFetch } from '../lib/api'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtPct, maskEmail, fmtNum } from '../lib/format'
@@ -103,8 +104,12 @@ type EfficiencyResp = {
 
 export function Cost() {
   const t = useT()
-  const { data, loading, error } = useFetch<CsvResp>('/api/cost/csv')
+  const { data, loading, error, refetch } = useFetch<CsvResp>('/api/cost/csv')
   const eff = useFetch<EfficiencyResp>('/api/cost/efficiency')
+
+  // After a successful upload/delete, invalidate the two live queries
+  // that depend on the S3 spend-reports/ prefix.
+  const onUploadChange = () => { refetch(); eff.refetch() }
 
   const agg = useMemo(() => {
     if (!data?.rows) return null
@@ -179,13 +184,13 @@ export function Cost() {
       return (
         <div>
           <PageHeader title={t('cost.title')} subtitle={t('cost.subtitle')} />
-          <div className="p-8">
+          <div className="p-8 space-y-4">
             <EmptyState title={t('cost.empty')} hint={t('cost.empty.hint')} />
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[12px] text-amber-900 leading-relaxed">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[12px] text-amber-900">
               <b className="text-amber-800">{t('cost.csv_upload.title')}</b>
               <p className="mt-1">{t('cost.csv_upload.body')}</p>
-              <pre className="mt-2 bg-amber-100/60 rounded px-3 py-2 font-mono text-[11px] overflow-x-auto">aws s3 cp spend-report-2026-04-01-to-2026-04-21.csv s3://ccd-storage-archiveda4cb258-wtkcugfpiwi8/spend-reports/</pre>
             </div>
+            <CsvUploader onChange={onUploadChange} variant="full" />
           </div>
         </div>
       )
@@ -312,6 +317,13 @@ export function Cost() {
         {eff.data && eff.data.users.length > 0 && (
           <EconomicProductivitySection data={eff.data} t={t} />
         )}
+
+        {/* ── CSV management ──────────────────────────────────────────── */}
+        <div className="pt-6 border-t border-ink-100">
+          <h2 className="text-lg font-semibold text-ink-800 mb-1">{t('cost.upload.replace')}</h2>
+          <p className="text-xs text-ink-500 mb-4">{t('cost.csv_upload.body')}</p>
+          <CsvUploader onChange={onUploadChange} variant="full" />
+        </div>
       </div>
     </div>
   )
