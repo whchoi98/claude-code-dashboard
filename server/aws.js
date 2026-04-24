@@ -434,42 +434,66 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // CSVs without needing AWS CLI access. All requests already pass through
   // Cognito (Lambda@Edge), so anyone reaching these endpoints is authorized.
 
-  // 10 MB is far above realistic spend-report sizes (~1 KB/user/month).
-  const CSV_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024
+  // 25 MB covers ~20k rows (several years of a mid-size org's activity).
+  // Anthropic's actual export for 300 users × 30 days is ~1 MB, so this is
+  // generous. Raising further would require matching tweaks to ALB/CloudFront.
+  const CSV_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: CSV_UPLOAD_LIMIT_BYTES, files: 1 },
     fileFilter: (_req, file, cb) => {
       const okMime = /csv|excel|octet-stream|plain/i.test(file.mimetype || '')
       const okExt  = /\.csv$/i.test(file.originalname || '')
-      cb(okMime || okExt ? null : new Error('Only .csv files are accepted.'), okMime || okExt)
+      if (okMime || okExt) return cb(null, true)
+      cb(new Error('Only .csv files are accepted.'))
     },
   })
 
+  // Multer error handler — multer emits errors via `next(err)` and without an
+  // explicit JSON handler Express falls back to its default HTML 500 page.
+  // That is exactly the "Unexpected token '<'" JSON-parse failure users see
+  // in the browser. Wrap multer so *every* failure path returns JSON.
+  function uploadSingle(req, res, next) {
+    upload.single('file')(req, res, (err) => {
+      if (!err) return next()
+      const status =
+        err.code === 'LIMIT_FILE_SIZE' ? 413 :
+        err.code === 'LIMIT_UNEXPECTED_FILE' ? 400 :
+        err.code === 'LIMIT_FILE_COUNT' ? 400 : 400
+      res.status(status).json({
+        error: err.code || 'multer_error',
+        message: err.message || 'Upload failed.',
+      })
+    })
+  }
+
   // Columns the existing /cost/csv + /cost/efficiency pipelines depend on.
-  // Upload is rejected if any are missing — better to fail at ingest than to
-  // silently produce empty charts later.
   const REQUIRED_CSV_COLUMNS = [
     'user_email', 'product', 'model',
     'total_requests', 'total_prompt_tokens', 'total_completion_tokens',
     'total_net_spend_usd',
   ]
 
-  // Sanitize filename: only allow the spend-report pattern we document.
-  // Anything else gets a safe derived name based on today's date so we never
-  // write attacker-controlled paths under spend-reports/.
+  // Sanitize filename:
+  //   - accept `spend-report-YYYY-MM-DD-to-YYYY-MM-DD.csv` (our canonical form)
+  //   - also accept `spend-report--YYYY-...` (Anthropic Console's actual export
+  //     inserts an empty segment between "report" and the date, producing a
+  //     double dash). We preserve the period in this case.
+  //   - anything else: derive a safe name from today's date.
   function safeSpendReportKey(originalName) {
     const base = String(originalName || '').split(/[/\\]/).pop() || ''
-    if (/^spend-report-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv$/i.test(base)) {
+    // One-or-more dashes between "report" and the first date.
+    if (/^spend-report-+\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv$/i.test(base)) {
       return `spend-reports/${base}`
     }
-    // Fallback: derive a name from today so collisions are rare and filename is predictable.
     const d = new Date().toISOString().slice(0, 10)
     return `spend-reports/spend-report-${d}-uploaded.csv`
   }
 
   // POST /api/cost/upload (multipart, field name "file")
-  router.post('/cost/upload', upload.single('file'), async (req, res) => {
+  router.post('/cost/upload', uploadSingle, async (req, res) => {
+    // Diagnostic: confirms the request reached the container. Seen in CW logs.
+    console.log(`[cost/upload] received: file=${req.file?.originalname ?? '(none)'} size=${req.file?.size ?? 0}`)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     if (!req.file) return res.status(400).json({ error: 'no_file', message: 'Attach a CSV file under field name "file".' })
@@ -496,8 +520,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         Key: key,
         Body: req.file.buffer,
         ContentType: 'text/csv',
-        // Sidecar metadata so admins can trace provenance in the S3 console.
-        Metadata: { uploadedVia: 'dashboard', originalName: req.file.originalname },
+        Metadata: { uploadedVia: 'dashboard', originalName: req.file.originalname.slice(0, 250) },
       }))
 
       const m = key.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
@@ -511,6 +534,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         period: m ? { starting_date: m[1], ending_date: m[2] } : null,
       })
     } catch (err) {
+      console.error('[cost/upload] error:', err?.message || err)
       res.status(500).json({ error: 'upload_failed', message: err?.message || String(err) })
     }
   })
