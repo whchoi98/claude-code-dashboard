@@ -137,7 +137,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 - **Locale-aware**: English locale emits English Markdown report; Korean locale emits Korean Markdown report (heading/table formatting identical)
 - **Data sources**: Bedrock Runtime (ConverseStream) + live Analytics API snapshot + Athena for the SQL mode
 
-![AI Analyze](./screenshots/AI-Analytics.png)
+![AI Analyze](./screenshots/AI-Analytics_eng.png)
 
 ---
 
