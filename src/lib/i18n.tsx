@@ -207,6 +207,7 @@ const DICT = {
 
     'econ.title':    'Economic Productivity',
     'econ.subtitle': 'Join of Spend Report (CSV) and Analytics productivity (LOC/commits/PRs/tool acceptance). How much value each dollar generated.',
+    'econ.active_range': 'Active range: {start} → {end} (server-clamped to Analytics API 3-day buffer).',
     'econ.kpi.score':       'Top Score',
     'econ.kpi.cost_loc':    'Avg Cost / LOC',
     'econ.kpi.cost_commit': 'Avg Cost / Commit',
@@ -469,6 +470,7 @@ const DICT = {
 
     'econ.title':    '경제 생산성',
     'econ.subtitle': 'Spend Report(CSV) + Analytics 생산성(LOC/커밋/PR/수락률) 결합. $ 한 단위당 실제 산출 가치.',
+    'econ.active_range': '적용 기간: {start} → {end} (Analytics API 3일 버퍼 적용됨).',
     'econ.kpi.score':       '최고 점수',
     'econ.kpi.cost_loc':    '평균 $/LOC',
     'econ.kpi.cost_commit': '평균 $/커밋',

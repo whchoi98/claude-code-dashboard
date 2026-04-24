@@ -8,7 +8,9 @@ import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { CsvUploader } from '../components/CsvUploader'
+import { DateRangeControl } from '../components/DateRangeControl'
 import { useFetch } from '../lib/api'
+import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtPct, maskEmail, fmtNum } from '../lib/format'
 
@@ -104,8 +106,13 @@ type EfficiencyResp = {
 
 export function Cost() {
   const t = useT()
+  // CSV aggregates are pre-computed for the whole CSV period — date range
+  // doesn't apply. Only the efficiency endpoint (which joins with Analytics
+  // API) is date-range aware.
   const { data, loading, error, refetch } = useFetch<CsvResp>('/api/cost/csv')
-  const eff = useFetch<EfficiencyResp>('/api/cost/efficiency')
+  const { range } = useDateRange('30d')
+  const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
+  const eff = useFetch<EfficiencyResp>(effUrl)
 
   // After a successful upload/delete, invalidate the two live queries
   // that depend on the S3 spend-reports/ prefix.
@@ -221,6 +228,7 @@ export function Cost() {
           : t('cost.subtitle')}
         source="live"
         reason={`CSV · ${data.file}`}
+        right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
@@ -315,7 +323,7 @@ export function Cost() {
 
         {/* ── Economic Productivity ────────────────────────────────────── */}
         {eff.data && eff.data.users.length > 0 && (
-          <EconomicProductivitySection data={eff.data} t={t} />
+          <EconomicProductivitySection data={eff.data} t={t} range={range} />
         )}
 
         {/* ── CSV management ──────────────────────────────────────────── */}
@@ -329,7 +337,11 @@ export function Cost() {
   )
 }
 
-function EconomicProductivitySection({ data, t }: { data: EfficiencyResp; t: (k: any, p?: any) => string }) {
+function EconomicProductivitySection({ data, t, range }: {
+  data: EfficiencyResp;
+  t: (k: any, p?: any) => string;
+  range: { startingDate: string; endingDate: string };
+}) {
   const topScore  = [...data.users].sort((a, b) => b.economic_productivity_score - a.economic_productivity_score).slice(0, 10)
   const mostEff   = [...data.users].filter((u) => u.cost_per_loc != null && u.loc_added > 50).sort((a, b) => (a.cost_per_loc ?? Infinity) - (b.cost_per_loc ?? Infinity)).slice(0, 10)
   const scatter   = data.users.filter((u) => u.spend_usd > 0 && u.output_score > 0).map((u) => ({
@@ -340,10 +352,17 @@ function EconomicProductivitySection({ data, t }: { data: EfficiencyResp; t: (k:
     acceptance: u.tool_acceptance_rate ?? 0,
   }))
 
+  // Period the server actually joined on — it clamps to the Analytics API's
+  // 3-day buffer, so what the user picked may differ from what landed.
+  const effective = data.period ?? { starting_date: range.startingDate, ending_date: range.endingDate }
+
   return (
     <>
       <div className="pt-4 border-t border-ink-100">
         <h2 className="text-lg font-semibold text-ink-800 mb-1">{t('econ.title')}</h2>
+        <p className="text-[11px] text-ink-400 mb-1">
+          {t('econ.active_range', { start: effective.starting_date, end: effective.ending_date })}
+        </p>
         <p className="text-xs text-ink-500 mb-4">{t('econ.subtitle')}</p>
 
         <div className="grid grid-cols-4 gap-4 mb-5">
