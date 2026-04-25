@@ -98,11 +98,17 @@ export function Compliance() {
 
   const allEvents = data?.data ?? []
   const events = useMemo(() => {
+    // useDateRange clamps endingDate to today-3 (Analytics API's 3-day buffer).
+    // Compliance is real-time so we ignore that upper clamp for preset modes
+    // and let recent events through. We still respect a user-set endingDate
+    // in custom mode.
+    const today = new Date().toISOString().slice(0, 10)
+    const upper = range.preset === 'custom' ? range.endingDate : today
     return allEvents.filter((e) => {
       const day = e.created_at.slice(0, 10)
-      return day >= range.startingDate && day <= range.endingDate
+      return day >= range.startingDate && day <= upper
     })
-  }, [allEvents, range.startingDate, range.endingDate])
+  }, [allEvents, range.startingDate, range.endingDate, range.preset])
 
   const derived = useMemo(() => {
     // type histogram
@@ -176,7 +182,12 @@ export function Compliance() {
     <div>
       <PageHeader
         title={t('audit.title')}
-        subtitle={t('audit.subtitle', { shown: events.length, total: allEvents.length, start: range.startingDate, end: range.endingDate })}
+        subtitle={t('audit.subtitle', {
+          shown: events.length,
+          total: allEvents.length,
+          start: range.startingDate,
+          end: range.preset === 'custom' ? range.endingDate : new Date().toISOString().slice(0, 10),
+        })}
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
