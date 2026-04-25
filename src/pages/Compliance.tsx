@@ -88,13 +88,13 @@ export function Compliance() {
   const [filterType, setFilterType] = useState<string | 'all' | 'risk' | 'login'>('all')
   const [q, setQ] = useState('')
 
-  // Fetch up to 500 recent events. The Compliance API's cursor pagination
+  // Fetch up to 2000 recent events. The Compliance API's cursor pagination
   // doesn't take a from/to date filter cleanly, so we fetch a fixed window of
-  // most-recent events and filter to the selected range client-side. If the
-  // chosen range falls outside the latest 500 events, the table will look
-  // empty — that's an honest signal to widen the fetch (server-side max=) or
-  // narrow the window.
-  const { data, loading, error } = useFetch<Resp>('/api/compliance/activities?max=500&pages=5')
+  // most-recent events and filter to the selected range client-side. Active
+  // orgs can produce hundreds of events per day, so 500 was often only 1-2
+  // days of history; bumped to 2000 (20 pages of 100). The server stops
+  // paginating early when has_more=false, so smaller orgs don't pay extra.
+  const { data, loading, error } = useFetch<Resp>('/api/compliance/activities?max=2000&pages=20')
 
   const allEvents = data?.data ?? []
   const events = useMemo(() => {
