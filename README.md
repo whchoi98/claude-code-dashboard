@@ -153,7 +153,9 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
-- **Economic productivity score** — joins Spend Report CSV with Analytics productivity to rank users by `output / $` efficiency.
+- **Cognito + Lambda@Edge authentication** — every dashboard URL sits behind a Cognito Hosted UI login. Four viewer-request Lambda@Edge functions (`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`) run at every CloudFront PoP. Unauthenticated traffic is blocked before it reaches WAF / ALB / ECS. See [ADR-0001](docs/decisions/0001-cognito-lambda-edge-auth.md).
+- **Self-service CSV upload** — the Cost page exposes upload / list / delete for Spend Report CSVs directly in the browser, including a client-side preview and period-overlap warnings. No AWS CLI access required. See [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md).
+- **Economic productivity score** — joins Spend Report CSV with Analytics productivity to rank users by `output / $` efficiency. The Cost page's date-range picker filters this section while leaving the CSV-native aggregates anchored.
 - **Bilingual UI** — runtime English / Korean toggle with localStorage persistence.
 - **Privacy by default** — every user email is rendered masked (`co*****@gmail.com`).
 - **Audit trail** — Compliance API feed with risk-event highlighting (role changes, SSO toggles, data exports).

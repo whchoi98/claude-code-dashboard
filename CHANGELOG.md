@@ -13,6 +13,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cognito + Lambda@Edge authentication**: every CloudFront URL now sits behind a Cognito Hosted UI login. Four viewer-request Lambda@Edge functions run at every edge PoP — `check-auth` (default), `parse-auth` (`/parseauth`), `refresh-auth` (`/refreshauth`), `sign-out` (`/signout`). JWT validation uses the pool's JWKs with a 5-minute per-container cache. Unauth'd traffic is blocked before reaching WAF, ALB, or the ECS task. See [ADR 0001](docs/decisions/0001-cognito-lambda-edge-auth.md).
+- **Sign out link in the sidebar**: plain `<a href="/signout">` so the browser issues a real request and the edge handler can clear HttpOnly cookies and redirect to Cognito `/logout`.
+- **CSV upload / list / delete from the dashboard**: three new endpoints — `POST /api/cost/upload`, `GET /api/cost/uploads`, `DELETE /api/cost/uploads/:file` — remove the need for AWS CLI access when refreshing the Spend Report. Multer-backed multipart handler (25 MB cap, schema check against required columns, path-traversal-safe filenames). Client-side preview (rows, users, derived period) with period-overlap warning against existing uploads. See [ADR 0002](docs/decisions/0002-dashboard-csv-upload.md).
+- **Date range control on the Cost page**: same 7d / 14d / 30d / custom picker used across the rest of the dashboard, bound to the Economic Productivity section (which joins the CSV with live Analytics per-user productivity). Top KPIs stay anchored to the CSV's native period by design — the CSV is pre-aggregated and has no daily breakdown to filter on. Effective range (server-clamped to Analytics' 3-day buffer) is displayed.
+- **`useFetch()` now returns `refetch()`**: mutation-triggering UIs (first consumer: `CsvUploader`) can invalidate cached GETs without a full page reload.
+- Build-time secret injection for Lambda@Edge via `scripts/build-edge.mjs`: renders `infra/edge/dist/` from `_shared.template.js` by substituting Cognito config pulled from Secrets Manager (`ccd/cognito-config`). `dist/` is gitignored.
+- Cognito user management runbook at [`docs/runbooks/cognito-users.md`](docs/runbooks/cognito-users.md).
+
+### Changed
+
+- Cost page top-level data (KPIs, product×model tables, Top-10 rankings) stays bound to the CSV's fixed period. Only the Economic Productivity section is date-range-aware.
+- `@aws-sdk/client-secrets-manager` added at the repo root to support the edge-bundle build step.
+- `multer` added at version 2.x (2.1.1) with an explicit JSON error wrapper so every upload failure path returns structured JSON instead of Express's default HTML error page.
+
+### Fixed
+
+- **WAF `SizeRestrictions_BODY` blocks every POST > 8 KB**: the default `AWSManagedRulesCommonRuleSet` sub-rule silently killed the new `/api/cost/upload` with a WAF 403 HTML page (`<html> <h...`). Downgraded to COUNT via `ruleActionOverrides` so the rule is still logged for observability but no longer blocks. All other CommonRuleSet protections (XSS, SQLi, LFI/RFI, bad UA) remain BLOCK.
+- CSV filename regex for the upload sanitizer now accepts Anthropic Console's actual export format (`spend-report--YYYY-MM-DD-to-YYYY-MM-DD.csv`, with a double dash) so the period is preserved instead of falling back to a today-derived name.
+- `console.log` diagnostic on upload entry so `CloudWatch Logs` can confirm whether a failing upload reached the container vs. being blocked upstream.
+
+### Security
+
+- Cognito OAuth **client secret rotated** (old app client `3qf1cr3r61vgc3cge9qh6cf5ik` deleted, replaced by `5bbe3af5qkqv3rghgutp64fgc6`) after the initial secret lived briefly on local disk. New secret never touched git.
+- Pre-commit hook extended with a `clientSecret[:=]['\"][a-z0-9]{40,}` pattern and an explicit path blocklist for `infra/edge/dist/` so a `git add -f` cannot re-introduce the Lambda@Edge bundle with secrets.
+- Upload endpoint filename regex rejects path traversal; delete endpoint filename regex limits to `[A-Za-z0-9._-]+\.csv`.
+
 ## [0.1.0] - 2026-04-22
 
 ### Added
@@ -52,6 +80,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+### Added
+
+- **Cognito + Lambda@Edge 인증**: 이제 모든 CloudFront URL은 Cognito Hosted UI 로그인을 거쳐야 접근 가능. 네 개의 viewer-request Lambda@Edge 함수가 모든 엣지 PoP에서 실행 — `check-auth` (default), `parse-auth` (`/parseauth`), `refresh-auth` (`/refreshauth`), `sign-out` (`/signout`). JWT 검증은 User Pool의 JWKs + 컨테이너별 5분 캐시 사용. 미인증 트래픽은 WAF · ALB · ECS에 도달하기 전에 차단. 자세한 내용은 [ADR 0001](docs/decisions/0001-cognito-lambda-edge-auth.md) 참조.
+- **사이드바 로그아웃 링크**: SPA 라우터를 우회하도록 순수 `<a href="/signout">`로 구현 — 브라우저가 실제 요청을 보내야 엣지 핸들러가 HttpOnly 쿠키 삭제 + Cognito `/logout`으로 리다이렉트 가능.
+- **대시보드에서 CSV 업로드/목록/삭제**: 세 가지 새 엔드포인트 — `POST /api/cost/upload`, `GET /api/cost/uploads`, `DELETE /api/cost/uploads/:file` — 덕분에 Spend Report 갱신 시 AWS CLI 권한 불필요. Multer 기반 multipart 처리기 (25 MB 상한, 필수 컬럼 스키마 체크, path-traversal-safe 파일명). 클라이언트 프리뷰 (행 수, 사용자 수, 파일명 기반 기간 추출) + 기존 업로드와 기간 중복 경고. [ADR 0002](docs/decisions/0002-dashboard-csv-upload.md) 참조.
+- **비용 페이지 기간 선택 컨트롤**: 다른 페이지와 동일한 7d / 14d / 30d / 커스텀 picker, **Economic Productivity 섹션** (CSV × 실시간 Analytics per-user 생산성 조인)에 연결. 상단 KPI는 CSV 고정 기간에 바인딩 유지 — CSV는 사전 집계 데이터라 일별 필터링 불가. 서버가 실제 적용한 기간(Analytics 3일 버퍼 반영됨)을 UI에 명시.
+- **`useFetch()`에 `refetch()` 추가**: mutation을 발생시키는 UI (첫 이용자: `CsvUploader`)가 full reload 없이 캐시된 GET을 무효화 가능.
+- Lambda@Edge용 **빌드 타임 시크릿 주입** `scripts/build-edge.mjs`: `_shared.template.js`에서 Secrets Manager(`ccd/cognito-config`)의 값을 치환하여 `infra/edge/dist/`를 생성. `dist/`는 gitignore.
+- Cognito 사용자 관리 runbook: [`docs/runbooks/cognito-users.md`](docs/runbooks/cognito-users.md).
+
+### Changed
+
+- Cost 페이지 상단 데이터(KPI · 제품×모델 테이블 · Top-10)는 CSV의 고정 기간에 바인딩 유지. Economic Productivity 섹션만 기간 선택에 반응.
+- `@aws-sdk/client-secrets-manager`를 레포 루트에 추가 — edge bundle 빌드 단계에서 사용.
+- `multer` 2.x (2.1.1) 추가 + 명시적 JSON 에러 래퍼: 모든 업로드 실패 경로가 Express 기본 HTML 에러 페이지 대신 구조화된 JSON 반환.
+
+### Fixed
+
+- **WAF `SizeRestrictions_BODY`가 8 KB 초과 POST 전부 차단**: 기본 `AWSManagedRulesCommonRuleSet`의 서브룰이 신규 `/api/cost/upload`를 WAF 403 HTML 페이지(`<html> <h...`)로 조용히 끄고 있었음. `ruleActionOverrides`로 COUNT 다운그레이드 — 규칙은 로그만 남고 BLOCK하지 않음. 나머지 CommonRuleSet 보호(XSS · SQLi · LFI/RFI · bad UA)는 그대로 BLOCK 유지.
+- 업로드 sanitizer의 CSV 파일명 정규식이 Anthropic Console 실제 export 형식(`spend-report--YYYY-MM-DD-to-YYYY-MM-DD.csv`, 이중 대시)을 수용하도록 수정 — 기간이 fallback 오늘 날짜로 손실되지 않음.
+- 업로드 진입점에 `console.log` 진단 로그 추가 — 실패한 업로드가 컨테이너까지 도달했는지 vs 상류에서 차단됐는지 CloudWatch 로그로 구분 가능.
+
+### Security
+
+- Cognito OAuth **client secret 회전** (구 `3qf1cr3r61vgc3cge9qh6cf5ik` 삭제, 신규 `5bbe3af5qkqv3rghgutp64fgc6`로 교체) — 초기 시크릿이 잠시 로컬 디스크에 있었기 때문. 새 시크릿은 git에 올라간 적 없음.
+- Pre-commit 훅에 `clientSecret[:=]['\"][a-z0-9]{40,}` 패턴 + `infra/edge/dist/` 경로 blocklist 추가 — `git add -f`로도 Lambda@Edge 번들(시크릿 포함)을 커밋 불가.
+- 업로드 엔드포인트 파일명 정규식이 path traversal 차단, 삭제 엔드포인트는 `[A-Za-z0-9._-]+\.csv`로 제한.
 
 ## [0.1.0] - 2026-04-22
 

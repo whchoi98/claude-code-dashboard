@@ -59,11 +59,12 @@
 
 | Component | Purpose |
 |-----------|---------|
+| Cognito + Lambda@Edge (viewer-request) | Every CloudFront URL gated by Cognito Hosted UI login. Four handlers (`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`) enforce the JWT cookie on every edge PoP. Unauth'd traffic is 302'd to `/oauth2/authorize` **before** it reaches WAF/ALB/ECS. See [ADR-0001](decisions/0001-cognito-lambda-edge-auth.md). |
 | CloudFront + managed SECURITY_HEADERS response policy | TLS 1.2+ termination, HTTP/2 + /3, HSTS, CSP-ready |
-| AWS-managed WAF rules (REGIONAL, attached to ALB) | `AWSManagedRulesCommonRuleSet` + `AWSManagedRulesKnownBadInputsRuleSet` + rate-based (2000 req / 5 min / IP) |
+| AWS-managed WAF rules (REGIONAL, attached to ALB) | `AWSManagedRulesCommonRuleSet` (minus `SizeRestrictions_BODY`, downgraded to COUNT to permit CSV upload) + `AWSManagedRulesKnownBadInputsRuleSet` + rate-based (2000 req / 5 min / IP) |
 | CloudFront origin-facing prefix list | ALB SG ingress restricted to `pl-22a6434b` only — direct ALB access blocked |
 | Private subnets | Fargate tasks have no public IPs; outbound via NAT |
-| IAM scoping | Task role limited to: `bedrock:InvokeModel*` on Claude models, `athena:*Query*` on the workgroup, S3 read/write on the archive bucket, Secrets Manager read on the three API-key secrets |
+| IAM scoping | Task role limited to: `bedrock:InvokeModel*` on Claude models, `athena:*Query*` on the workgroup, S3 read/write on the archive bucket, Secrets Manager read on the three API-key secrets + `ccd/cognito-config` at build time (not at ECS runtime — edge build pulls it) |
 
 ## Full architecture diagram
 
@@ -71,8 +72,16 @@
                   ┌───────────────────────────────────────────┐
    Internet ────▶ │  CloudFront distribution                  │   TLS · HTTP/3 · SECURITY_HEADERS
                   │  (viewer protocol: redirect-to-HTTPS)     │
+                  │                                           │
+                  │  ┌─────────────────────────────────────┐  │
+                  │  │ Lambda@Edge  (us-east-1 replication)│  │   Cognito auth gate
+                  │  │   default      → check-auth         │  │   — JWT cookie verify
+                  │  │   /parseauth   → parse-auth         │  │   — code → token exchange
+                  │  │   /refreshauth → refresh-auth       │  │   — silent token refresh
+                  │  │   /signout     → sign-out           │  │   — clear cookies + /logout
+                  │  └─────────────────────────────────────┘  │
                   └──────────────────┬────────────────────────┘
-                                     │
+                                     │  (authenticated requests only)
                                      ▼  (origin-facing prefix list pl-22a6434b)
                   ┌───────────────────────────────────────────┐
                   │  Application Load Balancer (public)       │   Regional WAF (common + bad-inputs + rate)
@@ -200,11 +209,12 @@ See `docs/runbooks/` for incident procedures (listener drift, failed rolling dep
 
 | 구성요소 | 역할 |
 |---------|------|
+| Cognito + Lambda@Edge (viewer-request) | 모든 CloudFront URL이 Cognito Hosted UI 로그인 필요. 네 개 핸들러(`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`)가 엣지 PoP에서 JWT 쿠키 검증을 강제. 미인증 트래픽은 WAF/ALB/ECS 도달 **이전**에 `/oauth2/authorize`로 302. [ADR-0001](decisions/0001-cognito-lambda-edge-auth.md) 참조. |
 | CloudFront + managed SECURITY_HEADERS 응답 정책 | TLS 1.2+ 종단, HTTP/2+/3, HSTS, CSP 기반 |
-| AWS 관리형 WAF 규칙 (REGIONAL, ALB에 연결) | `AWSManagedRulesCommonRuleSet` + `AWSManagedRulesKnownBadInputsRuleSet` + rate-based (IP당 5분 2000건) |
+| AWS 관리형 WAF 규칙 (REGIONAL, ALB에 연결) | `AWSManagedRulesCommonRuleSet` (CSV 업로드 허용을 위해 `SizeRestrictions_BODY`만 COUNT로 다운그레이드) + `AWSManagedRulesKnownBadInputsRuleSet` + rate-based (IP당 5분 2000건) |
 | CloudFront origin-facing prefix list | ALB SG 인바운드를 `pl-22a6434b`로만 제한 → ALB 직접 접근 차단 |
 | 프라이빗 서브넷 | Fargate 태스크는 퍼블릭 IP 없음, 아웃바운드는 NAT 경유 |
-| IAM 최소 권한 | 태스크 롤: `bedrock:InvokeModel*` (Claude 모델 한정), `athena:*Query*` (워크그룹 한정), 아카이브 버킷 S3 RW, 세 시크릿에 대한 Secrets Manager read 만 |
+| IAM 최소 권한 | 태스크 롤: `bedrock:InvokeModel*` (Claude 모델 한정), `athena:*Query*` (워크그룹 한정), 아카이브 버킷 S3 RW, 세 시크릿에 대한 Secrets Manager read + 빌드 시점 `ccd/cognito-config` (ECS 런타임은 이 시크릿에 접근하지 않음 — edge 빌드 단계에서만 사용) |
 
 ## 전체 아키텍처 다이어그램
 
@@ -212,8 +222,16 @@ See `docs/runbooks/` for incident procedures (listener drift, failed rolling dep
                   ┌───────────────────────────────────────────┐
    Internet ────▶ │  CloudFront 배포                           │   TLS · HTTP/3 · SECURITY_HEADERS
                   │  (viewer protocol: redirect-to-HTTPS)     │
+                  │                                           │
+                  │  ┌─────────────────────────────────────┐  │
+                  │  │ Lambda@Edge (us-east-1 복제)          │  │   Cognito 인증 게이트
+                  │  │   default      → check-auth          │  │   — JWT 쿠키 검증
+                  │  │   /parseauth   → parse-auth          │  │   — code ↔ token 교환
+                  │  │   /refreshauth → refresh-auth        │  │   — silent refresh
+                  │  │   /signout     → sign-out            │  │   — 쿠키 삭제 + /logout
+                  │  └─────────────────────────────────────┘  │
                   └──────────────────┬────────────────────────┘
-                                     │
+                                     │  (인증된 요청만)
                                      ▼  (origin-facing prefix list pl-22a6434b)
                   ┌───────────────────────────────────────────┐
                   │  Application Load Balancer (public)       │   리전형 WAF (common + bad-inputs + rate)
