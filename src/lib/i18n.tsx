@@ -148,7 +148,7 @@ const DICT = {
 
     // Adoption
     'adopt.title':    'Adoption',
-    'adopt.subtitle': 'Skills, Connectors, and Chat Project usage across Claude, Claude Code, and Cowork.',
+    'adopt.subtitle': 'Skills, Connectors, and Chat Project usage over {start} → {end} ({days}d). Distinct users = peak day; counts are window totals.',
     'adopt.skills':   'Skills',
     'adopt.skills.sub':'Distinct users per skill (today)',
     'adopt.connectors':'Connectors',
@@ -411,7 +411,7 @@ const DICT = {
     'user_prod.score_formula':   '생산성 지수 공식:',
 
     'adopt.title':    '도입',
-    'adopt.subtitle': 'Claude, Claude Code, Cowork 전반의 스킬/커넥터/프로젝트 사용.',
+    'adopt.subtitle': '{start} → {end} ({days}일) 윈도우의 스킬/커넥터/프로젝트 사용. Distinct 사용자=피크일, 카운트=윈도우 합산.',
     'adopt.skills':   '스킬',
     'adopt.skills.sub':'스킬별 고유 사용자 (오늘)',
     'adopt.connectors':'커넥터',

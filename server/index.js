@@ -329,6 +329,42 @@ app.get('/api/analytics/users/range', async (req, res) => {
   })
 })
 
+// Daily-snapshot range fan-out for skills / connectors / projects.
+// Anthropic's Analytics API only returns daily aggregates for these endpoints,
+// so "show 14 days" means fetching 14 separate days and aggregating. We fan
+// out here so the SPA only makes one round trip per page; client handles the
+// aggregation since semantics differ per page (SUM for usage counts vs MAX
+// for distinct_user_count which can't be deduped across days without IDs).
+function makeDailyRangeRoute(upstreamPath, mockKey) {
+  return async (req, res) => {
+    const endingDate = req.query.ending_date || todayUtc(-3)
+    const startingDate = req.query.starting_date || todayUtc(-16)
+    const dates = rangeDates(startingDate, endingDate).slice(-31)
+
+    const results = await Promise.all(dates.map(async (date) => {
+      if (!ANALYTICS_KEY) {
+        return { date, source: 'mock', data: generateMock[mockKey](date).data, error: null }
+      }
+      const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, ANALYTICS_KEY)
+      return {
+        date,
+        source: upstream.ok ? 'live' : 'upstream_error',
+        data: upstream.ok ? (upstream.body?.data || []) : [],
+        error: upstream.ok ? null : upstream.body,
+      }
+    }))
+
+    res.json({
+      range: { starting_date: startingDate, ending_date: endingDate },
+      days: results,
+    })
+  }
+}
+
+app.get('/api/analytics/skills/range',     makeDailyRangeRoute('/v1/organizations/analytics/skills',             'skills'))
+app.get('/api/analytics/connectors/range', makeDailyRangeRoute('/v1/organizations/analytics/connectors',         'connectors'))
+app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organizations/analytics/apps/chat/projects', 'projects'))
+
 // ─── Admin API (optional — requires sk-ant-admin key) ───────────────────────
 
 app.get('/api/admin/claude-code', async (req, res) => {

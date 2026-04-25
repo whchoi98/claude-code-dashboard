@@ -11,42 +11,86 @@ import { useT } from '../lib/i18n'
 import { fmtNum, maskEmail } from '../lib/format'
 import type { Skill, Connector, ChatProject } from '../types'
 
-type R<T> = { source: 'live' | 'mock'; reason?: string; date: string; data: T[] }
+type DayEntry<T> = { date: string; source: string; data: T[] }
+type RangeResp<T> = { range: { starting_date: string; ending_date: string }; days: DayEntry<T>[] }
 
 export function Adoption() {
   const t = useT()
   const { range } = useDateRange('14d')
-  const d = `?date=${range.endingDate}`
-  const skills     = useFetch<R<Skill>>(`/api/analytics/skills${d}`)
-  const connectors = useFetch<R<Connector>>(`/api/analytics/connectors${d}`)
-  const projects   = useFetch<R<ChatProject>>(`/api/analytics/projects${d}`)
+  const q = `?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
+  const skills     = useFetch<RangeResp<Skill>>(`/api/analytics/skills/range${q}`)
+  const connectors = useFetch<RangeResp<Connector>>(`/api/analytics/connectors/range${q}`)
+  const projects   = useFetch<RangeResp<ChatProject>>(`/api/analytics/projects/range${q}`)
 
   if (skills.loading || connectors.loading || projects.loading) return <LoadingState />
   if (skills.error) return <ErrorState error={skills.error} />
   if (connectors.error) return <ErrorState error={connectors.error} />
   if (projects.error) return <ErrorState error={projects.error} />
 
-  const skillRows = (skills.data?.data ?? [])
-    .map((s) => ({
-      name: s.skill_name,
-      Users: s.distinct_user_count,
-      Chat: s.chat_metrics.distinct_conversation_skill_used_count,
-      Code: s.claude_code_metrics.distinct_session_skill_used_count,
-      Cowork: s.cowork_metrics.distinct_session_skill_used_count,
-    }))
-    .sort((a, b) => b.Users - a.Users)
+  // Aggregate skills/connectors across the window. The Analytics API doesn't
+  // return user IDs at the skill/connector level, so distinct_user_count can't
+  // be deduped across days — we use MAX (peak day's count) which is honest
+  // about uniqueness. Usage counts (chat/code/cowork _used_count) are SUM
+  // because they grow naturally over time.
+  const skillBy = new Map<string, { name: string; Users: number; Chat: number; Code: number; Cowork: number }>()
+  for (const day of skills.data?.days ?? []) {
+    for (const s of day.data) {
+      const cur = skillBy.get(s.skill_name) ?? { name: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+      cur.Users  = Math.max(cur.Users, s.distinct_user_count)
+      cur.Chat  += s.chat_metrics.distinct_conversation_skill_used_count
+      cur.Code  += s.claude_code_metrics.distinct_session_skill_used_count
+      cur.Cowork += s.cowork_metrics.distinct_session_skill_used_count
+      skillBy.set(s.skill_name, cur)
+    }
+  }
+  const skillRows = Array.from(skillBy.values()).sort((a, b) => b.Users - a.Users)
 
-  const connectorRows = (connectors.data?.data ?? [])
-    .map((c) => ({
-      name: c.connector_name,
-      Users: c.distinct_user_count,
-      Chat: c.chat_metrics.distinct_conversation_connector_used_count,
-      Code: c.claude_code_metrics.distinct_session_connector_used_count,
-      Cowork: c.cowork_metrics.distinct_session_connector_used_count,
-    }))
-    .sort((a, b) => b.Users - a.Users)
+  const connectorBy = new Map<string, { name: string; Users: number; Chat: number; Code: number; Cowork: number }>()
+  for (const day of connectors.data?.days ?? []) {
+    for (const c of day.data) {
+      const cur = connectorBy.get(c.connector_name) ?? { name: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+      cur.Users  = Math.max(cur.Users, c.distinct_user_count)
+      cur.Chat  += c.chat_metrics.distinct_conversation_connector_used_count
+      cur.Code  += c.claude_code_metrics.distinct_session_connector_used_count
+      cur.Cowork += c.cowork_metrics.distinct_session_connector_used_count
+      connectorBy.set(c.connector_name, cur)
+    }
+  }
+  const connectorRows = Array.from(connectorBy.values()).sort((a, b) => b.Users - a.Users)
 
-  const projectRows = [...(projects.data?.data ?? [])]
+  // Projects: SUM messages and conversations across the window; MAX distinct
+  // users (same uniqueness caveat). Keep the latest seen project_name and
+  // created_by metadata in case a project is renamed mid-window.
+  const projectBy = new Map<string, ChatProject & { _aggMessages: number; _aggConvos: number; _aggUsers: number }>()
+  for (const day of projects.data?.days ?? []) {
+    for (const p of day.data) {
+      const cur = projectBy.get(p.project_id)
+      if (!cur) {
+        projectBy.set(p.project_id, {
+          ...p,
+          _aggMessages: p.message_count,
+          _aggConvos:   p.distinct_conversation_count,
+          _aggUsers:    p.distinct_user_count,
+        })
+      } else {
+        cur._aggMessages += p.message_count
+        cur._aggConvos   += p.distinct_conversation_count
+        cur._aggUsers     = Math.max(cur._aggUsers, p.distinct_user_count)
+        // Latest day overwrites name and creator metadata
+        cur.project_name = p.project_name
+        cur.created_by   = p.created_by
+      }
+    }
+  }
+  const projectRows = Array.from(projectBy.values())
+    .map((p) => ({
+      project_id: p.project_id,
+      project_name: p.project_name,
+      message_count: p._aggMessages,
+      distinct_conversation_count: p._aggConvos,
+      distinct_user_count: p._aggUsers,
+      created_by: p.created_by,
+    }))
     .sort((a, b) => b.message_count - a.message_count)
     .slice(0, 10)
 
@@ -54,12 +98,12 @@ export function Adoption() {
     <div>
       <PageHeader
         title={t('adopt.title')}
-        subtitle={t('adopt.subtitle')}
-        source={skills.source}
+        subtitle={t('adopt.subtitle', { start: range.startingDate, end: range.endingDate, days: range.days })}
+        source={skills.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
-        <ChartCard title="Skills" subtitle="Distinct users per skill (today)">
+        <ChartCard title="Skills" subtitle="Peak distinct users per skill; Chat/Code/Cowork are window totals">
           <ResponsiveContainer width="100%" height={Math.max(220, skillRows.length * 32)}>
             <BarChart data={skillRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -74,7 +118,7 @@ export function Adoption() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Connectors" subtitle="Distinct users per connector (today)">
+        <ChartCard title="Connectors" subtitle="Peak distinct users per connector; Chat/Code/Cowork are window totals">
           <ResponsiveContainer width="100%" height={Math.max(220, connectorRows.length * 32)}>
             <BarChart data={connectorRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -89,7 +133,7 @@ export function Adoption() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Top Chat Projects" subtitle="Messages per project (top 10)">
+        <ChartCard title="Top Chat Projects" subtitle="Total messages per project across the window (top 10)">
           <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
             <table className="w-full text-sm">
               <thead className="bg-paper-muted/60 text-ink-500">
