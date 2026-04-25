@@ -72,7 +72,7 @@ const DICT = {
 
     // Users
     'users.title':       'Users',
-    'users.subtitle':    'Per-user engagement for {date}. Sort by any metric; click a row for details.',
+    'users.subtitle':    'Per-user engagement, summed over {start} → {end} ({days}d). Sort by any metric; click a row for details.',
     'users.search':      'Search email…',
     'users.col.user':    'User',
     'users.col.messages':'Messages',
@@ -107,7 +107,7 @@ const DICT = {
 
     // Claude Code
     'cc.title':    'Claude Code',
-    'cc.subtitle': 'Productivity metrics for {date}. Lines of code, commits, PRs, and tool acceptance by kind.',
+    'cc.subtitle': 'Productivity metrics summed over {start} → {end} ({days}d). Lines of code, commits, PRs, and tool acceptance by kind.',
     'cc.active_devs':     'Active Developers',
     'cc.active_devs.hint':'users with CC sessions',
     'cc.removed':         '-{n} removed',
@@ -227,7 +227,7 @@ const DICT = {
 
     // Audit / Compliance
     'audit.title':    'Audit',
-    'audit.subtitle': 'Compliance API activity feed — {n} recent events across your organization.',
+    'audit.subtitle': 'Compliance API activity feed — {shown} of {total} fetched events fall within {start} → {end}.',
     'audit.kpi.total':      'Total events',
     'audit.kpi.total.hint': 'in this window',
     'audit.kpi.risk':       'High-risk events',
@@ -340,7 +340,7 @@ const DICT = {
     'chart.tool_acceptance.sub': '도구별 수락/거절 비율 (오늘)',
 
     'users.title':       '사용자',
-    'users.subtitle':    '{date} 기준 사용자별 참여도. 칼럼 정렬 가능, 행 클릭 시 상세 패널.',
+    'users.subtitle':    '사용자별 참여도, {start} → {end} ({days}일) 합산. 칼럼 정렬 가능, 행 클릭 시 상세 패널.',
     'users.search':      '이메일 검색…',
     'users.col.user':    '사용자',
     'users.col.messages':'메시지',
@@ -372,7 +372,7 @@ const DICT = {
     'chart.adoption.sub':'일일 도입률 (좌석 %)',
 
     'cc.title':    'Claude Code',
-    'cc.subtitle': '{date} 기준 생산성. 코드 라인, 커밋, PR, 도구별 수락률.',
+    'cc.subtitle': '{start} → {end} ({days}일) 합산 생산성. 코드 라인, 커밋, PR, 도구별 수락률.',
     'cc.active_devs':     '활성 개발자',
     'cc.active_devs.hint':'CC 세션을 가진 사용자',
     'cc.removed':         '-{n} 제거',
@@ -490,7 +490,7 @@ const DICT = {
 
     // Audit (ko)
     'audit.title':    '감사',
-    'audit.subtitle': 'Compliance API 활동 피드 — 조직 최근 {n}개 이벤트.',
+    'audit.subtitle': 'Compliance API 활동 피드 — {start} → {end} 윈도우에 {shown}/{total}개 이벤트가 해당.',
     'audit.kpi.total':      '전체 이벤트',
     'audit.kpi.total.hint': '조회 기간',
     'audit.kpi.risk':       '고위험 이벤트',

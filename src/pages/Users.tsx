@@ -10,40 +10,57 @@ import { useT } from '../lib/i18n'
 import type { UserRecord } from '../types'
 import clsx from 'clsx'
 
-type UsersResp = { source: 'live' | 'mock'; reason?: string; date: string; data: UserRecord[] }
+type DayEntry = { date: string; source: string; data: UserRecord[] }
+type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
 type SortKey = 'messages' | 'loc' | 'sessions' | 'commits' | 'accept'
 
 export function Users() {
   const t = useT()
   const { range } = useDateRange('14d')
-  const { data, loading, error, source, reason } = useFetch<UsersResp>(
-    `/api/analytics/users?date=${range.endingDate}`,
+  const { data, loading, error } = useFetch<RangeResp>(
+    `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
+  const source = data?.days?.[0]?.source as 'live' | 'mock' | undefined
   const [sort, setSort] = useState<SortKey>('loc')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
   const rows = useMemo(() => {
-    const recs = data?.data ?? []
-    const mapped = recs.map((r) => {
-      const cc = r.claude_code_metrics
-      const ta = cc.tool_actions
-      const accepted = ta.edit_tool.accepted_count + ta.multi_edit_tool.accepted_count +
-                       ta.write_tool.accepted_count + ta.notebook_edit_tool.accepted_count
-      const rejected = ta.edit_tool.rejected_count + ta.multi_edit_tool.rejected_count +
-                       ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count
-      return {
-        email: r.user.email_address,
-        messages: r.chat_metrics.message_count,
-        convos: r.chat_metrics.distinct_conversation_count,
-        sessions: cc.core_metrics.distinct_session_count,
-        loc: cc.core_metrics.lines_of_code.added_count,
-        locRemoved: cc.core_metrics.lines_of_code.removed_count,
-        commits: cc.core_metrics.commit_count,
-        prs: cc.core_metrics.pull_request_count,
-        accept: acceptRate(accepted, rejected),
+    // Aggregate per-user across the selected window. acceptRate is recomputed
+    // from summed numerator/denominator so a single high-volume day can't get
+    // diluted by averaging daily ratios.
+    const byEmail = new Map<string, {
+      email: string; messages: number; convos: number; sessions: number;
+      loc: number; locRemoved: number; commits: number; prs: number;
+      accepted: number; rejected: number;
+    }>()
+    for (const d of data?.days ?? []) {
+      for (const r of d.data) {
+        const cc = r.claude_code_metrics
+        const ta = cc.tool_actions
+        const email = r.user.email_address
+        let cur = byEmail.get(email)
+        if (!cur) {
+          cur = { email, messages: 0, convos: 0, sessions: 0, loc: 0, locRemoved: 0, commits: 0, prs: 0, accepted: 0, rejected: 0 }
+          byEmail.set(email, cur)
+        }
+        cur.messages   += r.chat_metrics.message_count
+        cur.convos     += r.chat_metrics.distinct_conversation_count
+        cur.sessions   += cc.core_metrics.distinct_session_count
+        cur.loc        += cc.core_metrics.lines_of_code.added_count
+        cur.locRemoved += cc.core_metrics.lines_of_code.removed_count
+        cur.commits    += cc.core_metrics.commit_count
+        cur.prs        += cc.core_metrics.pull_request_count
+        cur.accepted   += ta.edit_tool.accepted_count + ta.multi_edit_tool.accepted_count +
+                          ta.write_tool.accepted_count + ta.notebook_edit_tool.accepted_count
+        cur.rejected   += ta.edit_tool.rejected_count + ta.multi_edit_tool.rejected_count +
+                          ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count
       }
-    })
+    }
+    const mapped = Array.from(byEmail.values()).map((u) => ({
+      ...u,
+      accept: acceptRate(u.accepted, u.rejected),
+    }))
     const f = q.trim().toLowerCase()
     return mapped
       .filter((r) => !f || r.email.toLowerCase().includes(f))
@@ -61,9 +78,8 @@ export function Users() {
     <div>
       <PageHeader
         title={t('users.title')}
-        subtitle={t('users.subtitle', { date: data?.date || '' })}
+        subtitle={t('users.subtitle', { start: range.startingDate, end: range.endingDate, days: range.days })}
         source={source}
-        reason={reason}
         right={
           <div className="flex items-center gap-2">
             <DateRangeControl />

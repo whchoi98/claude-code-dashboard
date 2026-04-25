@@ -14,52 +14,76 @@ import { useT } from '../lib/i18n'
 import { fmtCompact, fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
 
-type UsersResp = { source: 'live' | 'mock'; reason?: string; date: string; data: UserRecord[] }
+type DayEntry = { date: string; source: string; data: UserRecord[] }
+type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
 
 const TOOLS = ['edit_tool', 'multi_edit_tool', 'write_tool', 'notebook_edit_tool'] as const
 
 export function ClaudeCode() {
   const t = useT()
   const { range } = useDateRange('14d')
-  const { data, loading, error, source, reason } = useFetch<UsersResp>(
-    `/api/analytics/users?date=${range.endingDate}`,
+  const { data, loading, error } = useFetch<RangeResp>(
+    `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
+  const source = data?.days?.[0]?.source as 'live' | 'mock' | undefined
 
   const agg = useMemo(() => {
-    const recs = data?.data ?? []
-    const loc = recs.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.added_count, 0)
-    const locRem = recs.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.removed_count, 0)
-    const commits = recs.reduce((s, r) => s + r.claude_code_metrics.core_metrics.commit_count, 0)
-    const prs = recs.reduce((s, r) => s + r.claude_code_metrics.core_metrics.pull_request_count, 0)
-    const sessions = recs.reduce((s, r) => s + r.claude_code_metrics.core_metrics.distinct_session_count, 0)
-    const activeUsers = recs.filter((r) => r.claude_code_metrics.core_metrics.distinct_session_count > 0).length
+    const days = data?.days ?? []
 
-    const tools = TOOLS.map((t) => {
-      const accepted = recs.reduce((s, r) => s + r.claude_code_metrics.tool_actions[t].accepted_count, 0)
-      const rejected = recs.reduce((s, r) => s + r.claude_code_metrics.tool_actions[t].rejected_count, 0)
+    // Org-wide totals: sum across every (day, user) pair.
+    let loc = 0, locRem = 0, commits = 0, prs = 0, sessions = 0
+    const accBy: Record<string, number> = { edit_tool: 0, multi_edit_tool: 0, write_tool: 0, notebook_edit_tool: 0 }
+    const rejBy: Record<string, number> = { edit_tool: 0, multi_edit_tool: 0, write_tool: 0, notebook_edit_tool: 0 }
+
+    // Active developers = distinct users with at least one CC session anywhere
+    // in the window. We dedupe by email rather than counting per-day actives.
+    const activeEmails = new Set<string>()
+    // Top contributors: aggregate per-user before slicing top 10.
+    const byEmail = new Map<string, { email: string; loc: number; commits: number; prs: number }>()
+
+    for (const d of days) {
+      for (const r of d.data) {
+        const cm = r.claude_code_metrics.core_metrics
+        loc      += cm.lines_of_code.added_count
+        locRem   += cm.lines_of_code.removed_count
+        commits  += cm.commit_count
+        prs      += cm.pull_request_count
+        sessions += cm.distinct_session_count
+        if (cm.distinct_session_count > 0) activeEmails.add(r.user.email_address)
+        for (const tk of TOOLS) {
+          accBy[tk] += r.claude_code_metrics.tool_actions[tk].accepted_count
+          rejBy[tk] += r.claude_code_metrics.tool_actions[tk].rejected_count
+        }
+        const key = r.user.email_address
+        let cur = byEmail.get(key)
+        if (!cur) { cur = { email: key, loc: 0, commits: 0, prs: 0 }; byEmail.set(key, cur) }
+        cur.loc     += cm.lines_of_code.added_count
+        cur.commits += cm.commit_count
+        cur.prs     += cm.pull_request_count
+      }
+    }
+
+    const tools = TOOLS.map((tk) => {
+      const accepted = accBy[tk]
+      const rejected = rejBy[tk]
       const rate = acceptRate(accepted, rejected)
       return {
-        tool: t.replace('_tool', '').replace(/_/g, ' '),
+        tool: tk.replace('_tool', '').replace(/_/g, ' '),
         Accepted: accepted,
         Rejected: rejected,
         rate: rate == null ? 0 : rate * 100,
       }
     })
 
-    const topCreators = [...recs]
-      .map((r) => ({
-        email: maskEmail(r.user.email_address),
-        loc: r.claude_code_metrics.core_metrics.lines_of_code.added_count,
-        commits: r.claude_code_metrics.core_metrics.commit_count,
-        prs: r.claude_code_metrics.core_metrics.pull_request_count,
-      }))
+    const topCreators = Array.from(byEmail.values())
       .sort((a, b) => b.loc - a.loc)
       .slice(0, 10)
+      .map((u) => ({ email: maskEmail(u.email), loc: u.loc, commits: u.commits, prs: u.prs }))
 
     const totalAccepted = tools.reduce((s, t) => s + t.Accepted, 0)
     const totalRejected = tools.reduce((s, t) => s + t.Rejected, 0)
 
-    return { loc, locRem, commits, prs, sessions, activeUsers, tools, topCreators,
+    return { loc, locRem, commits, prs, sessions, activeUsers: activeEmails.size, tools, topCreators,
              overallAccept: acceptRate(totalAccepted, totalRejected) }
   }, [data])
 
@@ -70,9 +94,8 @@ export function ClaudeCode() {
     <div>
       <PageHeader
         title={t('cc.title')}
-        subtitle={t('cc.subtitle', { date: data?.date || '' })}
+        subtitle={t('cc.subtitle', { start: range.startingDate, end: range.endingDate, days: range.days })}
         source={source}
-        reason={reason}
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">

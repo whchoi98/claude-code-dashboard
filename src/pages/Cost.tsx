@@ -228,7 +228,6 @@ export function Cost() {
           : t('cost.subtitle')}
         source="live"
         reason={`CSV · ${data.file}`}
-        right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
@@ -359,7 +358,10 @@ function EconomicProductivitySection({ data, t, range }: {
   return (
     <>
       <div className="pt-4 border-t border-ink-100">
-        <h2 className="text-lg font-semibold text-ink-800 mb-1">{t('econ.title')}</h2>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-lg font-semibold text-ink-800">{t('econ.title')}</h2>
+          <DateRangeControl />
+        </div>
         <p className="text-[11px] text-ink-400 mb-1">
           {t('econ.active_range', { start: effective.starting_date, end: effective.ending_date })}
         </p>

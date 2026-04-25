@@ -7,8 +7,10 @@ import {
 import { PageHeader } from '../components/PageHeader'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
+import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { useFetch } from '../lib/api'
+import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtDate, maskEmail } from '../lib/format'
 
@@ -82,13 +84,25 @@ function eventSummary(ev: ActivityEvent): string {
 
 export function Compliance() {
   const t = useT()
+  const { range } = useDateRange('14d')
   const [filterType, setFilterType] = useState<string | 'all' | 'risk' | 'login'>('all')
   const [q, setQ] = useState('')
 
-  // Fetch up to 500 recent events
+  // Fetch up to 500 recent events. The Compliance API's cursor pagination
+  // doesn't take a from/to date filter cleanly, so we fetch a fixed window of
+  // most-recent events and filter to the selected range client-side. If the
+  // chosen range falls outside the latest 500 events, the table will look
+  // empty — that's an honest signal to widen the fetch (server-side max=) or
+  // narrow the window.
   const { data, loading, error } = useFetch<Resp>('/api/compliance/activities?max=500&pages=5')
 
-  const events = data?.data ?? []
+  const allEvents = data?.data ?? []
+  const events = useMemo(() => {
+    return allEvents.filter((e) => {
+      const day = e.created_at.slice(0, 10)
+      return day >= range.startingDate && day <= range.endingDate
+    })
+  }, [allEvents, range.startingDate, range.endingDate])
 
   const derived = useMemo(() => {
     // type histogram
@@ -162,7 +176,8 @@ export function Compliance() {
     <div>
       <PageHeader
         title={t('audit.title')}
-        subtitle={t('audit.subtitle', { n: events.length })}
+        subtitle={t('audit.subtitle', { shown: events.length, total: allEvents.length, start: range.startingDate, end: range.endingDate })}
+        right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
