@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
@@ -14,6 +15,9 @@ import type { Skill, Connector, ChatProject } from '../types'
 type DayEntry<T> = { date: string; source: string; data: T[] }
 type RangeResp<T> = { range: { starting_date: string; ending_date: string }; days: DayEntry<T>[] }
 
+type Row = { name: string; Users: number; Chat: number; Code: number; Cowork: number }
+type ProjectRow = Pick<ChatProject, 'project_id' | 'project_name' | 'message_count' | 'distinct_conversation_count' | 'distinct_user_count' | 'created_by'>
+
 export function Adoption() {
   const t = useT()
   const { range } = useDateRange('14d')
@@ -22,77 +26,71 @@ export function Adoption() {
   const connectors = useFetch<RangeResp<Connector>>(`/api/analytics/connectors/range${q}`)
   const projects   = useFetch<RangeResp<ChatProject>>(`/api/analytics/projects/range${q}`)
 
+  // Distinct user counts can't be deduped across days because the API doesn't
+  // return user IDs at the skill/connector level — MAX (peak day) is the honest
+  // approximation. Usage counts (Chat/Code/Cowork) SUM naturally.
+  const skillRows = useMemo<Row[]>(() => {
+    const by = new Map<string, Row>()
+    for (const day of skills.data?.days ?? []) {
+      for (const s of day.data) {
+        const cur = by.get(s.skill_name) ?? { name: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+        cur.Users  = Math.max(cur.Users, s.distinct_user_count)
+        cur.Chat  += s.chat_metrics.distinct_conversation_skill_used_count
+        cur.Code  += s.claude_code_metrics.distinct_session_skill_used_count
+        cur.Cowork += s.cowork_metrics.distinct_session_skill_used_count
+        by.set(s.skill_name, cur)
+      }
+    }
+    return Array.from(by.values()).sort((a, b) => b.Users - a.Users)
+  }, [skills.data])
+
+  const connectorRows = useMemo<Row[]>(() => {
+    const by = new Map<string, Row>()
+    for (const day of connectors.data?.days ?? []) {
+      for (const c of day.data) {
+        const cur = by.get(c.connector_name) ?? { name: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+        cur.Users  = Math.max(cur.Users, c.distinct_user_count)
+        cur.Chat  += c.chat_metrics.distinct_conversation_connector_used_count
+        cur.Code  += c.claude_code_metrics.distinct_session_connector_used_count
+        cur.Cowork += c.cowork_metrics.distinct_session_connector_used_count
+        by.set(c.connector_name, cur)
+      }
+    }
+    return Array.from(by.values()).sort((a, b) => b.Users - a.Users)
+  }, [connectors.data])
+
+  // Same uniqueness caveat as skills/connectors. project_name and created_by
+  // are taken from the latest day to handle mid-window renames.
+  const projectRows = useMemo<ProjectRow[]>(() => {
+    const by = new Map<string, ProjectRow>()
+    for (const day of projects.data?.days ?? []) {
+      for (const p of day.data) {
+        const cur = by.get(p.project_id)
+        if (!cur) {
+          by.set(p.project_id, {
+            project_id: p.project_id,
+            project_name: p.project_name,
+            message_count: p.message_count,
+            distinct_conversation_count: p.distinct_conversation_count,
+            distinct_user_count: p.distinct_user_count,
+            created_by: p.created_by,
+          })
+        } else {
+          cur.message_count += p.message_count
+          cur.distinct_conversation_count += p.distinct_conversation_count
+          cur.distinct_user_count = Math.max(cur.distinct_user_count, p.distinct_user_count)
+          cur.project_name = p.project_name
+          cur.created_by   = p.created_by
+        }
+      }
+    }
+    return Array.from(by.values()).sort((a, b) => b.message_count - a.message_count).slice(0, 10)
+  }, [projects.data])
+
   if (skills.loading || connectors.loading || projects.loading) return <LoadingState />
   if (skills.error) return <ErrorState error={skills.error} />
   if (connectors.error) return <ErrorState error={connectors.error} />
   if (projects.error) return <ErrorState error={projects.error} />
-
-  // Aggregate skills/connectors across the window. The Analytics API doesn't
-  // return user IDs at the skill/connector level, so distinct_user_count can't
-  // be deduped across days — we use MAX (peak day's count) which is honest
-  // about uniqueness. Usage counts (chat/code/cowork _used_count) are SUM
-  // because they grow naturally over time.
-  const skillBy = new Map<string, { name: string; Users: number; Chat: number; Code: number; Cowork: number }>()
-  for (const day of skills.data?.days ?? []) {
-    for (const s of day.data) {
-      const cur = skillBy.get(s.skill_name) ?? { name: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
-      cur.Users  = Math.max(cur.Users, s.distinct_user_count)
-      cur.Chat  += s.chat_metrics.distinct_conversation_skill_used_count
-      cur.Code  += s.claude_code_metrics.distinct_session_skill_used_count
-      cur.Cowork += s.cowork_metrics.distinct_session_skill_used_count
-      skillBy.set(s.skill_name, cur)
-    }
-  }
-  const skillRows = Array.from(skillBy.values()).sort((a, b) => b.Users - a.Users)
-
-  const connectorBy = new Map<string, { name: string; Users: number; Chat: number; Code: number; Cowork: number }>()
-  for (const day of connectors.data?.days ?? []) {
-    for (const c of day.data) {
-      const cur = connectorBy.get(c.connector_name) ?? { name: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
-      cur.Users  = Math.max(cur.Users, c.distinct_user_count)
-      cur.Chat  += c.chat_metrics.distinct_conversation_connector_used_count
-      cur.Code  += c.claude_code_metrics.distinct_session_connector_used_count
-      cur.Cowork += c.cowork_metrics.distinct_session_connector_used_count
-      connectorBy.set(c.connector_name, cur)
-    }
-  }
-  const connectorRows = Array.from(connectorBy.values()).sort((a, b) => b.Users - a.Users)
-
-  // Projects: SUM messages and conversations across the window; MAX distinct
-  // users (same uniqueness caveat). Keep the latest seen project_name and
-  // created_by metadata in case a project is renamed mid-window.
-  const projectBy = new Map<string, ChatProject & { _aggMessages: number; _aggConvos: number; _aggUsers: number }>()
-  for (const day of projects.data?.days ?? []) {
-    for (const p of day.data) {
-      const cur = projectBy.get(p.project_id)
-      if (!cur) {
-        projectBy.set(p.project_id, {
-          ...p,
-          _aggMessages: p.message_count,
-          _aggConvos:   p.distinct_conversation_count,
-          _aggUsers:    p.distinct_user_count,
-        })
-      } else {
-        cur._aggMessages += p.message_count
-        cur._aggConvos   += p.distinct_conversation_count
-        cur._aggUsers     = Math.max(cur._aggUsers, p.distinct_user_count)
-        // Latest day overwrites name and creator metadata
-        cur.project_name = p.project_name
-        cur.created_by   = p.created_by
-      }
-    }
-  }
-  const projectRows = Array.from(projectBy.values())
-    .map((p) => ({
-      project_id: p.project_id,
-      project_name: p.project_name,
-      message_count: p._aggMessages,
-      distinct_conversation_count: p._aggConvos,
-      distinct_user_count: p._aggUsers,
-      created_by: p.created_by,
-    }))
-    .sort((a, b) => b.message_count - a.message_count)
-    .slice(0, 10)
 
   return (
     <div>

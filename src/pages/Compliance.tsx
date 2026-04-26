@@ -96,22 +96,20 @@ export function Compliance() {
   // paginating early when has_more=false, so smaller orgs don't pay extra.
   const { data, loading, error } = useFetch<Resp>('/api/compliance/activities?max=2000&pages=20')
 
-  const allEvents = data?.data ?? []
+  // useDateRange clamps endingDate to today-3 for the Analytics API's data
+  // buffer. Compliance is real-time, so preset modes use today as the upper
+  // bound; only an explicit custom endingDate is honored.
+  const today = new Date().toISOString().slice(0, 10)
+  const upper = range.preset === 'custom' ? range.endingDate : today
+
   const events = useMemo(() => {
-    // useDateRange clamps endingDate to today-3 (Analytics API's 3-day buffer).
-    // Compliance is real-time so we ignore that upper clamp for preset modes
-    // and let recent events through. We still respect a user-set endingDate
-    // in custom mode.
-    const today = new Date().toISOString().slice(0, 10)
-    const upper = range.preset === 'custom' ? range.endingDate : today
-    return allEvents.filter((e) => {
+    return (data?.data ?? []).filter((e) => {
       const day = e.created_at.slice(0, 10)
       return day >= range.startingDate && day <= upper
     })
-  }, [allEvents, range.startingDate, range.endingDate, range.preset])
+  }, [data, range.startingDate, upper])
 
   const derived = useMemo(() => {
-    // type histogram
     const byType = new Map<string, number>()
     const byActor = new Map<string, number>()
     const byDay = new Map<string, { date: string; count: number; risk: number }>()
@@ -184,9 +182,9 @@ export function Compliance() {
         title={t('audit.title')}
         subtitle={t('audit.subtitle', {
           shown: events.length,
-          total: allEvents.length,
+          total: data?.data?.length ?? 0,
           start: range.startingDate,
-          end: range.preset === 'custom' ? range.endingDate : new Date().toISOString().slice(0, 10),
+          end: upper,
         })}
         right={<DateRangeControl />}
       />

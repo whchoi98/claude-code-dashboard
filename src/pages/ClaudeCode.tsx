@@ -38,25 +38,24 @@ export function ClaudeCode() {
     // Active developers = distinct users with at least one CC session anywhere
     // in the window. We dedupe by email rather than counting per-day actives.
     const activeEmails = new Set<string>()
-    // Top contributors: aggregate per-user before slicing top 10.
     const byEmail = new Map<string, { email: string; loc: number; commits: number; prs: number }>()
 
     for (const d of days) {
       for (const r of d.data) {
         const cm = r.claude_code_metrics.core_metrics
+        const email = r.user.email_address
         loc      += cm.lines_of_code.added_count
         locRem   += cm.lines_of_code.removed_count
         commits  += cm.commit_count
         prs      += cm.pull_request_count
         sessions += cm.distinct_session_count
-        if (cm.distinct_session_count > 0) activeEmails.add(r.user.email_address)
+        if (cm.distinct_session_count > 0) activeEmails.add(email)
         for (const tk of TOOLS) {
           accBy[tk] += r.claude_code_metrics.tool_actions[tk].accepted_count
           rejBy[tk] += r.claude_code_metrics.tool_actions[tk].rejected_count
         }
-        const key = r.user.email_address
-        let cur = byEmail.get(key)
-        if (!cur) { cur = { email: key, loc: 0, commits: 0, prs: 0 }; byEmail.set(key, cur) }
+        let cur = byEmail.get(email)
+        if (!cur) { cur = { email, loc: 0, commits: 0, prs: 0 }; byEmail.set(email, cur) }
         cur.loc     += cm.lines_of_code.added_count
         cur.commits += cm.commit_count
         cur.prs     += cm.pull_request_count

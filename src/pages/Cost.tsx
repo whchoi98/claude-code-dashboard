@@ -356,16 +356,15 @@ function EconomicProductivitySection({ data, t, range }: {
   const effective = data.period ?? { starting_date: range.startingDate, ending_date: range.endingDate }
 
   return (
-    <>
-      <div className="pt-4 border-t border-ink-100">
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <h2 className="text-lg font-semibold text-ink-800">{t('econ.title')}</h2>
-          <DateRangeControl />
-        </div>
-        <p className="text-[11px] text-ink-400 mb-1">
-          {t('econ.active_range', { start: effective.starting_date, end: effective.ending_date })}
-        </p>
-        <p className="text-xs text-ink-500 mb-4">{t('econ.subtitle')}</p>
+    <div className="pt-4 border-t border-ink-100">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h2 className="text-lg font-semibold text-ink-800">{t('econ.title')}</h2>
+        <DateRangeControl />
+      </div>
+      <p className="text-[11px] text-ink-400 mb-1">
+        {t('econ.active_range', { start: effective.starting_date, end: effective.ending_date })}
+      </p>
+      <p className="text-xs text-ink-500 mb-4">{t('econ.subtitle')}</p>
 
         <div className="grid grid-cols-4 gap-4 mb-5">
           <KpiCard accent label={t('econ.kpi.score')}      value={topScore[0]?.economic_productivity_score ?? '—'}  hint={maskEmail(topScore[0]?.email ?? '')} />
@@ -488,7 +487,6 @@ function EconomicProductivitySection({ data, t, range }: {
           Output score = LOC + 100·commits + 1000·PRs + 0.5·tool_accepted.
         </div>
       </div>
-    </>
   )
 }
 
