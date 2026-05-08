@@ -527,6 +527,46 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   })
 
+  // GET /api/cost/live?starting_date=YYYY-MM-DD&ending_date=YYYY-MM-DD
+  //
+  // Reuses /api/admin/claude-code/range via in-process self-call (same pattern
+  // as /cost/efficiency below). Returns a CsvResp-shaped payload so the
+  // frontend's existing Cost.tsx aggregation logic works unchanged.
+  //
+  // Errors:
+  //   400 admin_key_required        → ANTHROPIC_ADMIN_KEY_ADMIN missing
+  //   502 upstream_error            → /admin/claude-code/range returned non-2xx
+  //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
+  router.get('/cost/live', async (req, res) => {
+    // Default range: last 30 days, ending 1 day ago (matches Admin API freshness)
+    const today = new Date()
+    const todayMinus = (n) => {
+      const d = new Date(today); d.setUTCDate(d.getUTCDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    const startingDate = req.query.starting_date || todayMinus(31)
+    const endingDate   = req.query.ending_date   || todayMinus(1)
+
+    const PORT = Number(process.env.PORT) || 5174
+    const url = `http://127.0.0.1:${PORT}/api/admin/claude-code/range?starting_date=${startingDate}&ending_date=${endingDate}`
+    let rangeBody
+    try {
+      const r = await fetch(url)
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        // Propagate admin_key_required so the UI can fall back gracefully
+        if (body?.error === 'admin_key_required') return res.status(400).json(body)
+        return res.status(502).json({ error: 'upstream_error', message: body?.message || `range fetch ${r.status}`, upstream: body })
+      }
+      rangeBody = body
+    } catch (err) {
+      return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
+    }
+
+    const out = claudeCodeRangeToCostResp(rangeBody, { starting_date: startingDate, ending_date: endingDate })
+    res.json(out)
+  })
+
   // ── CSV Spend Report Uploads (management) ───────────────────────────────
   // Lets authenticated dashboard users upload / list / delete Spend Report
   // CSVs without needing AWS CLI access. All requests already pass through
