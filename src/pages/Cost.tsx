@@ -260,7 +260,13 @@ export function Cost() {
           ? t('cost.subtitle.csv', { start: data.period.starting_date, end: data.period.ending_date })
           : t('cost.subtitle')}
         source={dataSource}
-        reason={dataSource === 'live' ? t('cost.source.live') : `CSV · ${data.file ?? ''}`}
+        reason={
+          dataSource === 'live'
+            ? t('cost.source.live')
+            : data.file
+              ? `CSV · ${data.file}`
+              : t('cost.source.csv')
+        }
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
