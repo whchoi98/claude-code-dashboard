@@ -295,7 +295,14 @@ export function Cost() {
           <KpiCard accent label={t('cost.kpi.total')}     value={fmtUsd(data.totals.net_spend_usd)}       hint={`${fmtNum(data.totals.distinct_users)} users`} />
           <KpiCard       label={t('cost.kpi.input')}      value={fmtCompact(data.totals.prompt_tokens)}   hint="prompt tokens" />
           <KpiCard       label={t('cost.kpi.output')}     value={fmtCompact(data.totals.completion_tokens)} hint="completion tokens" />
-          <KpiCard       label={t('cost.kpi.requests')}   value={fmtCompact(data.totals.requests)}        hint={`${data.totals.distinct_models} models · ${data.totals.distinct_products} products`} />
+          <KpiCard
+            label={dataSource === 'live' ? `${t('cost.kpi.requests')} *` : t('cost.kpi.requests')}
+            value={fmtCompact(data.totals.requests)}
+            hint={dataSource === 'live'
+              ? t('cost.live.requests.approx')
+              : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
+            }
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-6">
