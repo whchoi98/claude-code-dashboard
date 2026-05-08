@@ -283,13 +283,15 @@ export function Cost() {
         }
       />
       <div className="p-8 space-y-6">
-        <div className="flex items-center justify-end">
-          <DateRangeControl />
-        </div>
         {dataSource === 'live' && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-            {t('cost.live.caveat.30day')}
-          </div>
+          <>
+            <div className="flex items-center justify-end">
+              <DateRangeControl />
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+              {t('cost.live.caveat.30day')}
+            </div>
+          </>
         )}
         <div className="grid grid-cols-4 gap-4">
           <KpiCard accent label={t('cost.kpi.total')}     value={fmtUsd(data.totals.net_spend_usd)}       hint={`${fmtNum(data.totals.distinct_users)} users`} />
