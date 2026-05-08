@@ -224,6 +224,13 @@ const DICT = {
     'cost.top_input':  'Top 10 by Input Tokens',
     'cost.top_output': 'Top 10 by Output Tokens',
     'cost.top_cost':   'Top 10 by Estimated Cost',
+    'cost.source.live':           'Live API',
+    'cost.source.csv':            'Reconciliation CSV',
+    'cost.live.caveat.30day':     'Values within the last 30 days may be revised as new events are reflected.',
+    'cost.live.requests.approx':  'Approximate (session count)',
+    'cost.trends.title':          'Daily spend by model',
+    'cost.trends.subtitle':       'Live API · Claude Code only',
+    'cost.recon.expander':        'Reconciliation CSV (≥ 30 days)',
 
     // Audit / Compliance
     'audit.title':    'Audit',
@@ -487,6 +494,13 @@ const DICT = {
     'cost.top_input':  'Input 토큰 Top 10',
     'cost.top_output': 'Output 토큰 Top 10',
     'cost.top_cost':   '추정 비용 Top 10',
+    'cost.source.live':           '라이브 API',
+    'cost.source.csv':            '정산 CSV',
+    'cost.live.caveat.30day':     '최근 30일 내 값은 신규 이벤트 반영에 따라 변경될 수 있습니다.',
+    'cost.live.requests.approx':  '추정값 (세션 수 기준)',
+    'cost.trends.title':          '모델별 일별 지출',
+    'cost.trends.subtitle':       '라이브 API · Claude Code 한정',
+    'cost.recon.expander':        '정산 CSV (30일 이전)',
 
     // Audit (ko)
     'audit.title':    '감사',
