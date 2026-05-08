@@ -140,16 +140,15 @@ export function useCostData(range: { startingDate: string; endingDate: string })
 
 export function Cost() {
   const t = useT()
-  // CSV aggregates are pre-computed for the whole CSV period — date range
-  // doesn't apply. Only the efficiency endpoint (which joins with Analytics
-  // API) is date-range aware.
-  const { data, loading, error, refetch } = useFetch<CsvResp>('/api/cost/csv')
   const { range } = useDateRange('30d')
+  // Live API (Claude Code only) with automatic CSV fallback.
+  // The CSV path also handles the >30-day reconciliation use case.
+  const { data, loading, error, refetch, source: dataSource } = useCostData(range)
   const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const eff = useFetch<EfficiencyResp>(effUrl)
 
-  // After a successful upload/delete, invalidate the two live queries
-  // that depend on the S3 spend-reports/ prefix.
+  // After a successful upload/delete, invalidate the live cost + efficiency
+  // queries that depend on the S3 spend-reports/ prefix.
   const onUploadChange = () => { refetch(); eff.refetch() }
 
   const agg = useMemo(() => {
@@ -260,8 +259,8 @@ export function Cost() {
         subtitle={data.period
           ? t('cost.subtitle.csv', { start: data.period.starting_date, end: data.period.ending_date })
           : t('cost.subtitle')}
-        source="live"
-        reason={`CSV · ${data.file}`}
+        source={dataSource}
+        reason={dataSource === 'live' ? t('cost.source.live') : `CSV · ${data.file ?? ''}`}
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">

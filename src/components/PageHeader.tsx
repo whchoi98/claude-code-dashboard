@@ -4,7 +4,7 @@ type Props = {
   title: string
   subtitle?: string
   right?: React.ReactNode
-  source?: 'live' | 'mock'
+  source?: 'live' | 'csv' | 'mock'
   reason?: string
 }
 
@@ -26,7 +26,7 @@ export function PageHeader({ title, subtitle, right, source, reason }: Props) {
                 'w-1.5 h-1.5 rounded-full',
                 source === 'live' ? 'bg-emerald-500' : 'bg-claude-500',
               )} />
-              {source === 'live' ? 'Live' : 'Mock'}
+              {source === 'live' ? 'Live' : source === 'csv' ? 'CSV' : 'Mock'}
             </span>
             {reason && <span className="text-[11px] text-ink-400 italic truncate max-w-md">{reason}</span>}
           </div>
