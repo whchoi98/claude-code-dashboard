@@ -538,7 +538,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   //   502 upstream_error            → /admin/claude-code/range returned non-2xx
   //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
   router.get('/cost/live', async (req, res) => {
-    // Default range: last 30 days, ending 1 day ago (matches Admin API freshness)
+    // Default range: last 31 days inclusive ([today-31, today-1] UTC), matching
+    // the downstream /admin/claude-code/range cap (slice(-31)).
     const today = new Date()
     const todayMinus = (n) => {
       const d = new Date(today); d.setUTCDate(d.getUTCDate() - n)
@@ -548,7 +549,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const endingDate   = req.query.ending_date   || todayMinus(1)
 
     const PORT = Number(process.env.PORT) || 5174
-    const url = `http://127.0.0.1:${PORT}/api/admin/claude-code/range?starting_date=${startingDate}&ending_date=${endingDate}`
+    const url = `http://127.0.0.1:${PORT}/api/admin/claude-code/range?starting_date=${encodeURIComponent(startingDate)}&ending_date=${encodeURIComponent(endingDate)}`
     let rangeBody
     try {
       const r = await fetch(url)
