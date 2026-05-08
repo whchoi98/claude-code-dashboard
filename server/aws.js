@@ -8,6 +8,104 @@ import {
   S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
 } from '@aws-sdk/client-s3'
 
+// ─── Reshape: Claude Code usage range → CsvResp shape ──────────────────────
+// Converts the per-day actor records returned by /api/admin/claude-code/range
+// into the same shape /api/cost/csv produces, so the frontend can swap data
+// sources without changing aggregation logic.
+//
+// IMPORTANT: cents → USD conversion happens here. The upstream API returns
+// estimated_cost.amount in MINOR currency units (cents). Total amounts are
+// rounded to 4 decimals during accumulation to avoid binary-float drift, then
+// rounded to 2 decimals in the totals object for display.
+//
+// `total_requests` is set to sum(num_sessions); this is an APPROXIMATION
+// since the API does not expose per-request counts. The UI tags this as
+// approximate when source === 'live'.
+export function claudeCodeRangeToCostResp(rangeBody, period) {
+  // key: `${user_email}|${model}` → user×model aggregate row
+  const acc = new Map()
+  // key: `${date}|${model}` → daily×model series for the trends chart
+  const dailyAcc = new Map()
+  const distinctUsers = new Set()
+  const distinctModels = new Set()
+  let totalRequests = 0
+
+  for (const day of rangeBody?.days || []) {
+    if (day?.source === 'error') continue
+    for (const rec of day?.data || []) {
+      const actor = rec?.actor || {}
+      const email = actor.type === 'user_actor'
+        ? actor.email_address
+        : (actor.type === 'api_actor' ? `API key: ${actor.api_key_name ?? 'unknown'}` : 'unknown')
+      const sessions = rec?.core_metrics?.num_sessions ?? 0
+      const breakdown = Array.isArray(rec?.model_breakdown) ? rec.model_breakdown : []
+      if (breakdown.length === 0) continue
+      distinctUsers.add(email)
+      totalRequests += sessions
+
+      for (const m of breakdown) {
+        const model = m?.model
+        if (!model) continue
+        distinctModels.add(model)
+        const t = m.tokens || {}
+        const input  = (t.input ?? 0) + (t.cache_read ?? 0) + (t.cache_creation ?? 0)
+        const output = t.output ?? 0
+        const cents  = m.estimated_cost?.amount ?? 0
+        const usd    = Math.round(cents) / 100
+
+        const key = `${email}|${model}`
+        const u = acc.get(key) ?? {
+          user_email: email, account_uuid: '', product: 'Claude Code', model,
+          total_requests: 0, total_prompt_tokens: 0, total_completion_tokens: 0,
+          total_net_spend_usd: 0, total_gross_spend_usd: 0,
+        }
+        u.total_prompt_tokens     += input
+        u.total_completion_tokens += output
+        u.total_net_spend_usd      = Number((u.total_net_spend_usd + usd).toFixed(4))
+        u.total_gross_spend_usd    = u.total_net_spend_usd
+        u.total_requests          += sessions
+        acc.set(key, u)
+
+        const dkey = `${day.date}|${model}`
+        const d = dailyAcc.get(dkey) ?? { date: day.date, model, spend: 0, input: 0, output: 0, requests: 0 }
+        d.spend    = Number((d.spend + usd).toFixed(4))
+        d.input   += input
+        d.output  += output
+        d.requests += sessions
+        dailyAcc.set(dkey, d)
+      }
+    }
+  }
+
+  const rows = [...acc.values()]
+  const daily = [...dailyAcc.values()].sort((a, b) =>
+    a.date === b.date ? a.model.localeCompare(b.model) : a.date.localeCompare(b.date),
+  )
+  const sumSpend = rows.reduce((s, r) => s + r.total_net_spend_usd, 0)
+  const sumPrompt = rows.reduce((s, r) => s + r.total_prompt_tokens, 0)
+  const sumCompl = rows.reduce((s, r) => s + r.total_completion_tokens, 0)
+
+  return {
+    source: 'live',
+    file: null,
+    last_modified: new Date().toISOString(),
+    period,
+    rows,
+    daily,
+    totals: {
+      requests:           totalRequests,
+      prompt_tokens:      sumPrompt,
+      completion_tokens:  sumCompl,
+      net_spend_usd:      Number(sumSpend.toFixed(2)),
+      gross_spend_usd:    Number(sumSpend.toFixed(2)),
+      distinct_users:     distinctUsers.size,
+      distinct_models:    distinctModels.size,
+      distinct_products:  rows.length === 0 ? 0 : 1,
+    },
+  }
+}
+
+
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
 // Athena's IAM policy already restricts this task to the ccd workgroup, and
 // CDK grants glue:GetTable only on the ccd database. Even so, a naive regex
