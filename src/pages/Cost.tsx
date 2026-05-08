@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
@@ -217,6 +217,20 @@ export function Cost() {
     return { userRows, modelRows, productRows, productModelStack, allModels }
   }, [data])
 
+  const trendsPivot = useMemo(() => {
+    if (!data?.daily || data.daily.length === 0) return { rows: [], models: [] }
+    const byDate = new Map<string, Record<string, any>>()
+    const models = new Set<string>()
+    for (const d of data.daily) {
+      models.add(d.model)
+      const row = byDate.get(d.date) ?? { date: d.date }
+      row[shortModel(d.model)] = (row[shortModel(d.model)] ?? 0) + d.spend
+      byDate.set(d.date, row)
+    }
+    const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+    return { rows, models: [...models].sort() }
+  }, [data])
+
   if (loading) return <LoadingState />
   if (error) {
     // Check if it's just a missing spend report (404) — show a friendly empty state
@@ -359,6 +373,31 @@ export function Cost() {
             </table>
           </div>
         </ChartCard>
+
+        {dataSource === 'live' && trendsPivot.rows.length > 0 && (
+          <ChartCard title={t('cost.trends.title')} subtitle={t('cost.trends.subtitle')}>
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={trendsPivot.rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="2 4" />
+                <XAxis dataKey="date" tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tickFormatter={(v: number) => fmtUsd(v)} />
+                <Tooltip formatter={(v: number) => fmtUsd(v)} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                {trendsPivot.models.map((m, i) => (
+                  <Area
+                    key={m}
+                    type="monotone"
+                    dataKey={shortModel(m)}
+                    stackId="m"
+                    stroke={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
+                    fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
+                    fillOpacity={0.6}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        )}
 
         <div className="grid grid-cols-2 gap-6">
           <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
