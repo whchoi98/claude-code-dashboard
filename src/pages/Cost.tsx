@@ -411,12 +411,20 @@ export function Cost() {
           <EconomicProductivitySection data={eff.data} t={t} range={range} />
         )}
 
-        {/* ── CSV management ──────────────────────────────────────────── */}
-        <div className="pt-6 border-t border-ink-100">
-          <h2 className="text-lg font-semibold text-ink-800 mb-1">{t('cost.upload.replace')}</h2>
-          <p className="text-xs text-ink-500 mb-4">{t('cost.csv_upload.body')}</p>
-          <CsvUploader onChange={onUploadChange} variant="full" />
-        </div>
+        {/* ── CSV management (auto-expanded in CSV mode) ────────────── */}
+        <details
+          open={dataSource === 'csv'}
+          className="pt-6 border-t border-ink-100 group"
+        >
+          <summary className="cursor-pointer text-sm font-semibold text-ink-700 hover:text-ink-900 select-none">
+            {t('cost.recon.expander')}
+          </summary>
+          <div className="mt-4">
+            <h3 className="text-base font-semibold text-ink-800 mb-1">{t('cost.upload.replace')}</h3>
+            <p className="text-xs text-ink-500 mb-4">{t('cost.csv_upload.body')}</p>
+            <CsvUploader onChange={onUploadChange} variant="full" />
+          </div>
+        </details>
       </div>
     </div>
   )
