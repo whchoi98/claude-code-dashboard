@@ -46,11 +46,12 @@ Returns key presence flags (`analytics | admin | compliance | none`) and Analyti
 |--------|------|-------|
 | GET | `/api/compliance/activities?max=500&pages=5&type=<event_type>` | Paginated audit events with actor, IP, and event-specific fields. |
 
-## Cost (from uploaded CSV)
+## Cost (live API + CSV reconciliation)
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/api/cost/csv` | Latest Spend Report CSV from `s3://<archive>/spend-reports/`, parsed + totals. |
+| GET | `/api/cost/live?starting_date=&ending_date=` | **Live**: per-user × model spend/tokens for Claude Code product over the date range. Self-calls `/api/admin/claude-code/range` and reshapes to the same payload as `/cost/csv`. Adds a `daily` array (per-date × model) for the Trends chart. Defaults to `[today−31, today−1]`. Returns 400 `admin_key_required` when admin key is missing — UI uses this to fall back to CSV. |
+| GET | `/api/cost/csv` | **Reconciliation**: latest Spend Report CSV from `s3://<archive>/spend-reports/`, parsed + totals. Same response shape as `/api/cost/live` but `source: "csv"`, with no `daily` array. |
 | GET | `/api/cost/efficiency?starting_date=&ending_date=` | Join of Spend CSV + `users/range` → per-user economic productivity score. Date range is optional; defaults to the CSV's native period. Server clamps `ending_date` to `today − 3` (Analytics API buffer). |
 | POST | `/api/cost/upload` | Multipart CSV upload (field `file`). 25 MB cap. Validates required columns (`user_email`, `product`, `model`, `total_requests`, `total_prompt_tokens`, `total_completion_tokens`, `total_net_spend_usd`). Filenames matching `spend-report-+YYYY-MM-DD-to-YYYY-MM-DD.csv` are preserved; anything else is renamed to a safe today-derived name. |
 | GET | `/api/cost/uploads` | Lists all CSVs under `spend-reports/` with parsed period, size, and `last_modified`, newest first. Used by the dashboard's upload history + overlap detection. |
