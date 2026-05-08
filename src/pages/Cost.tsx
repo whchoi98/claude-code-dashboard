@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis,
@@ -126,12 +126,15 @@ export function useCostData(range: { startingDate: string; endingDate: string })
   const source: CostSource = useCsv ? 'csv' : 'live'
 
   // Loading: at least one channel is loading and no usable data yet
-  const loading = (live.loading && !live.error) || (useCsv && csv.loading && !csv.data)
+  const loading = data == null && (live.loading || csv.loading)
   // Error: only surface CSV's error if we've actually fallen back to CSV.
   // Live errors are silent — they trigger the fallback, not a user-visible error.
   const error = useCsv ? csv.error : null
 
-  const refetch = async () => { await live.refetch(); await csv.refetch() }
+  const refetch = useCallback(
+    async () => { await live.refetch(); await csv.refetch() },
+    [live.refetch, csv.refetch],
+  )
   return { data, loading, error, source, refetch }
 }
 
