@@ -26,12 +26,15 @@ type CsvRow = {
   total_gross_spend_usd: number
 }
 
+type DailyPoint = { date: string; model: string; spend: number; input: number; output: number; requests: number }
+
 type CsvResp = {
-  source: 'csv'
-  file: string
+  source: 'csv' | 'live'
+  file: string | null
   last_modified: string
   period: { starting_date: string; ending_date: string } | null
   rows: CsvRow[]
+  daily?: DailyPoint[]
   totals: {
     requests: number
     prompt_tokens: number
@@ -102,6 +105,34 @@ type EfficiencyResp = {
     avg_cost_per_commit: number | null
   }
   users: EfficiencyUser[]
+}
+
+type CostSource = 'live' | 'csv'
+
+/**
+ * Composite cost data hook.
+ * Tries /api/cost/live first; if it errors OR returns rows=[], silently falls
+ * back to /api/cost/csv. Both queries fire in parallel (cheap due to S3+cache
+ * on the CSV path); the active one is selected here.
+ */
+export function useCostData(range: { startingDate: string; endingDate: string }) {
+  const liveUrl = `/api/cost/live?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
+  const live = useFetch<CsvResp>(liveUrl)
+  const csv  = useFetch<CsvResp>('/api/cost/csv')
+
+  const liveOk = !live.loading && !live.error && (live.data?.rows.length ?? 0) > 0
+  const useCsv = !liveOk
+  const data = useCsv ? csv.data : live.data
+  const source: CostSource = useCsv ? 'csv' : 'live'
+
+  // Loading: at least one channel is loading and no usable data yet
+  const loading = (live.loading && !live.error) || (useCsv && csv.loading && !csv.data)
+  // Error: only surface CSV's error if we've actually fallen back to CSV.
+  // Live errors are silent — they trigger the fallback, not a user-visible error.
+  const error = useCsv ? csv.error : null
+
+  const refetch = async () => { await live.refetch(); await csv.refetch() }
+  return { data, loading, error, source, refetch }
 }
 
 export function Cost() {
