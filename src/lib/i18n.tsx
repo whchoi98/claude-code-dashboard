@@ -230,6 +230,7 @@ const DICT = {
     'cost.trends.title':          'Daily spend by model',
     'cost.trends.subtitle':       'Live API · spend over the selected window',
     'cost.recon.expander':        'Reconciliation CSV (≥ 30 days)',
+    'cost.top.csv_caveat':        'Per-user breakdown sourced from uploaded CSV ({start} → {end}); the live API does not expose user attribution.',
 
     // Audit / Compliance
     'audit.title':    'Audit',
@@ -499,6 +500,7 @@ const DICT = {
     'cost.trends.title':          '모델별 일별 지출',
     'cost.trends.subtitle':       '라이브 API · 선택된 기간 동안의 지출',
     'cost.recon.expander':        '정산 CSV (30일 이전)',
+    'cost.top.csv_caveat':        '사용자별 분해는 업로드된 CSV ({start} → {end}) 기준입니다. 라이브 API는 사용자 단위 데이터를 제공하지 않습니다.',
 
     // Audit (ko)
     'audit.title':    '감사',

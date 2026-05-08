@@ -114,6 +114,11 @@ type CostSource = 'live' | 'csv'
  * Tries /api/cost/live first; if it errors OR returns rows=[], silently falls
  * back to /api/cost/csv. Both queries fire in parallel (cheap due to S3+cache
  * on the CSV path); the active one is selected here.
+ *
+ * `csvData` is exposed separately so the page can render per-user widgets
+ * from CSV even when live API is the active main source. The Anthropic
+ * Analytics endpoints don't expose per-user attribution, but the uploaded
+ * Spend Report CSV does — so we use it as a complementary data layer.
  */
 export function useCostData(range: { startingDate: string; endingDate: string }) {
   const liveUrl = `/api/cost/live?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
@@ -135,7 +140,7 @@ export function useCostData(range: { startingDate: string; endingDate: string })
     async () => { await live.refetch(); await csv.refetch() },
     [live.refetch, csv.refetch],
   )
-  return { data, loading, error, source, refetch }
+  return { data, loading, error, source, refetch, csvData: csv.data }
 }
 
 export function Cost() {
@@ -143,7 +148,7 @@ export function Cost() {
   const { range } = useDateRange('30d')
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
-  const { data, loading, error, refetch, source: dataSource } = useCostData(range)
+  const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
   const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const eff = useFetch<EfficiencyResp>(effUrl)
 
@@ -217,6 +222,37 @@ export function Cost() {
     return { userRows, modelRows, productRows, productModelStack, allModels }
   }, [data])
 
+  // Per-user aggregation always sourced from CSV — Anthropic's Analytics
+  // cost_report/usage_report endpoints don't expose user attribution, so
+  // even in live mode we render the Top-N per-user widgets from the most
+  // recent uploaded Spend Report. Falls back to `null` if no CSV uploaded
+  // yet, in which case the per-user tables are simply not rendered.
+  const csvUserRows = useMemo(() => {
+    if (!csvData?.rows?.length) return null
+    const byUser = new Map<string, { spend: number; input: number; output: number; requests: number; products: Set<string>; models: Set<string> }>()
+    for (const r of csvData.rows) {
+      const u = byUser.get(r.user_email) ?? { spend: 0, input: 0, output: 0, requests: 0, products: new Set<string>(), models: new Set<string>() }
+      u.spend += r.total_net_spend_usd
+      u.input += r.total_prompt_tokens
+      u.output += r.total_completion_tokens
+      u.requests += r.total_requests
+      u.products.add(r.product)
+      u.models.add(r.model)
+      byUser.set(r.user_email, u)
+    }
+    return [...byUser.entries()].map(([email, u]) => ({
+      email,
+      masked: maskEmail(email),
+      spend: u.spend,
+      input: u.input,
+      output: u.output,
+      total_tokens: u.input + u.output,
+      requests: u.requests,
+      products: u.products.size,
+      models: u.models.size,
+    }))
+  }, [csvData])
+
   const trendsPivot = useMemo(() => {
     if (!data?.daily || data.daily.length === 0) return { rows: [], models: [] }
     const byDate = new Map<string, Record<string, any>>()
@@ -261,10 +297,13 @@ export function Cost() {
     )
   }
 
-  const topSpend  = [...agg.userRows].sort((a, b) => b.spend - a.spend).slice(0, 10)
-  const topInput  = [...agg.userRows].sort((a, b) => b.input - a.input).slice(0, 10)
-  const topOutput = [...agg.userRows].sort((a, b) => b.output - a.output).slice(0, 10)
-  const topTotal  = [...agg.userRows].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 10)
+  // Per-user Top-N tables always source from CSV (the live API can't attribute
+  // per user). When CSV is the active source, csvUserRows mirrors agg.userRows.
+  const userRowsForTop = csvUserRows ?? agg.userRows
+  const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
+  const topInput  = [...userRowsForTop].sort((a, b) => b.input - a.input).slice(0, 10)
+  const topOutput = [...userRowsForTop].sort((a, b) => b.output - a.output).slice(0, 10)
+  const topTotal  = [...userRowsForTop].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 10)
 
   return (
     <div>
@@ -298,9 +337,13 @@ export function Cost() {
             accent
             label={t('cost.kpi.total')}
             value={fmtUsd(data.totals.net_spend_usd)}
-            hint={dataSource === 'live'
-              ? `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
-              : `${fmtNum(data.totals.distinct_users)} users`
+            hint={
+              // Prefer CSV's per-user count when available (it's the only
+              // source that has user attribution today). Fall back to
+              // models·products in live-only mode.
+              csvData?.totals?.distinct_users
+                ? `${fmtNum(csvData.totals.distinct_users)} users · ${data.totals.distinct_models} models`
+                : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
             }
           />
           <KpiCard label={t('cost.kpi.input')}  value={fmtCompact(data.totals.prompt_tokens)}     hint="prompt tokens" />
@@ -413,16 +456,26 @@ export function Cost() {
           </ChartCard>
         )}
 
-        {/* Top-N per-user tables — only meaningful in CSV mode. The Anthropic
-            Analytics cost_report endpoint does not expose a per-user dimension,
-            so live mode rows are aggregated by (product, model) with empty
-            user_email — these tables would be empty/synthetic and confusing. */}
-        {dataSource === 'csv' && (
-          <div className="grid grid-cols-2 gap-6">
-            <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
-            <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
-            <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
-            <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
+        {/* Top-N per-user tables — sourced from the uploaded CSV (always),
+            because the Anthropic Analytics cost_report/usage_report endpoints
+            don't expose a per-user dimension. When in live mode, the CSV
+            period may differ from the live window — show a small caveat. */}
+        {csvUserRows && csvUserRows.length > 0 && (
+          <div>
+            {dataSource === 'live' && csvData?.period && (
+              <p className="text-[11px] text-ink-400 mb-2 px-1">
+                {t('cost.top.csv_caveat', {
+                  start: csvData.period.starting_date,
+                  end:   csvData.period.ending_date,
+                })}
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-6">
+              <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
+              <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
+              <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
+              <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
+            </div>
           </div>
         )}
 
