@@ -1,121 +1,142 @@
-// Standalone ESM test for claudeCodeRangeToCostResp.
+// Standalone ESM test for analyticsReportsToCostResp.
 // Runs with: node tests/server/test-cost-live-reshape.mjs
 // Exit code 0 on success, 1 on any failure (TAP-like output).
 
-import { claudeCodeRangeToCostResp } from '../../server/aws.js'
+import { analyticsReportsToCostResp } from '../../server/aws.js'
 
-const period = { starting_date: '2026-04-01', ending_date: '2026-04-02' }
+const period = { starting_date: '2026-05-01', ending_date: '2026-05-02' }
 
-const SAMPLE = {
-  range: { starting_date: '2026-04-01', ending_date: '2026-04-02' },
-  days: [
+const COST = {
+  data: [
     {
-      date: '2026-04-01',
-      source: 'live',
-      data: [
-        {
-          actor: { type: 'user_actor', email_address: 'alice@example.com' },
-          core_metrics: { num_sessions: 3 },
-          model_breakdown: [
-            { model: 'claude-opus-4-7', tokens: { input: 1000, output: 500, cache_read: 100, cache_creation: 50 }, estimated_cost: { currency: 'USD', amount: 1234 } },
-            { model: 'claude-sonnet-4-6', tokens: { input: 200, output: 80, cache_read: 0, cache_creation: 0 }, estimated_cost: { currency: 'USD', amount: 56 } },
-          ],
-        },
+      starting_at: '2026-05-01T00:00:00Z',
+      ending_at:   '2026-05-02T00:00:00Z',
+      results: [
+        { product: 'claude_code', model: 'claude-opus-4-7',   amount: '1234.50', list_amount: '1234.50', currency: 'USD', requests: 12 },
+        { product: 'claude_code', model: 'claude-sonnet-4-6', amount:   '56.00', list_amount:   '56.00', currency: 'USD', requests:  5 },
+        // ungrouped totals row — must be skipped to avoid double-count
+        { product: null, model: null, amount: '1290.50', currency: 'USD', requests: 17 },
       ],
     },
     {
-      date: '2026-04-02',
-      source: 'live',
-      data: [
-        {
-          actor: { type: 'user_actor', email_address: 'alice@example.com' },
-          core_metrics: { num_sessions: 2 },
-          model_breakdown: [
-            { model: 'claude-opus-4-7', tokens: { input: 500, output: 200, cache_read: 0, cache_creation: 0 }, estimated_cost: { currency: 'USD', amount: 800 } },
-          ],
-        },
-        {
-          actor: { type: 'api_actor', api_key_name: 'ci-bot' },
-          core_metrics: { num_sessions: 1 },
-          model_breakdown: [
-            { model: 'claude-haiku-4-5', tokens: { input: 50, output: 30, cache_read: 0, cache_creation: 0 }, estimated_cost: { currency: 'USD', amount: 12 } },
-          ],
-        },
+      starting_at: '2026-05-02T00:00:00Z',
+      ending_at:   '2026-05-03T00:00:00Z',
+      results: [
+        { product: 'claude_code', model: 'claude-opus-4-7', amount: '800.00', currency: 'USD', requests: 8 },
+        // a row only present in cost_report (no usage match) — should still appear with 0 tokens
+        { product: 'claude_chat', model: 'claude-haiku-4-5', amount: '10.00', currency: 'USD', requests: 2 },
+      ],
+    },
+  ],
+}
+
+const USAGE = {
+  data: [
+    {
+      starting_at: '2026-05-01T00:00:00Z',
+      results: [
+        { product: 'claude_code', model: 'claude-opus-4-7',   uncached_input_tokens: 1000, cache_read_input_tokens: 100, cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 0 }, output_tokens: 500 },
+        { product: 'claude_code', model: 'claude-sonnet-4-6', uncached_input_tokens: 200, output_tokens: 80 },
+        // ungrouped totals — must be skipped
+        { product: null, model: null, uncached_input_tokens: 9999, output_tokens: 9999 },
+      ],
+    },
+    {
+      starting_at: '2026-05-02T00:00:00Z',
+      results: [
+        { product: 'claude_code', model: 'claude-opus-4-7', uncached_input_tokens: 500, output_tokens: 200 },
       ],
     },
   ],
 }
 
 const cases = [
-  ['shape: source=live + period passthrough', () => {
-    const r = claudeCodeRangeToCostResp(SAMPLE, period)
+  ['shape: source=live + period passthrough + file=null', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
     if (r.source !== 'live') throw new Error(`source: ${r.source}`)
-    if (r.period.starting_date !== '2026-04-01') throw new Error(`period.start: ${r.period.starting_date}`)
-    if (r.period.ending_date   !== '2026-04-02') throw new Error(`period.end: ${r.period.ending_date}`)
+    if (r.period.starting_date !== '2026-05-01') throw new Error(`period.start: ${r.period.starting_date}`)
+    if (r.period.ending_date !== '2026-05-02') throw new Error(`period.end: ${r.period.ending_date}`)
     if (r.file !== null) throw new Error(`file: ${r.file}`)
   }],
-  ['rows: alice aggregated across 2 days × 2 models = 2 rows + 1 api_actor row', () => {
-    const r = claudeCodeRangeToCostResp(SAMPLE, period)
+  ['rows: 3 (product,model) tuples — opus, sonnet, haiku', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
     if (r.rows.length !== 3) throw new Error(`rows.length: ${r.rows.length}`)
-    const aliceOpus = r.rows.find((x) => x.user_email === 'alice@example.com' && x.model === 'claude-opus-4-7')
-    if (!aliceOpus) throw new Error('no alice/opus row')
-    if (aliceOpus.product !== 'Claude Code') throw new Error(`product: ${aliceOpus.product}`)
-    // input + cache_read + cache_creation: (1000+100+50) + (500+0+0) = 1650
-    if (aliceOpus.total_prompt_tokens !== 1650) throw new Error(`prompt: ${aliceOpus.total_prompt_tokens}`)
-    if (aliceOpus.total_completion_tokens !== 700) throw new Error(`completion: ${aliceOpus.total_completion_tokens}`)
-    // (1234 + 800) cents / 100 = 20.34
-    if (Math.abs(aliceOpus.total_net_spend_usd - 20.34) > 1e-6) throw new Error(`spend: ${aliceOpus.total_net_spend_usd}`)
-    if (aliceOpus.total_gross_spend_usd !== aliceOpus.total_net_spend_usd) throw new Error('gross != net')
-    // sessions across 2 days: 3 + 2 = 5 (approximate "requests")
-    if (aliceOpus.total_requests !== 5) throw new Error(`requests: ${aliceOpus.total_requests}`)
+    const opus = r.rows.find((x) => x.product === 'claude_code' && x.model === 'claude-opus-4-7')
+    if (!opus) throw new Error('no opus row')
+    if (opus.user_email !== '') throw new Error(`opus user_email: "${opus.user_email}" (must be empty in live mode)`)
+    // spend: (1234.50 + 800.00) cents / 100 = 20.345 USD
+    if (Math.abs(opus.total_net_spend_usd - 20.345) > 1e-6) throw new Error(`opus spend: ${opus.total_net_spend_usd}`)
+    if (opus.total_gross_spend_usd !== opus.total_net_spend_usd) throw new Error('gross != net')
+    // requests across both days: 12 + 8 = 20
+    if (opus.total_requests !== 20) throw new Error(`opus requests: ${opus.total_requests}`)
+    // tokens: input = (1000 + 100 + 50 + 0) day1 + 500 day2 = 1650
+    if (opus.total_prompt_tokens !== 1650) throw new Error(`opus prompt: ${opus.total_prompt_tokens}`)
+    // output = 500 + 200 = 700
+    if (opus.total_completion_tokens !== 700) throw new Error(`opus completion: ${opus.total_completion_tokens}`)
   }],
-  ['api_actor → user_email = "API key: <name>"', () => {
-    const r = claudeCodeRangeToCostResp(SAMPLE, period)
-    const bot = r.rows.find((x) => x.user_email === 'API key: ci-bot')
-    if (!bot) throw new Error('no api_actor row found')
-    if (bot.model !== 'claude-haiku-4-5') throw new Error(`bot model: ${bot.model}`)
+  ['cost-only row (no matching usage) appears with 0 tokens', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
+    const haiku = r.rows.find((x) => x.model === 'claude-haiku-4-5')
+    if (!haiku) throw new Error('no haiku row')
+    if (Math.abs(haiku.total_net_spend_usd - 0.10) > 1e-6) throw new Error(`haiku spend: ${haiku.total_net_spend_usd}`)
+    if (haiku.total_requests !== 2) throw new Error(`haiku requests: ${haiku.total_requests}`)
+    if (haiku.total_prompt_tokens !== 0) throw new Error(`haiku prompt: ${haiku.total_prompt_tokens}`)
+    if (haiku.total_completion_tokens !== 0) throw new Error(`haiku completion: ${haiku.total_completion_tokens}`)
   }],
-  ['daily series: 4 (date×model) pairs across 2 days', () => {
-    const r = claudeCodeRangeToCostResp(SAMPLE, period)
+  ['ungrouped (null product, null model) results are skipped (no double-count)', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
+    // Total spend: opus 20.345 + sonnet 0.56 + haiku 0.10 = 21.005, then rounded
+    // to 2 decimals via toFixed(2) — JS may produce 21.00 or 21.01 at the half-way
+    // boundary depending on IEEE 754 representation, so use tolerance > 0.005.
+    if (Math.abs(r.totals.net_spend_usd - 21.005) > 0.011) throw new Error(`totals net: ${r.totals.net_spend_usd}`)
+    // The ungrouped row's amount (1290.50 cents = $12.905) MUST NOT be added —
+    // if it were, totals would be ~33.91 (21.005 + 12.905). Sanity check.
+    if (r.totals.net_spend_usd > 25) throw new Error(`net total too high (ungrouped row leaked?): ${r.totals.net_spend_usd}`)
+    // Total requests: 12+5+8+2 = 27 (NOT 27+17 — ungrouped row excluded)
+    if (r.totals.requests !== 27) throw new Error(`totals requests: ${r.totals.requests}`)
+  }],
+  ['daily series: 4 (date, model) entries, sorted by date then model', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
     if (!Array.isArray(r.daily)) throw new Error('daily not array')
-    if (r.daily.length !== 4) throw new Error(`daily.length: ${r.daily.length}`) // d1: opus,sonnet; d2: opus, haiku
-    const d1Opus = r.daily.find((d) => d.date === '2026-04-01' && d.model === 'claude-opus-4-7')
-    if (!d1Opus) throw new Error('no d1/opus daily')
-    if (Math.abs(d1Opus.spend - 12.34) > 1e-6) throw new Error(`d1 opus spend: ${d1Opus.spend}`)
+    // d1: opus + sonnet, d2: opus + haiku → 4 total
+    if (r.daily.length !== 4) throw new Error(`daily.length: ${r.daily.length}`)
+    if (r.daily[0].date !== '2026-05-01') throw new Error(`daily[0].date: ${r.daily[0].date}`)
+    if (r.daily[0].model !== 'claude-opus-4-7') throw new Error(`daily[0].model: ${r.daily[0].model}`)
+    // Day 1 opus: spend 12.345, requests 12, input 1150, output 500
+    if (Math.abs(r.daily[0].spend - 12.345) > 1e-6) throw new Error(`d1 opus spend: ${r.daily[0].spend}`)
+    if (r.daily[0].input !== 1150) throw new Error(`d1 opus input: ${r.daily[0].input}`)
+    if (r.daily[0].output !== 500) throw new Error(`d1 opus output: ${r.daily[0].output}`)
+    if (r.daily[0].requests !== 12) throw new Error(`d1 opus requests: ${r.daily[0].requests}`)
   }],
-  ['totals: aggregate across all rows', () => {
-    const r = claudeCodeRangeToCostResp(SAMPLE, period)
-    // spend_cents: 1234 + 56 + 800 + 12 = 2102 → 21.02 USD
-    if (Math.abs(r.totals.net_spend_usd - 21.02) > 1e-6) throw new Error(`net total: ${r.totals.net_spend_usd}`)
-    if (r.totals.distinct_users !== 2) throw new Error(`users: ${r.totals.distinct_users}`)
+  ['totals: distinct_models=3, distinct_products=2, distinct_users=0', () => {
+    const r = analyticsReportsToCostResp(COST, USAGE, period)
     if (r.totals.distinct_models !== 3) throw new Error(`models: ${r.totals.distinct_models}`)
-    if (r.totals.distinct_products !== 1) throw new Error(`products: ${r.totals.distinct_products}`)
-    if (r.totals.requests !== 6) throw new Error(`req total: ${r.totals.requests}`) // 3+2+1
+    if (r.totals.distinct_products !== 2) throw new Error(`products: ${r.totals.distinct_products}`)
+    if (r.totals.distinct_users !== 0) throw new Error(`users (always 0 for live): ${r.totals.distinct_users}`)
+    // prompt = 1650 (opus) + 200 (sonnet) + 0 (haiku) = 1850
+    if (r.totals.prompt_tokens !== 1850) throw new Error(`prompt total: ${r.totals.prompt_tokens}`)
+    // completion = 700 + 80 + 0 = 780
+    if (r.totals.completion_tokens !== 780) throw new Error(`completion total: ${r.totals.completion_tokens}`)
   }],
-  ['empty days array → empty rows + zero totals + source=live', () => {
-    const r = claudeCodeRangeToCostResp({ days: [] }, period)
+  ['empty inputs → empty rows + zero totals + source=live', () => {
+    const r = analyticsReportsToCostResp({ data: [] }, { data: [] }, period)
     if (r.source !== 'live') throw new Error(`source: ${r.source}`)
     if (r.rows.length !== 0) throw new Error(`rows: ${r.rows.length}`)
     if (r.totals.net_spend_usd !== 0) throw new Error(`net: ${r.totals.net_spend_usd}`)
-    if (r.totals.distinct_users !== 0) throw new Error(`users: ${r.totals.distinct_users}`)
+    if (r.totals.distinct_models !== 0) throw new Error(`models: ${r.totals.distinct_models}`)
+    if (r.daily.length !== 0) throw new Error(`daily: ${r.daily.length}`)
   }],
-  ['error days are skipped', () => {
-    const r = claudeCodeRangeToCostResp({
-      days: [
-        { date: '2026-04-01', source: 'error', error: { error: 'oops' }, data: [] },
-        { date: '2026-04-02', source: 'live',  data: [{ actor: { type: 'user_actor', email_address: 'b@x.com' }, core_metrics: { num_sessions: 1 }, model_breakdown: [{ model: 'claude-opus-4-7', tokens: { input: 10, output: 5, cache_read: 0, cache_creation: 0 }, estimated_cost: { amount: 100, currency: 'USD' } }] }] },
-      ],
-    }, period)
-    if (r.rows.length !== 1) throw new Error(`rows: ${r.rows.length}`)
-    if (Math.abs(r.totals.net_spend_usd - 1.00) > 1e-6) throw new Error(`net: ${r.totals.net_spend_usd}`)
-  }],
-  ['null/missing model_breakdown → still produces user row aggregate? no — only model rows count', () => {
-    const r = claudeCodeRangeToCostResp({
-      days: [{ date: '2026-04-01', source: 'live', data: [{ actor: { type: 'user_actor', email_address: 'c@x.com' }, core_metrics: { num_sessions: 7 }, model_breakdown: [] }] }],
-    }, period)
-    if (r.rows.length !== 0) throw new Error(`rows: ${r.rows.length}`)
-    // user is counted in distinct_users? choice: no — only counted when they have at least one model row
-    if (r.totals.distinct_users !== 0) throw new Error(`users: ${r.totals.distinct_users}`)
+  ['amount as decimal string with high precision parses correctly', () => {
+    const r = analyticsReportsToCostResp({
+      data: [{
+        starting_at: '2026-05-01T00:00:00Z',
+        results: [{ product: 'p', model: 'm', amount: '44934.093750', requests: 100 }],
+      }],
+    }, { data: [] }, period)
+    // 44934.093750 cents / 100 = 449.34093750 USD → toFixed(4) = 449.3409
+    if (Math.abs(r.rows[0].total_net_spend_usd - 449.3409) > 1e-6) throw new Error(`spend: ${r.rows[0].total_net_spend_usd}`)
+    // totals rounds to 2 decimals: 449.34
+    if (Math.abs(r.totals.net_spend_usd - 449.34) > 1e-6) throw new Error(`total: ${r.totals.net_spend_usd}`)
   }],
 ]
 

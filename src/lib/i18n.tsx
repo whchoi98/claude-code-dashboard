@@ -227,9 +227,8 @@ const DICT = {
     'cost.source.live':           'Live API',
     'cost.source.csv':            'Reconciliation CSV',
     'cost.live.caveat.30day':     'Values within the last 30 days may be revised as new events are reflected.',
-    'cost.live.requests.approx':  'Approximate (session count)',
     'cost.trends.title':          'Daily spend by model',
-    'cost.trends.subtitle':       'Live API · Claude Code only',
+    'cost.trends.subtitle':       'Live API · spend over the selected window',
     'cost.recon.expander':        'Reconciliation CSV (≥ 30 days)',
 
     // Audit / Compliance
@@ -497,9 +496,8 @@ const DICT = {
     'cost.source.live':           '라이브 API',
     'cost.source.csv':            '정산 CSV',
     'cost.live.caveat.30day':     '최근 30일 내 값은 신규 이벤트 반영에 따라 변경될 수 있습니다.',
-    'cost.live.requests.approx':  '추정값 (세션 수 기준)',
     'cost.trends.title':          '모델별 일별 지출',
-    'cost.trends.subtitle':       '라이브 API · Claude Code 한정',
+    'cost.trends.subtitle':       '라이브 API · 선택된 기간 동안의 지출',
     'cost.recon.expander':        '정산 CSV (30일 이전)',
 
     // Audit (ko)

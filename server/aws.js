@@ -8,70 +8,97 @@ import {
   S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand,
 } from '@aws-sdk/client-s3'
 
-// ─── Reshape: Claude Code usage range → CsvResp shape ──────────────────────
-// Converts the per-day actor records returned by /api/admin/claude-code/range
-// into the same shape /api/cost/csv produces, so the frontend can swap data
-// sources without changing aggregation logic.
+// ─── Reshape: Analytics cost_report + usage_report → CsvResp shape ─────────
+// Joins the two Anthropic Analytics endpoints
+// /v1/organizations/analytics/cost_report   (USD spend + request counts)
+// /v1/organizations/analytics/usage_report  (token counts)
+// on (product, model) and emits the same payload shape /api/cost/csv produces
+// so the frontend's row-driven aggregation logic works unchanged.
 //
-// IMPORTANT: cents → USD conversion happens here. The upstream API returns
-// estimated_cost.amount in MINOR currency units (cents). Total amounts are
-// rounded to 4 decimals during accumulation to avoid binary-float drift, then
-// rounded to 2 decimals in the totals object for display.
-//
-// `total_requests` is set to sum(num_sessions); this is an APPROXIMATION
-// since the API does not expose per-request counts. The UI tags this as
-// approximate when source === 'live'.
-export function claudeCodeRangeToCostResp(rangeBody, period) {
-  // key: `${user_email}|${model}` → user×model aggregate row
+// IMPORTANT:
+// - `amount` from cost_report is a DECIMAL STRING in MINOR currency units
+//   (cents). Divide by 100 for USD; accumulate at toFixed(4) precision.
+// - These endpoints do NOT expose a per-user dimension. Rows are emitted with
+//   `user_email = ''` to signal "no user attribution available". The frontend
+//   hides per-user widgets in live mode (see Cost.tsx `dataSource === 'csv'`
+//   gating around the Top tables).
+// - `requests` is real (not approximated like the prior claude_code endpoint).
+export function analyticsReportsToCostResp(costBody, usageBody, period) {
+  // key: `${product}|${model}` → row aggregate (cost + tokens merged on key)
   const acc = new Map()
-  // key: `${date}|${model}` → daily×model series for the trends chart
+  // key: `${date}|${model}` → daily series for the trends chart
   const dailyAcc = new Map()
-  const distinctUsers = new Set()
   const distinctModels = new Set()
-  let totalRequests = 0
+  const distinctProducts = new Set()
 
-  for (const day of rangeBody?.days || []) {
-    if (day?.source === 'error') continue
-    for (const rec of day?.data || []) {
-      const actor = rec?.actor || {}
-      const email = actor.type === 'user_actor'
-        ? actor.email_address
-        : (actor.type === 'api_actor' ? `API key: ${actor.api_key_name ?? 'unknown'}` : 'unknown')
-      const sessions = rec?.core_metrics?.num_sessions ?? 0
-      const breakdown = Array.isArray(rec?.model_breakdown) ? rec.model_breakdown : []
-      if (breakdown.length === 0) continue
-      distinctUsers.add(email)
-      totalRequests += sessions
+  // ── Pass 1: cost_report → spend + requests ─────────────────────────────
+  for (const day of costBody?.data || []) {
+    const date = (day?.starting_at || '').slice(0, 10)
+    for (const r of day?.results || []) {
+      const product = r?.product
+      const model = r?.model
+      // Skip un-grouped totals (when both null) — they'd double-count
+      if (!product && !model) continue
+      const cents = parseFloat(r?.amount ?? '0') || 0
+      const usd = cents / 100
+      const reqs = r?.requests ?? 0
 
-      for (const m of breakdown) {
-        const model = m?.model
-        if (!model) continue
-        distinctModels.add(model)
-        const t = m.tokens || {}
-        const input  = (t.input ?? 0) + (t.cache_read ?? 0) + (t.cache_creation ?? 0)
-        const output = t.output ?? 0
-        const cents  = m.estimated_cost?.amount ?? 0
-        const usd    = cents / 100
+      const key = `${product ?? ''}|${model ?? ''}`
+      const u = acc.get(key) ?? {
+        user_email: '', account_uuid: '',
+        product: product ?? 'Other', model: model ?? 'unspecified',
+        total_requests: 0, total_prompt_tokens: 0, total_completion_tokens: 0,
+        total_net_spend_usd: 0, total_gross_spend_usd: 0,
+      }
+      u.total_net_spend_usd   = Number((u.total_net_spend_usd + usd).toFixed(4))
+      u.total_gross_spend_usd = u.total_net_spend_usd
+      u.total_requests       += reqs
+      acc.set(key, u)
+      if (model) distinctModels.add(model)
+      if (product) distinctProducts.add(product)
 
-        const key = `${email}|${model}`
-        const u = acc.get(key) ?? {
-          user_email: email, account_uuid: '', product: 'Claude Code', model,
-          total_requests: 0, total_prompt_tokens: 0, total_completion_tokens: 0,
-          total_net_spend_usd: 0, total_gross_spend_usd: 0,
-        }
-        u.total_prompt_tokens     += input
-        u.total_completion_tokens += output
-        u.total_net_spend_usd      = Number((u.total_net_spend_usd + usd).toFixed(4))
-        u.total_gross_spend_usd    = u.total_net_spend_usd
-        u.total_requests          += sessions
-        acc.set(key, u)
-
-        const dkey = `${day.date}|${model}`
-        const d = dailyAcc.get(dkey) ?? { date: day.date, model, spend: 0, input: 0, output: 0, requests: 0 }
+      if (model && date) {
+        const dkey = `${date}|${model}`
+        const d = dailyAcc.get(dkey) ?? { date, model, spend: 0, input: 0, output: 0, requests: 0 }
         d.spend    = Number((d.spend + usd).toFixed(4))
-        d.input   += input
-        d.output  += output
-        d.requests += sessions
+        d.requests += reqs
+        dailyAcc.set(dkey, d)
+      }
+    }
+  }
+
+  // ── Pass 2: usage_report → input/output tokens (joined on (product,model)) ──
+  for (const day of usageBody?.data || []) {
+    const date = (day?.starting_at || '').slice(0, 10)
+    for (const r of day?.results || []) {
+      const product = r?.product
+      const model = r?.model
+      if (!product && !model) continue
+      const cc = r?.cache_creation || {}
+      const input = (r?.uncached_input_tokens ?? 0) +
+                    (r?.cache_read_input_tokens ?? 0) +
+                    (cc.ephemeral_1h_input_tokens ?? 0) +
+                    (cc.ephemeral_5m_input_tokens ?? 0)
+      const output = r?.output_tokens ?? 0
+
+      const key = `${product ?? ''}|${model ?? ''}`
+      const u = acc.get(key) ?? {
+        user_email: '', account_uuid: '',
+        product: product ?? 'Other', model: model ?? 'unspecified',
+        total_requests: 0, total_prompt_tokens: 0, total_completion_tokens: 0,
+        total_net_spend_usd: 0, total_gross_spend_usd: 0,
+      }
+      u.total_prompt_tokens     += input
+      u.total_completion_tokens += output
+      acc.set(key, u)
+      if (model) distinctModels.add(model)
+      if (product) distinctProducts.add(product)
+
+      if (model && date) {
+        const dkey = `${date}|${model}`
+        const d = dailyAcc.get(dkey) ?? { date, model, spend: 0, input: 0, output: 0, requests: 0 }
+        d.input  += input
+        d.output += output
         dailyAcc.set(dkey, d)
       }
     }
@@ -81,9 +108,10 @@ export function claudeCodeRangeToCostResp(rangeBody, period) {
   const daily = [...dailyAcc.values()].sort((a, b) =>
     a.date === b.date ? a.model.localeCompare(b.model) : a.date.localeCompare(b.date),
   )
-  const sumSpend = rows.reduce((s, r) => s + r.total_net_spend_usd, 0)
+  const sumSpend  = rows.reduce((s, r) => s + r.total_net_spend_usd, 0)
   const sumPrompt = rows.reduce((s, r) => s + r.total_prompt_tokens, 0)
-  const sumCompl = rows.reduce((s, r) => s + r.total_completion_tokens, 0)
+  const sumCompl  = rows.reduce((s, r) => s + r.total_completion_tokens, 0)
+  const sumReq    = rows.reduce((s, r) => s + r.total_requests, 0)
 
   return {
     source: 'live',
@@ -93,14 +121,17 @@ export function claudeCodeRangeToCostResp(rangeBody, period) {
     rows,
     daily,
     totals: {
-      requests:           totalRequests,
+      requests:           sumReq,
       prompt_tokens:      sumPrompt,
       completion_tokens:  sumCompl,
       net_spend_usd:      Number(sumSpend.toFixed(2)),
       gross_spend_usd:    Number(sumSpend.toFixed(2)),
-      distinct_users:     distinctUsers.size,
+      // distinct_users not derivable from these endpoints — frontend uses
+      // CSV's per-user data when source === 'csv' and hides per-user widgets
+      // when source === 'live'.
+      distinct_users:     0,
       distinct_models:    distinctModels.size,
-      distinct_products:  rows.length === 0 ? 0 : 1,
+      distinct_products:  distinctProducts.size,
     },
   }
 }
@@ -529,42 +560,83 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // GET /api/cost/live?starting_date=YYYY-MM-DD&ending_date=YYYY-MM-DD
   //
-  // Reuses /api/admin/claude-code/range via in-process self-call (same pattern
-  // as /cost/efficiency below). Returns a CsvResp-shaped payload so the
-  // frontend's existing Cost.tsx aggregation logic works unchanged.
+  // Calls Anthropic's Analytics API endpoints with the analytics key
+  // (read:analytics scope, not the admin key):
+  //   /v1/organizations/analytics/cost_report   — USD spend + request counts
+  //   /v1/organizations/analytics/usage_report  — token counts (input/output/cache)
+  //
+  // Both are queried with bucket_width=1d and group_by[]=product&group_by[]=model,
+  // then joined on (product, model) and reshaped into a CsvResp-shaped payload
+  // so the frontend's row-driven aggregations work unchanged. Per-user
+  // attribution is not exposed by these endpoints — the UI hides per-user
+  // widgets in live mode and surfaces them only when source === 'csv'.
   //
   // Errors:
-  //   400 admin_key_required        → ANTHROPIC_ADMIN_KEY_ADMIN missing
-  //   502 upstream_error            → /admin/claude-code/range returned non-2xx
+  //   400 analytics_key_required    → ANTHROPIC_ANALYTICS_KEY missing
+  //   502 upstream_error            → either upstream endpoint returned non-2xx
   //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
   router.get('/cost/live', async (req, res) => {
-    // Default range: last 31 days inclusive ([today-31, today-1] UTC), matching
-    // the downstream /admin/claude-code/range cap (slice(-31)).
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    if (!ANALYTICS_KEY) {
+      return res.status(400).json({
+        error: 'analytics_key_required',
+        message: 'ANTHROPIC_ANALYTICS_KEY (sk-ant-api01-...) is required for live cost data.',
+      })
+    }
+
+    // Default range: last 31 days inclusive, ending today ([today-31, today]).
+    // Analytics cost_report accepts up-to-now timestamps and tolerates partial
+    // recent days; trailing days simply return small numbers.
     const today = new Date()
     const todayMinus = (n) => {
       const d = new Date(today); d.setUTCDate(d.getUTCDate() - n)
       return d.toISOString().slice(0, 10)
     }
     const startingDate = req.query.starting_date || todayMinus(31)
-    const endingDate   = req.query.ending_date   || todayMinus(1)
+    const endingDate   = req.query.ending_date   || todayMinus(0)
 
-    const PORT = Number(process.env.PORT) || 5174
-    const url = `http://127.0.0.1:${PORT}/api/admin/claude-code/range?starting_date=${encodeURIComponent(startingDate)}&ending_date=${encodeURIComponent(endingDate)}`
-    let rangeBody
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+
+    // Both endpoints accept RFC 3339 timestamps. Use day boundaries (00:00 UTC).
+    const startingAt = `${startingDate}T00:00:00Z`
+    const endingAt   = `${endingDate}T00:00:00Z`
+
+    const buildUrl = (path) => {
+      const params = new URLSearchParams({
+        starting_at: startingAt,
+        ending_at: endingAt,
+        bucket_width: '1d',
+      })
+      params.append('group_by[]', 'product')
+      params.append('group_by[]', 'model')
+      return `${apiUrl}${path}?${params.toString()}`
+    }
+
+    const headers = {
+      'x-api-key': ANALYTICS_KEY,
+      'anthropic-version': apiVersion,
+    }
+
+    let costBody, usageBody
     try {
-      const r = await fetch(url)
-      const body = await r.json().catch(() => ({}))
-      if (!r.ok) {
-        // Propagate admin_key_required so the UI can fall back gracefully
-        if (body?.error === 'admin_key_required') return res.status(400).json(body)
-        return res.status(502).json({ error: 'upstream_error', message: body?.message || `range fetch ${r.status}`, upstream: body })
+      const [costRes, usageRes] = await Promise.all([
+        fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
+        fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
+      ])
+      costBody  = await costRes.json().catch(() => ({}))
+      usageBody = await usageRes.json().catch(() => ({}))
+      if (!costRes.ok) {
+        return res.status(502).json({ error: 'upstream_error', message: `cost_report ${costRes.status}`, upstream: costBody })
       }
-      rangeBody = body
+      if (!usageRes.ok) {
+        return res.status(502).json({ error: 'upstream_error', message: `usage_report ${usageRes.status}`, upstream: usageBody })
+      }
     } catch (err) {
       return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
     }
 
-    const out = claudeCodeRangeToCostResp(rangeBody, { starting_date: startingDate, ending_date: endingDate })
+    const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
     res.json(out)
   })
 

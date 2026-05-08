@@ -294,16 +294,21 @@ export function Cost() {
           </>
         )}
         <div className="grid grid-cols-4 gap-4">
-          <KpiCard accent label={t('cost.kpi.total')}     value={fmtUsd(data.totals.net_spend_usd)}       hint={`${fmtNum(data.totals.distinct_users)} users`} />
-          <KpiCard       label={t('cost.kpi.input')}      value={fmtCompact(data.totals.prompt_tokens)}   hint="prompt tokens" />
-          <KpiCard       label={t('cost.kpi.output')}     value={fmtCompact(data.totals.completion_tokens)} hint="completion tokens" />
           <KpiCard
-            label={dataSource === 'live' ? `${t('cost.kpi.requests')} *` : t('cost.kpi.requests')}
-            value={fmtCompact(data.totals.requests)}
+            accent
+            label={t('cost.kpi.total')}
+            value={fmtUsd(data.totals.net_spend_usd)}
             hint={dataSource === 'live'
-              ? t('cost.live.requests.approx')
-              : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
+              ? `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
+              : `${fmtNum(data.totals.distinct_users)} users`
             }
+          />
+          <KpiCard label={t('cost.kpi.input')}  value={fmtCompact(data.totals.prompt_tokens)}     hint="prompt tokens" />
+          <KpiCard label={t('cost.kpi.output')} value={fmtCompact(data.totals.completion_tokens)} hint="completion tokens" />
+          <KpiCard
+            label={t('cost.kpi.requests')}
+            value={fmtCompact(data.totals.requests)}
+            hint={`${data.totals.distinct_models} models · ${data.totals.distinct_products} products`}
           />
         </div>
 
@@ -408,12 +413,18 @@ export function Cost() {
           </ChartCard>
         )}
 
-        <div className="grid grid-cols-2 gap-6">
-          <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
-          <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
-          <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
-          <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
-        </div>
+        {/* Top-N per-user tables — only meaningful in CSV mode. The Anthropic
+            Analytics cost_report endpoint does not expose a per-user dimension,
+            so live mode rows are aggregated by (product, model) with empty
+            user_email — these tables would be empty/synthetic and confusing. */}
+        {dataSource === 'csv' && (
+          <div className="grid grid-cols-2 gap-6">
+            <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
+            <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
+            <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
+            <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
+          </div>
+        )}
 
         {/* ── Economic Productivity ────────────────────────────────────── */}
         {eff.data && eff.data.users.length > 0 && (
