@@ -75,7 +75,7 @@ const cases = [
     if (!bot) throw new Error('no api_actor row found')
     if (bot.model !== 'claude-haiku-4-5') throw new Error(`bot model: ${bot.model}`)
   }],
-  ['daily series: 3 (date, model) pairs across 2 days', () => {
+  ['daily series: 4 (date×model) pairs across 2 days', () => {
     const r = claudeCodeRangeToCostResp(SAMPLE, period)
     if (!Array.isArray(r.daily)) throw new Error('daily not array')
     if (r.daily.length !== 4) throw new Error(`daily.length: ${r.daily.length}`) // d1: opus,sonnet; d2: opus, haiku

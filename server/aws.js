@@ -51,7 +51,7 @@ export function claudeCodeRangeToCostResp(rangeBody, period) {
         const input  = (t.input ?? 0) + (t.cache_read ?? 0) + (t.cache_creation ?? 0)
         const output = t.output ?? 0
         const cents  = m.estimated_cost?.amount ?? 0
-        const usd    = Math.round(cents) / 100
+        const usd    = cents / 100
 
         const key = `${email}|${model}`
         const u = acc.get(key) ?? {
