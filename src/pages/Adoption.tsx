@@ -125,7 +125,7 @@ export function Adoption() {
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
-        <ChartCard title="Skills" subtitle="Peak distinct users per skill; Chat/Code/Cowork are window totals">
+        <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>
           <ResponsiveContainer width="100%" height={Math.max(220, skillRows.length * 32)}>
             <BarChart data={skillRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -133,21 +133,21 @@ export function Adoption() {
               <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Users" fill="#D97757" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="Chat" fill="#B5AFA0" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="Code" fill="#1F1E1D" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Users" name={t('adopt.bar.users')} fill="#D97757" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Chat"  name={t('adopt.bar.chat')}  fill="#B5AFA0" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Code"  name={t('adopt.bar.code')}  fill="#1F1E1D" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
           {staleSkills.length > 0 && (
             <div className="mx-3 mt-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               <span className="font-semibold">{t('adopt.stale.skills', { count: staleSkills.length })}</span>
               {' — '}
-              {staleSkills.map((s) => `${s.name} (${s.lastSeen || 'never'})`).join(', ')}
+              {staleSkills.map((s) => `${s.name} (${s.lastSeen || t('adopt.never')})`).join(', ')}
             </div>
           )}
         </ChartCard>
 
-        <ChartCard title="Connectors" subtitle="Peak distinct users per connector; Chat/Code/Cowork are window totals">
+        <ChartCard title={t('adopt.connectors')} subtitle={t('adopt.connectors.sub')}>
           <ResponsiveContainer width="100%" height={Math.max(220, connectorRows.length * 32)}>
             <BarChart data={connectorRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -155,30 +155,30 @@ export function Adoption() {
               <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Users" fill="#D97757" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="Chat" fill="#B5AFA0" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="Code" fill="#1F1E1D" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Users" name={t('adopt.bar.users')} fill="#D97757" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Chat"  name={t('adopt.bar.chat')}  fill="#B5AFA0" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Code"  name={t('adopt.bar.code')}  fill="#1F1E1D" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
           {staleConnectors.length > 0 && (
             <div className="mx-3 mt-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               <span className="font-semibold">{t('adopt.stale.connectors', { count: staleConnectors.length })}</span>
               {' — '}
-              {staleConnectors.map((c) => `${c.name} (${c.lastSeen || 'never'})`).join(', ')}
+              {staleConnectors.map((c) => `${c.name} (${c.lastSeen || t('adopt.never')})`).join(', ')}
             </div>
           )}
         </ChartCard>
 
-        <ChartCard title="Top Chat Projects" subtitle="Total messages per project across the window (top 10)">
+        <ChartCard title={t('adopt.projects')} subtitle={t('adopt.projects.sub')}>
           <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
             <table className="w-full text-sm">
               <thead className="bg-paper-muted/60 text-ink-500">
                 <tr>
-                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">Project</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">Users</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">Conversations</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">Messages</th>
-                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">Created by</th>
+                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.project')}</th>
+                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.users')}</th>
+                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.convos')}</th>
+                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.messages')}</th>
+                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.created')}</th>
                 </tr>
               </thead>
               <tbody>
