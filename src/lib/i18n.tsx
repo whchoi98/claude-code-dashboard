@@ -261,11 +261,22 @@ const DICT = {
     'analyze.run':       'Analyze',
     'analyze.thinking':  'Thinking…',
     'analyze.prompts': JSON.stringify([
-      'What trends stand out in the last 7 days of DAU?',
-      'Which users are the most active Claude Code contributors?',
-      'Where is tool acceptance lowest, and what might be causing it?',
-      'Which skills and connectors have the highest adoption relative to seat count?',
-      'Summarize enterprise adoption health in a 3-sentence executive brief.',
+      // Adoption / engagement
+      'Show DAU / WAU / MAU trends and flag any week-over-week drop > 10% with a likely cause.',
+      'Which Skills and Connectors have the highest adoption relative to seat count? Which look stalled (created but rarely used)?',
+      'What is the seat utilization rate, and which provisioned users have shown zero activity in the last 14 days?',
+      // Productivity
+      'Top 10 Claude Code contributors by combined LOC + commits + PRs, with each user\'s tool acceptance rate.',
+      'Identify users whose tool acceptance is below 60% — which specific tools are they rejecting most, and what might be wrong?',
+      'Compare this period\'s productivity outputs to the prior period of equal length — who improved and who declined?',
+      // Cost / efficiency
+      'Break down spend in USD by product (Claude Code / Chat / other) and by model. Where is the money actually going?',
+      'Top 5 users by spend in the last 30 days — does their productivity output justify the cost?',
+      'Highlight any user whose weekly spend grew > 50%, or whose tokens-per-LOC ratio doubled, this period.',
+      'Forecast next month\'s total spend if current usage continues. Call out the biggest cost drivers.',
+      // Risk / executive
+      'Any role changes, SSO toggles, or data-export events in the last 14 days an admin should review?',
+      'Write a 3-sentence executive brief on Claude Code ROI: adoption health, productivity gains, and spend efficiency.',
     ]),
     'analyze.mode.direct':'Direct analysis',
     'analyze.mode.direct.hint':'Claude analyzes the live snapshot directly.',
@@ -532,11 +543,22 @@ const DICT = {
     'analyze.run':       '분석 시작',
     'analyze.thinking':  '생각하는 중…',
     'analyze.prompts': JSON.stringify([
-      '지난 7일간 DAU 추세에서 눈에 띄는 패턴은?',
-      'Claude Code 활성 기여자 Top 5는 누구이고 왜 그런가?',
-      '가장 수락률이 낮은 도구는 무엇이고 원인을 추정해줘.',
-      '좌석 수 대비 도입률이 가장 높은 스킬/커넥터는?',
-      '경영진용 3문장 도입 현황 브리핑을 작성해줘.',
+      // 도입 / 참여
+      'DAU / WAU / MAU 추세에서 주간 10% 이상 하락 구간을 찾아 원인을 추정해줘.',
+      '좌석 수 대비 도입률이 높은 스킬/커넥터 vs 생성됐지만 거의 안 쓰이는 정체 항목은?',
+      '좌석 활용률은 얼마이며, 최근 14일 활동이 0인 좌석 보유자는 누구인가?',
+      // 생산성
+      'Claude Code 기여 Top 10 — LOC + 커밋 + PR 합계 기준, 각자의 도구 수락률 포함.',
+      '도구 수락률 60% 미만 사용자 — 어떤 도구를 가장 많이 거부하며 원인은 무엇으로 추정되는가?',
+      '직전 동일 기간과 비교해 생산성이 개선된 사용자와 하락한 사용자를 구분해줘.',
+      // 비용 / 효율
+      '지출 분포를 USD로 분해해줘 — 제품별(Claude Code / Chat / 기타)과 모델별 비중. 돈이 어디로 가는가?',
+      '최근 30일 지출 Top 5 사용자 — 그 비용을 정당화할 만한 생산성 산출이 있는가?',
+      '주간 지출 50% 이상 증가 또는 LOC당 토큰비용이 2배가 된 사용자가 있는가?',
+      '현재 추세 유지 시 다음 달 총 지출을 예측해줘. 가장 큰 비용 동인은?',
+      // 리스크 / 경영
+      '최근 14일 내 권한 변경 / SSO 토글 / 데이터 export 중 관리자가 검토해야 할 항목은?',
+      'Claude Code ROI 경영진 브리핑(3문장): 도입 건강도 · 생산성 향상 · 지출 효율.',
     ]),
     'analyze.mode.direct':'직접 분석',
     'analyze.mode.direct.hint':'Claude가 실시간 스냅샷을 직접 분석합니다.',
