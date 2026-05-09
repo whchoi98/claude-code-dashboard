@@ -37,16 +37,14 @@ export function Layout() {
           <ClaudeIcon size={36} animate />
           <div className="leading-tight flex-1 min-w-0">
             <div className="text-[11px] uppercase tracking-widest text-ink-400">{t('product.tag')}</div>
-            <div className="flex items-center gap-2">
-              <div className="text-[15px] font-semibold text-ink-800 truncate">{t('product.name')}</div>
-              <Link
-                to="/changelog"
-                title={t('nav.changelog.hint', { version: APP_VERSION })}
-                className="rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums hover:bg-claude-200 transition-colors"
-              >
-                v{APP_VERSION}
-              </Link>
-            </div>
+            <div className="text-[15px] font-semibold text-ink-800 truncate">{t('product.name')}</div>
+            <Link
+              to="/changelog"
+              title={t('nav.changelog.hint', { version: APP_VERSION })}
+              className="mt-1 inline-block rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums hover:bg-claude-200 transition-colors"
+            >
+              v{APP_VERSION}
+            </Link>
           </div>
         </div>
 

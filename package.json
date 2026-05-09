@@ -1,7 +1,7 @@
 {
   "name": "claude-code-dashboard",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,api -c magenta,cyan \"vite\" \"node --watch server/index.js\"",
