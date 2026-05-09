@@ -2,25 +2,70 @@
 
 ## Role
 
-ESM Node 20 process (`"type": "module"` at repo root). Serves `/api/*` routes that fan out to three Anthropic API families, Amazon Bedrock, Athena, and S3. In production, also serves the built Vite bundle as static assets with SPA fallback.
+ESM Node 20 process (`"type": "module"` at repo root). Serves `/api/*` routes
+that fan out to three Anthropic API families, Amazon Bedrock, Athena, and S3.
+In production, also serves the built Vite bundle as static assets with SPA
+fallback.
 
 ## Files
 
-- **`index.js`** — Entry. Loads env, instantiates Express, registers Analytics / Admin / Compliance proxy routes, serves the SPA in production. Owns the 5-minute in-memory cache (`cache` Map) and the S3-first `readUsersFromS3` helper.
-- **`aws.js`** — AWS integrations via `registerAwsRoutes(app, { fetchAnalytics })`: Bedrock `ConverseStream` (SSE), Bedrock SQL generation with robust parsing, Athena query execution, S3 CSV reading, economic productivity join.
-- **`mock.js`** — Deterministic mock generators for local dev when no Analytics key is configured. Schema must track `src/types.ts`; the fake data is only valid when it matches the real shape.
+- **`index.js`** — Entry. Loads env, instantiates Express, registers the
+  Analytics / Admin / Compliance proxy routes, the S3-first
+  `readUsersFromS3` helper, and the **10-minute in-memory upstream cache**
+  (`cache` Map, `TTL_MS = 600_000`). Schedules a **compliance prewarm** at
+  task startup + every 5 minutes for the 7d / 14d / 30d windows so the
+  audit page hits the cache instead of paginating the live API.
+- **`aws.js`** — AWS integrations registered via
+  `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
+  - Cost routes: `GET /cost/live` (Analytics `cost_report` + `usage_report`,
+    reshaped into `CsvResp` shape via `analyticsReportsToCostResp`),
+    `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
+    `/cost/efficiency` (CSV × Analytics activity-weighted join).
+  - AI: `POST /analyze` (Bedrock `ConverseStream` SSE), Bedrock SQL
+    generation with robust parsing, Athena execution, S3 CSV reading.
+  - The `analyticsReportsToCostResp` reshape function — pure, exported,
+    unit-tested in `tests/server/test-cost-live-reshape.mjs`.
+- **`mock.js`** — Deterministic mock generators for local dev when no
+  Analytics key is configured. Schema must track `src/types.ts`; the fake
+  data is only valid when it matches the real shape.
 
 ## Conventions
 
-- **ESM only**. No `require`. Use `node --check server/*.js` for syntax validation.
-- **Never instantiate AWS clients per request** — create them once in the module scope so SDK credential provider chains cache.
-- **Always paginate upstream responses**. Analytics / Admin pagination caps at 1000; loop until `!has_more`.
-- **Mask before logging emails**. If you add a debug `console.log`, pass the email through `maskEmail` first (or just don't log it).
-- **Secret resolution**: read via `process.env.*`. In production these come from ECS `secrets:` (Secrets Manager injection). Locally they come from `.env` (gitignored).
+- **ESM only**. No `require`. Use `node --check server/*.js` for syntax
+  validation.
+- **Never instantiate AWS clients per request** — create them once in the
+  module scope so SDK credential provider chains cache.
+- **Pagination cursor names differ per endpoint** — verify before wiring:
+  - Analytics `users/range`, `cost_report`, `usage_report`: `?page=<token>`
+    via `body.next_page`.
+  - Compliance `/v1/compliance/activities`: **`?after_id=<last_event_id>`**
+    derived from `data[-1].id`. The endpoint does NOT return `next_page`;
+    relying on it silently breaks pagination after page 1.
+- **Self-call URL params must be `encodeURIComponent`'d** before
+  interpolation — `req.query`-derived dates flow into upstream URLs and
+  unencoded values can inject extra params.
+- **Mask before logging emails**. If you add a debug `console.log`, pass
+  the email through `maskEmail` first (or just don't log it).
+- **Secret resolution**: read via `process.env.*`. In production these come
+  from ECS `secrets:` (Secrets Manager injection). Locally they come from
+  `.env` (gitignored, `chmod 600`).
+
+## Route registration patterns
+
+- Routes that pre-date `aws.js` use the bare `app.get('/api/...')` style in
+  `index.js`.
+- Routes added via `registerAwsRoutes` use the `router.get('/cost/...')`
+  pattern (an `express.Router` mounted at `/api`). Both styles coexist — pick
+  the file based on whether the route needs AWS clients (S3, Bedrock,
+  Athena, Secrets Manager).
 
 ## Adding a new route
 
-1. Register it on `app.get('/api/...')` in `index.js` (proxy routes) or via `registerAwsRoutes` in `aws.js` (AWS-integrated routes).
-2. Auto-paginate upstream if the API returns `has_more`.
-3. Fall back gracefully: return `[]` with a non-2xx status + `{ error: 'code', message: '…' }` rather than crashing.
+1. Register it on `app.get('/api/...')` in `index.js` (proxy routes that
+   only fan out to Anthropic / use the cache) or via `router.get(...)`
+   inside `registerAwsRoutes` in `aws.js` (routes that need AWS clients).
+2. Auto-paginate upstream if the API returns `has_more`. Verify the cursor
+   parameter name (see conventions above).
+3. Fall back gracefully: return `[]` with a non-2xx status + `{ error:
+   'code', message: '…' }` rather than crashing.
 4. Document the route in `docs/api-reference.md`.

@@ -19,11 +19,14 @@ Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJS
 
 ## Backfill
 
-Invoke Lambda per day:
+Invoke the Lambda once per day for any window. Pick a `START` (the oldest day
+that has Analytics API data — `2026-01-01` is the floor) and a `DAYS` count:
 
 ```bash
-for d in $(seq 0 28); do
-  date=$(date -u -d "2026-03-22 +$d days" +%Y-%m-%d)
+START=2026-04-01    # adjust as needed; do not pre-date 2026-01-01
+DAYS=30
+for d in $(seq 0 $((DAYS - 1))); do
+  date=$(date -u -d "$START +$d days" +%Y-%m-%d)
   next=$(date -u -d "$date +1 day" +%Y-%m-%d)
   aws lambda invoke --region ap-northeast-2 \
     --function-name ccd-collector-Fn9270CBC0-DAPvUci8ngg6 \
@@ -32,3 +35,8 @@ for d in $(seq 0 28); do
     /tmp/out.json
 done
 ```
+
+Note: the Compliance audit feed is NOT backfilled here — it's served live
+(with cursor pagination + a 5-minute startup prewarm in the Express server).
+Only Analytics endpoints (users / summaries / skills / connectors / projects)
+land in S3.

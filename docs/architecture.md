@@ -37,7 +37,7 @@
 |-----------|---------|
 | Amazon Bedrock (Claude Sonnet 4.6) | Natural-language analysis via `ConverseStream` — SSE to the browser |
 | Athena workgroup | Ad-hoc SQL over archived partitions; powers the Archive page and the AI autonomous-SQL mode |
-| Server-side aggregation | `/api/cost/efficiency` joins Spend CSV + `users/range` to compute the economic productivity score |
+| Server-side aggregation | `/api/cost/efficiency` joins Spend CSV + `users/range` and applies activity-weighted scaling so per-user spend responds to the selected date range. `/api/cost/live` joins Analytics `cost_report` + `usage_report` on `(product, model)` and reshapes into the `CsvResp` shape consumed by the Cost page. `/api/cost/csv` keeps the manual Spend Report path for finance reconciliation. See [ADR-0003](decisions/0003-hybrid-live-cost.md). |
 
 ### Query / Presentation
 
@@ -135,6 +135,8 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **CloudFront prefix list on ALB SG** — blocks direct ALB access from the internet without requiring mTLS or a private ALB.
 - **ARM64 Fargate** — cheaper than x86 (~20 %) and matches the dev host architecture so Docker image builds don't need QEMU emulation.
 - **Email masking as a contract** — `maskEmail()` is called in both the frontend and the LLM system prompt, making the UI safe by default.
+- **Hybrid live + CSV cost** — main Cost page widgets are sourced from the live Analytics API (org-wide, no per-user dimension) while per-user Top-N tables are sourced from the uploaded CSV. CSV totals are activity-weighted (sessions ratio) so they respond to the selected date range. See [ADR-0003](decisions/0003-hybrid-live-cost.md).
+- **Compliance after_id pagination + prewarm** — the Compliance API has no timestamp filter and only paginates via `after_id`. ECS task startup self-fetches the 7d / 14d / 30d windows in the background and refreshes every 5 minutes; the upstream cache (TTL 10 min) absorbs subsequent user requests so the audit feed renders in <1 s instead of paginating 30+ s of API calls.
 
 ## Cost breakdown
 
@@ -153,7 +155,11 @@ New-VPC path adds one NAT Gateway (~$43/month) plus EIP cost, so reuse an existi
 
 ## Operations
 
-See `docs/runbooks/` for incident procedures (listener drift, failed rolling deploy, ECR push denied, WAF block rate spike).
+See `docs/runbooks/` for incident procedures. Currently shipped:
+- [`alb-listener-drift.md`](runbooks/alb-listener-drift.md) — recover when the ALB listener loses its target group association.
+- [`cognito-users.md`](runbooks/cognito-users.md) — provision / disable Hosted UI users.
+
+Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, compliance prewarm cache flush, cost data reconciliation when live ≠ CSV.
 
 ---
 
@@ -187,7 +193,7 @@ See `docs/runbooks/` for incident procedures (listener drift, failed rolling dep
 |---------|------|
 | Amazon Bedrock (Claude Sonnet 4.6) | `ConverseStream`으로 자연어 분석 → 브라우저 SSE |
 | Athena 워크그룹 | 아카이브 파티션에 ad-hoc SQL, Archive 페이지와 AI autonomous-SQL 모드 구동 |
-| 서버 사이드 집계 | `/api/cost/efficiency`가 Spend CSV + `users/range`를 조인해 경제 생산성 점수 계산 |
+| 서버 사이드 집계 | `/api/cost/efficiency`가 Spend CSV + `users/range`를 조인하고 활동량 가중 비례로 사용자별 spend를 선택 기간에 분배. `/api/cost/live`는 Analytics `cost_report` + `usage_report`를 `(product, model)` 단위로 조인해 Cost 페이지의 `CsvResp` 형태로 reshape. `/api/cost/csv`는 수동 Spend Report를 재무 정산용으로 잔존. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조. |
 
 ### Query / Presentation (조회 / 표현)
 
@@ -285,6 +291,8 @@ See `docs/runbooks/` for incident procedures (listener drift, failed rolling dep
 - **ALB SG에 CloudFront prefix list** — mTLS나 private ALB 없이도 인터넷 직접 접근 차단.
 - **ARM64 Fargate** — x86 대비 약 20% 저렴, 개발 호스트 아키텍처와 일치해 Docker 빌드 시 QEMU 에뮬레이션 불필요.
 - **이메일 마스킹을 계약으로** — `maskEmail()`을 프론트엔드와 LLM 시스템 프롬프트 양쪽에서 호출해 UI를 기본적으로 안전하게 유지.
+- **하이브리드 라이브 + CSV 비용** — Cost 페이지 메인 위젯은 라이브 Analytics API(조직 단위, 사용자 차원 없음), per-user Top-N은 업로드된 CSV. CSV 합계는 활동량 가중 분배(세션 비율)로 선택 기간에 반응. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조.
+- **Compliance after_id 페이지네이션 + prewarm** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. ECS task 부팅 시 7d / 14d / 30d 백그라운드 fetch + 5분마다 재실행. upstream 캐시(TTL 10분)가 사용자 요청을 흡수해 audit 페이지가 30+ 초 페이지네이션 대신 1초 미만 응답.
 
 ## 비용 내역
 
@@ -303,4 +311,8 @@ See `docs/runbooks/` for incident procedures (listener drift, failed rolling dep
 
 ## 운영
 
-사고 대응 절차(listener drift, 롤링 배포 실패, ECR push 거부, WAF 차단 급증)는 `docs/runbooks/` 참고.
+`docs/runbooks/` 의 사고 대응 절차. 현재 보유:
+- [`alb-listener-drift.md`](runbooks/alb-listener-drift.md) — ALB listener의 target group 연결 손실 복구.
+- [`cognito-users.md`](runbooks/cognito-users.md) — Hosted UI 사용자 관리.
+
+향후 추가 후보: 롤링 배포 롤백, collector backfill, compliance prewarm 캐시 flush, 라이브 ≠ CSV 비용 데이터 정산 절차.

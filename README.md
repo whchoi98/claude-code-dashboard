@@ -232,7 +232,7 @@ claude-code-dashboard/
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # Bedrock SSE, Athena, CSV parsing, efficiency join
+│   ├── aws.js              # /api/cost/{live,csv,upload,uploads,efficiency}, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
 │   └── mock.js             # Deterministic mocks for local dev
 ├── collector/              # Daily Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4 stacks

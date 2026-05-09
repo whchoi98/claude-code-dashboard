@@ -4,7 +4,7 @@ All routes are served by the Express proxy (`server/index.js` + `server/aws.js`)
 
 ## Authentication
 
-In production, the CloudFront distribution fronting the API sits behind a Cognito + Lambda@Edge gate (see [ADR 0002](decisions/0002-cognito-lambda-edge-auth.md)). Every unauthenticated request is `302`-redirected to `/oauth2/authorize`; after login the browser carries three HttpOnly cookies (`ccd_access`, `ccd_id`, `ccd_refresh`) which the `check-auth` edge function verifies on every request. No per-route auth code in Express — the edge enforces it uniformly.
+In production, the CloudFront distribution fronting the API sits behind a Cognito + Lambda@Edge gate (see [ADR-0001](decisions/0001-cognito-lambda-edge-auth.md)). Every unauthenticated request is `302`-redirected to `/oauth2/authorize`; after login the browser carries three HttpOnly cookies (`ccd_access`, `ccd_id`, `ccd_refresh`) which the `check-auth` edge function verifies on every request. No per-route auth code in Express — the edge enforces it uniformly.
 
 Special path handlers (never gated by `check-auth`):
 
@@ -28,8 +28,11 @@ Returns key presence flags (`analytics | admin | compliance | none`) and Analyti
 | GET | `/api/analytics/users?date=` | Per-user engagement + Claude Code productivity for a single day. |
 | GET | `/api/analytics/users/range?starting_date=&ending_date=` | **S3-first** then live API fallback, parallel per-day fetch. Returns `days[]` plus a `cache` object (`s3_hits` / `live_calls`). |
 | GET | `/api/analytics/skills?date=` | Distinct user counts per skill. |
+| GET | `/api/analytics/skills/range?starting_date=&ending_date=` | Per-day fan-out of `/skills`. |
 | GET | `/api/analytics/connectors?date=` | Distinct user counts per connector. |
+| GET | `/api/analytics/connectors/range?starting_date=&ending_date=` | Per-day fan-out of `/connectors`. |
 | GET | `/api/analytics/projects?date=` | Chat project usage (`/apps/chat/projects`). |
+| GET | `/api/analytics/projects/range?starting_date=&ending_date=` | Per-day fan-out of `/projects`. |
 
 ## Admin API (Admin key required)
 
@@ -44,7 +47,7 @@ Returns key presence flags (`analytics | admin | compliance | none`) and Analyti
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/api/compliance/activities?max=500&pages=5&type=<event_type>` | Paginated audit events with actor, IP, and event-specific fields. |
+| GET | `/api/compliance/activities?max=2000&pages=20&starting_date=&ending_date=&type=<event_type>&after_id=<cursor>` | Paginated audit events. The upstream `/v1/compliance/activities` endpoint uses `after_id=<last_event_id>` for cursor pagination (NOT a `next_page` token); the server derives the cursor from `data[-1].id` and stops paginating as soon as the oldest event on a page predates `starting_date`. Server-side cap defaults: `pages=50` / `max=5000` (the Compliance.tsx page passes `pages=20` / `max=2000` to fit within the ~30 s ALB origin timeout). Response includes `total_fetched`, `in_window`, `stop_reason` (`starting_date` / `max` / `has_more=false` / `cap` / `empty`) so the UI can warn when older events were truncated. A startup prewarm self-fetches the 7d / 14d / 30d windows on every ECS task boot and refreshes every 5 minutes — most user requests hit the upstream cache. |
 
 ## Cost (live API + CSV reconciliation)
 

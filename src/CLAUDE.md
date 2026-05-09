@@ -18,10 +18,14 @@ src/
 ├── pages/                # one file per route
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
-│   ├── useDateRange.ts   # URL-synced state
-│   ├── useFetch.ts / api.ts
+│   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=)
+│   ├── api.ts            # useFetch<T>(url) — single-URL fetch, exposes refetch + source/reason from response
 │   ├── useHealth.ts
 │   └── format.ts         # fmtNum / fmtCents / fmtDate / maskEmail / acceptRate
+│
+│ Page-local hooks (not in lib/ — kept colocated with the consumer page):
+│   - useCostData(range)  # composite: tries /api/cost/live first, falls back to /api/cost/csv;
+│                         # exposes csvData separately so per-user widgets can use CSV in live mode
 ├── types.ts              # Analytics API schema types
 ├── App.tsx / main.tsx
 └── index.css             # Tailwind entry + custom utilities

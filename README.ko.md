@@ -232,7 +232,7 @@ claude-code-dashboard/
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # Bedrock SSE, Athena, CSV 파싱, efficiency join
+│   ├── aws.js              # /api/cost/{live,csv,upload,uploads,efficiency}, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
 │   └── mock.js             # 로컬 개발용 결정론적 목업
 ├── collector/              # 일일 Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4개 스택

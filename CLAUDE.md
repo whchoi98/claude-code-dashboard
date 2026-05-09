@@ -31,8 +31,8 @@ claude-code-dashboard/
 │   ├── App.tsx             Router
 │   └── main.tsx            Entry + I18nProvider
 ├── server/                 Express API layer
-│   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/*, health
-│   ├── aws.js              Bedrock (SSE analyze, SQL gen), Athena, S3 CSV, cost efficiency join
+│   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/* (after_id cursor + 7d/14d/30d prewarm), health, plus a 10-minute in-memory cache shared across upstream calls
+│   ├── aws.js              registerAwsRoutes(): /api/cost/{live,csv,upload,uploads,uploads/:file,efficiency}, /api/analyze (Bedrock SSE), /api/archive/query (Athena), plus the analytics→CsvResp reshape used by /cost/live
 │   └── mock.js             Deterministic mock generators (dev fallback only)
 ├── collector/              Node 20 Lambda — daily S3 snapshot of Analytics API
 │   ├── handler.js          Flatten → NDJSON → s3://<bucket>/<table>/date=YYYY-MM-DD/
@@ -82,11 +82,12 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 
 | API | Key | Endpoint | Provides |
 |---|---|---|---|
-| Analytics (Enterprise) | `sk-ant-api01-...` | `/v1/organizations/analytics/{users,summaries,skills,connectors,apps/chat/projects}` | Engagement, CC productivity (LOC, commits, PRs, tool acceptance) |
-| Admin | `sk-ant-admin01-...` | `/v1/organizations/usage_report/{claude_code,messages}` + `/cost_report` | Token counts, model breakdown, estimated cost (cents USD) |
-| Compliance | `sk-ant-api01-...` (Compliance scope) | `/v1/compliance/activities` | Audit events (login, role change, file/chat ops, API calls) |
-| CSV (Spend Report) | N/A (manual export) | S3 `spend-reports/` | Per-user × product × model spend + token totals |
-| S3 Archive | N/A (collector fills) | `s3://<bucket>/<table>/date=YYYY-MM-DD/` | Fast replay of Analytics API data beyond 90-day window |
+| Analytics — productivity | `sk-ant-api01-...` (Analytics scope) | `/v1/organizations/analytics/{users,summaries,skills,connectors,apps/chat/projects}` | Per-user engagement + CC productivity (LOC, commits, PRs, tool acceptance). NO USD/cost. |
+| Analytics — cost (live) | same Analytics key | `/v1/organizations/analytics/{cost_report,usage_report}` | Org-wide spend (USD) + tokens by `(product, model)`. **No per-user dimension** — see ADR-0003. ~4h refresh, 30-day correction window. |
+| Admin | `sk-ant-admin01-...` | `/v1/organizations/usage_report/{claude_code,messages}` + `/cost_report` | Workspace-scoped per-user × model `estimated_cost`; daily token + USD totals. Used by `/api/admin/*` proxy routes (still wired but not the primary cost path). |
+| Compliance | `sk-ant-api01-...` (Compliance scope) | `/v1/compliance/activities` | Audit events. Cursor pagination via `after_id` (NOT `next_page`); see `server/index.js`. |
+| CSV (Spend Report) | N/A (manual export) | S3 `spend-reports/` | Per-user × product × model spend totals. Drives the Cost page's per-user Top-N tables (live API has no user dimension). |
+| S3 Archive | N/A (collector fills) | `s3://<bucket>/<table>/date=YYYY-MM-DD/` | Fast replay of Analytics API data beyond the 90-day window. Compliance is NOT yet archived to S3 — relies on the in-memory prewarm cache + cursor pagination from the live endpoint. |
 
 ## Auto-Sync Rules
 
