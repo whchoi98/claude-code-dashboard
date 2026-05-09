@@ -11,6 +11,7 @@ import { Cost } from './pages/Cost'
 import { Compliance } from './pages/Compliance'
 import { Analyze } from './pages/Analyze'
 import { Archive } from './pages/Archive'
+import { UserSearch } from './pages/UserSearch'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="claude-code" element={<ClaudeCode />} />
         <Route path="productivity" element={<Productivity />} />
         <Route path="user-productivity" element={<UserProductivity />} />
+        <Route path="user-search" element={<UserSearch />} />
         <Route path="adoption" element={<Adoption />} />
         <Route path="cost" element={<Cost />} />
         <Route path="compliance" element={<Compliance />} />

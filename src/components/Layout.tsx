@@ -8,6 +8,7 @@ const NAV = [
   { to: '/',                  key: 'overview' },
   { to: '/users',             key: 'users' },
   { to: '/user-productivity', key: 'user_productivity' },
+  { to: '/user-search',       key: 'user_search', badge: '🔍' },
   { to: '/trends',            key: 'trends' },
   { to: '/claude-code',       key: 'claude_code' },
   { to: '/productivity',      key: 'productivity' },
