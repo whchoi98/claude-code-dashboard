@@ -107,10 +107,13 @@ export function Compliance() {
   // Pass the date window to the server so it can paginate via after_id only
   // until it crosses range.startingDate (huge savings for noisy orgs that
   // produce 1000+ events/day). The Compliance API has no timestamp filter
-  // and pagination is sequential — fetching 14d on a noisy org could take
-  // several minutes. We cap at max=5000 (~1.5 min worst case) and surface
-  // stop_reason so the UI can warn that older events were truncated.
-  const url = `/api/compliance/activities?max=5000&pages=50&starting_date=${range.startingDate}&ending_date=${upper}`
+  // and pagination is sequential — every 100 events is ~1.5s of network
+  // round-trip. We cap at max=2000 (~30s worst case) so the response stays
+  // within ALB/CloudFront 60s timeout. The server's startup prewarm
+  // re-fetches the same windows in the background so most users hit the
+  // upstream cache and see results in <1s. The amber banner surfaces when
+  // older events in the requested window were truncated.
+  const url = `/api/compliance/activities?max=2000&pages=20&starting_date=${range.startingDate}&ending_date=${upper}`
   const { data, loading, error } = useFetch<Resp>(url)
 
   // The server already filtered by date; pass through directly.

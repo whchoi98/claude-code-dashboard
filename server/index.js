@@ -104,7 +104,7 @@ app.use(express.json())
 // barely changes on the day it's being pulled, so a longer cache buys repeat
 // page loads at ~0ms while only costing a few minutes of freshness.
 const cache = new Map()
-const TTL_MS = 300_000
+const TTL_MS = 600_000  // 10 min — paired with the 5-min compliance prewarm interval below
 
 async function fetchJson(path, params, key) {
   const url = new URL(path, API_URL)
@@ -587,4 +587,37 @@ if (PROD) {
 app.listen(PORT, () => {
   console.log(`\x1b[36m[api]\x1b[0m Claude Code Dashboard proxy on http://localhost:${PORT}`)
   console.log(`\x1b[36m[api]\x1b[0m Analytics key: ${keyClass(ANALYTICS_KEY)} | Admin key: ${keyClass(ADMIN_KEY)}`)
+  // Background prewarm for the Compliance audit feed. The Compliance API
+  // pagination is sequential (after_id cursor, ~1.5s/page) and a 14d window
+  // on noisy orgs takes 30+s — long enough to risk an ALB/CloudFront
+  // timeout on cold first request. Pre-populate the upstream cache for the
+  // three common preset windows so the user-facing fetch hits the in-memory
+  // cache and returns in <1s.
+  if (COMPLIANCE_KEY) {
+    const prewarm = async () => {
+      const today = todayUtc(0)
+      const windows = [
+        { label: '7d',  starting_date: todayUtc(-9) },   // BUFFER_DAYS+7-1
+        { label: '14d', starting_date: todayUtc(-16) },
+        { label: '30d', starting_date: todayUtc(-32) },
+      ]
+      for (const w of windows) {
+        try {
+          const url = `http://127.0.0.1:${PORT}/api/compliance/activities?max=2000&pages=20&starting_date=${w.starting_date}&ending_date=${today}`
+          const t0 = Date.now()
+          const r = await fetch(url)
+          const body = await r.json().catch(() => ({}))
+          const ms = Date.now() - t0
+          console.log(`\x1b[36m[prewarm]\x1b[0m audit ${w.label}: ${body?.in_window ?? 'fail'} events in ${ms}ms (${body?.stop_reason ?? '?'})`)
+        } catch (err) {
+          console.warn(`[prewarm] audit ${w.label} failed:`, err?.message || err)
+        }
+      }
+    }
+    // Initial run after a brief delay (so the server is ready to accept
+    // self-calls), then refresh every 5 minutes (TTL is 10 min, so the
+    // cache stays warm with one window of overlap).
+    setTimeout(() => { prewarm().catch(() => {}) }, 1000)
+    setInterval(() => { prewarm().catch(() => {}) }, 300_000)
+  }
 })
