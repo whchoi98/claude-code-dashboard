@@ -43,7 +43,7 @@
 
 | Component | Purpose |
 |-----------|---------|
-| React SPA | 11 pages, i18n (en/ko), date range control, user drill-down panel, markdown rendering |
+| React SPA | 12 pages, i18n (en/ko), date range control, user drill-down panel, markdown rendering |
 | Recharts | Line / area / bar / stacked bar / pie / scatter / radial charts |
 | react-markdown + remark-gfm | Streamed markdown rendering for AI analysis output |
 
@@ -199,7 +199,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| React SPA | 11개 페이지, i18n(영/한), 날짜 범위 컨트롤, 사용자 drill-down 패널, 마크다운 렌더링 |
+| React SPA | 12개 페이지, i18n(영/한), 날짜 범위 컨트롤, 사용자 drill-down 패널, 마크다운 렌더링 |
 | Recharts | 라인/영역/막대/스택/파이/산점도/방사형 차트 |
 | react-markdown + remark-gfm | AI 분석 결과 스트리밍 마크다운 렌더링 |
 

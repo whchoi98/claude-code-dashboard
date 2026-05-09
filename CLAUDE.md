@@ -25,7 +25,7 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 claude-code-dashboard/
 ├── src/                    React SPA (Vite)
 │   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, UserDetailPanel, DateRangeControl, Markdown)
-│   ├── pages/              11 routes (Overview, Users, UserProductivity, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive)
+│   ├── pages/              12 routes (Overview, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive)
 │   ├── lib/                i18n (ko/en), useDateRange, useFetch, format (masking, number, date)
 │   ├── types.ts            Analytics API schema types
 │   ├── App.tsx             Router

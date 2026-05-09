@@ -149,7 +149,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **11 pages** — Overview · Users (drill-down) · User Productivity · Trends · Claude Code · Productivity · Adoption · Cost · Audit · Analyze (AI) · Archive.
+- **12 pages** — Overview · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Productivity · Adoption · Cost · Audit · Analyze (AI) · Archive.
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
@@ -227,7 +227,7 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # Shared UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 11 routes
+│   ├── pages/              # 12 routes
 │   ├── lib/                # i18n, useFetch, useDateRange, formatting
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations

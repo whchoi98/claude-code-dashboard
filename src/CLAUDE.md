@@ -2,7 +2,7 @@
 
 ## Role
 
-Browser-side SPA. Renders the 11 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
+Browser-side SPA. Renders the 12 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
 
 ## Layout
 
