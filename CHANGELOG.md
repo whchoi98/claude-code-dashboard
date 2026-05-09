@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No changes yet — next entries land here._
+
+## [1.0.0] - 2026-05-09
+
+First public release. Covers the live cost API, hybrid live + CSV cost
+UX, the Compliance pagination + prewarm fix, the Analyze Quick prompts
+overhaul, the User Search per-user drill-down dashboard, and the
+`c4e.whchoi.net` alias domain. See [ADR-0003] and [ADR-0004] for the
+two architectural decisions captured during this release.
+
+[ADR-0003]: docs/decisions/0003-hybrid-live-cost.md
+[ADR-0004]: docs/decisions/0004-compliance-pagination-prewarm.md
+
 ### Added
 
 - **Live Cost data via the Anthropic Analytics API** (`GET /api/cost/live`): org-wide spend and token data refreshed every ~4 hours, queried with `starting_date` / `ending_date`. The endpoint joins `/v1/organizations/analytics/cost_report` (USD spend + request counts) with `/v1/organizations/analytics/usage_report` (input/output/cache token counts) on `(product, model)` and reshapes the response into the same `CsvResp` shape the Cost page already consumes. Same analytics key already used for `/api/analytics/*` proxy routes — zero new credentials. See [ADR 0003](docs/decisions/0003-hybrid-live-cost.md).
@@ -104,6 +117,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+_아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [1.0.0] - 2026-05-09
+
+첫 공개 릴리즈. 라이브 비용 API, 하이브리드 라이브 + CSV Cost UX,
+Compliance 페이지네이션 + prewarm fix, Analyze Quick prompts 정비,
+사용자 검색(User Search) per-user 상세 대시보드, `c4e.whchoi.net`
+alias 도메인을 포함합니다. 이번 릴리즈의 두 아키텍처 결정은
+[ADR-0003], [ADR-0004]에 기록.
+
+[ADR-0003]: docs/decisions/0003-hybrid-live-cost.md
+[ADR-0004]: docs/decisions/0004-compliance-pagination-prewarm.md
 
 ### Added
 

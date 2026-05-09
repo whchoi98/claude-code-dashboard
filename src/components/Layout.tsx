@@ -1,8 +1,15 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClaudeIcon } from './ClaudeIcon'
 import { useHealth } from '../lib/useHealth'
 import { useI18n } from '../lib/i18n'
+// Single source of truth for the displayed version. Bumping this in
+// package.json (and adding a matching ## [x.y.z] section to CHANGELOG.md)
+// is all that's needed to update the badge — the /changelog page reads
+// the same package.json + CHANGELOG.md at build time.
+import pkg from '../../package.json'
+
+const APP_VERSION = pkg.version
 
 const NAV = [
   { to: '/',                  key: 'overview' },
@@ -28,9 +35,18 @@ export function Layout() {
       <aside className="w-64 shrink-0 border-r border-ink-100 bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col">
         <div className="flex items-center gap-3 mb-8">
           <ClaudeIcon size={36} animate />
-          <div className="leading-tight">
+          <div className="leading-tight flex-1 min-w-0">
             <div className="text-[11px] uppercase tracking-widest text-ink-400">{t('product.tag')}</div>
-            <div className="text-[15px] font-semibold text-ink-800">{t('product.name')}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[15px] font-semibold text-ink-800 truncate">{t('product.name')}</div>
+              <Link
+                to="/changelog"
+                title={t('nav.changelog.hint', { version: APP_VERSION })}
+                className="rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums hover:bg-claude-200 transition-colors"
+              >
+                v{APP_VERSION}
+              </Link>
+            </div>
           </div>
         </div>
 

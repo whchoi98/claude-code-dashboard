@@ -12,6 +12,7 @@ import { Compliance } from './pages/Compliance'
 import { Analyze } from './pages/Analyze'
 import { Archive } from './pages/Archive'
 import { UserSearch } from './pages/UserSearch'
+import { Changelog } from './pages/Changelog'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="compliance" element={<Compliance />} />
         <Route path="analyze" element={<Analyze />} />
         <Route path="archive" element={<Archive />} />
+        <Route path="changelog" element={<Changelog />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
