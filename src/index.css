@@ -51,3 +51,34 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
 }
+
+/* Print-only mode used by the "Save as PDF" buttons (Analyze, Cost, …).
+   Pages tag the printable subtree with `.print-export` and any chrome to
+   hide with `.print-hide`. The page handler adds `app-print` to <body>
+   right before calling window.print(); everything except .print-export
+   is masked via visibility (which children can override) and that subtree
+   is pulled to the top-left so the dialog doesn't leak page chrome. */
+@media print {
+  body.app-print * { visibility: hidden !important; }
+  body.app-print .print-export,
+  body.app-print .print-export * { visibility: visible !important; }
+  body.app-print .print-export .print-hide,
+  body.app-print .print-export .print-hide * { display: none !important; }
+  body.app-print .print-export {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    padding: 12mm !important;
+    margin: 0 !important;
+  }
+  /* Auto-expand <details> in the printable subtree (SQL, row tables, etc.) */
+  body.app-print .print-export details > summary { display: none !important; }
+  body.app-print .print-export details > *:not(summary) { display: block !important; }
+  /* Preserve the Claude palette on paper (orange chat bubbles, etc.) */
+  body.app-print .print-export * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

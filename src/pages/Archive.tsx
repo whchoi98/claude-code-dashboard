@@ -4,8 +4,12 @@ import { ChartCard } from '../components/ChartCard'
 import { EmptyState } from '../components/LoadingState'
 
 export function Archive() {
+  // The `date` partition is varchar (zero-padded YYYY-MM-DD), so plain
+  // string BETWEEN compares correctly *and* lets Athena prune partitions.
+  // Using `BETWEEN DATE '...' AND DATE '...'` produces a TYPE_MISMATCH
+  // because Trino won't auto-cast varchar to date.
   const [query, setQuery] = useState(
-    "SELECT date, SUM(lines_of_code_added) AS loc, COUNT(DISTINCT user_email) AS developers\nFROM claude_code_analytics\nWHERE date BETWEEN DATE '2026-01-01' AND DATE '2026-04-01'\nGROUP BY date\nORDER BY date",
+    "SELECT date, SUM(lines_of_code_added) AS loc, COUNT(DISTINCT user_email) AS developers\nFROM claude_code_analytics\nWHERE date BETWEEN '2026-04-01' AND '2026-04-30'\nGROUP BY date\nORDER BY date",
   )
   const [rows, setRows] = useState<null | Record<string, unknown>[]>(null)
   const [error, setError] = useState<string | null>(null)

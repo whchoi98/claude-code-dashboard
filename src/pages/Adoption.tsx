@@ -20,7 +20,7 @@ type ProjectRow = Pick<ChatProject, 'project_id' | 'project_name' | 'message_cou
 
 export function Adoption() {
   const t = useT()
-  const { range } = useDateRange('14d')
+  const { range } = useDateRange('7d')
   const q = `?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const skills     = useFetch<RangeResp<Skill>>(`/api/analytics/skills/range${q}`)
   const connectors = useFetch<RangeResp<Connector>>(`/api/analytics/connectors/range${q}`)

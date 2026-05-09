@@ -42,6 +42,8 @@ const DICT = {
     'status.source.mock': 'Mock',
     'status.analytics_key': 'Analytics key',
     'status.admin_key':     'Admin key',
+    'status.aws_cost.label': 'AWS run-rate',
+    'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 4.6 (light /api/analyze use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
 
     // Common
     'common.loading': 'Loading…',
@@ -239,6 +241,8 @@ const DICT = {
     'cost.recon.expander':        'Reconciliation CSV (≥ 30 days)',
     'cost.top.csv_caveat':        'Per-user breakdown sourced from uploaded CSV ({start} → {end}); the live API does not expose user attribution.',
     'cost.top.range_caveat':      'Per-user values scaled to the selected date range by session-activity weighting. CSV period: {start} → {end}.',
+    'cost.export.pdf':            'PDF',
+    'cost.export.pdf.hint':       'Open the print dialog — pick "Save as PDF"',
 
     // User Search (per-user drill-down)
     'user_search.title':    'User Search',
@@ -336,6 +340,10 @@ const DICT = {
     'analyze.mode.direct.hint':'Claude analyzes the live snapshot directly.',
     'analyze.mode.sql':'Athena SQL (historical)',
     'analyze.mode.sql.hint':'Claude generates & runs Athena SQL over the S3 archive.',
+    'analyze.export.md':       'MD',
+    'analyze.export.md.hint':  'Save the conversation as a Markdown file',
+    'analyze.export.pdf':      'PDF',
+    'analyze.export.pdf.hint': 'Open the print dialog — pick "Save as PDF"',
 
     // Archive
     'archive.title':    'Archive',
@@ -387,6 +395,8 @@ const DICT = {
     'status.source.mock': '목업',
     'status.analytics_key': 'Analytics 키',
     'status.admin_key':     'Admin 키',
+    'status.aws_cost.label': 'AWS 월 예상',
+    'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 4.6 (/api/analyze 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
 
     'common.loading': '불러오는 중…',
     'common.error':   '데이터 로드 실패',
@@ -576,6 +586,8 @@ const DICT = {
     'cost.recon.expander':        '정산 CSV (30일 이전)',
     'cost.top.csv_caveat':        '사용자별 분해는 업로드된 CSV ({start} → {end}) 기준입니다. 라이브 API는 사용자 단위 데이터를 제공하지 않습니다.',
     'cost.top.range_caveat':      '사용자별 값은 세션 활동량 가중치로 선택 기간에 분배됩니다. CSV 기간: {start} → {end}.',
+    'cost.export.pdf':            'PDF',
+    'cost.export.pdf.hint':       '인쇄 대화상자 열기 — "PDF로 저장" 선택',
 
     // User Search (사용자 검색) — 개별 사용자 상세
     'user_search.title':    '사용자 검색',
@@ -672,6 +684,10 @@ const DICT = {
     'analyze.mode.direct.hint':'Claude가 실시간 스냅샷을 직접 분석합니다.',
     'analyze.mode.sql':'Athena SQL (이력)',
     'analyze.mode.sql.hint':'Claude가 S3 아카이브에 Athena SQL을 생성·실행합니다.',
+    'analyze.export.md':       'MD',
+    'analyze.export.md.hint':  '대화를 마크다운 파일로 저장',
+    'analyze.export.pdf':      'PDF',
+    'analyze.export.pdf.hint': '인쇄 대화상자 열기 — "PDF로 저장" 선택',
 
     'archive.title':    '아카이브',
     'archive.subtitle': 'API 90일 윈도우 이후 데이터. S3 + Glue + Athena 기반.',

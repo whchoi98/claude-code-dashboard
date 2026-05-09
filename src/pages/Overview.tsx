@@ -19,7 +19,7 @@ type UsersResp = { source: 'live' | 'mock'; reason?: string; date: string; data:
 
 export function Overview() {
   const t = useT()
-  const { range } = useDateRange('14d')
+  const { range } = useDateRange('7d')
 
   const summaries = useFetch<SummariesResp>(
     `/api/analytics/summaries?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,

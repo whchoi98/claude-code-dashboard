@@ -21,7 +21,7 @@ const TOOLS = ['edit_tool', 'multi_edit_tool', 'write_tool', 'notebook_edit_tool
 
 export function ClaudeCode() {
   const t = useT()
-  const { range } = useDateRange('14d')
+  const { range } = useDateRange('7d')
   const { data, loading, error } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )

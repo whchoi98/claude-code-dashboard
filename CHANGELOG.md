@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.4.0] - 2026-05-09
+
+UX polish + ergonomics. Default date window narrowed from 14d to 7d
+across every sidebar-routed page; Analyze and Cost grew "Save as PDF"
++ "Save as MD" buttons (browser-native print, zero new deps); Archive's
+default Athena query is fixed (`date BETWEEN DATE '…'` was erroring with
+TYPE_MISMATCH because the partition column is varchar); the sidebar
+now displays an estimated AWS monthly run-rate so cost is visible from
+every page.
+
+### Added
+
+- **PDF / Markdown export on Analyze** (`src/pages/Analyze.tsx`): top-right toolbar appears once a conversation has at least one turn. *MD* triggers a Blob download (timestamped filename, GFM tables for query rows, fenced code blocks for SQL). *PDF* sets `body.app-print` then calls `window.print()` — the user picks "Save as PDF" in the browser dialog. Generic `@media print` rules in `src/index.css` use visibility-based isolation so the printable subtree (`.print-export`) stays visible while everything else collapses; `<details>` blocks auto-expand so SQL + row tables print without manual interaction.
+- **PDF export on Cost** (`src/pages/Cost.tsx`): same `app-print` machinery as Analyze. Button placed next to the DateRangeControl. Reconciliation `<details>` and the date picker are tagged `print-hide` so the printout is just KPIs + charts + Top-10 tables. Works in both live and CSV modes.
+- **AWS run-rate in the sidebar** (`src/components/Layout.tsx`): bottom of the sidebar now shows `AWS 월 예상: ≈ $65/mo · ap-northeast-2` with a hover tooltip listing per-component breakdown (Fargate $10 · ALB $22 · WAF $8 · Bedrock $5 · Athena $2 · S3+Glue+CloudWatch $2 · Secrets Manager $1 · CloudFront+Lambda@Edge $1 · Collector $0.10). Static estimate — usage-driven items scale with traffic.
+
+### Changed
+
+- **Default date window: 14d / 30d → 7d** across Overview, Users, UserProductivity, Productivity, Trends, ClaudeCode, Adoption, Cost, Compliance, and the implicit `useDateRange()` default. UserSearch's "All" preset also now starts on 7d. Trends and Cost previously defaulted to 30d; users can still pick 30d / 14d via the existing range control.
+
+### Fixed
+
+- **Archive page returned `athena_error`** for any `WHERE date BETWEEN DATE '…' AND DATE '…'` query (including its own pre-filled default). Root cause: the Glue table partitions `date` as `varchar`, but the default query and the SQL-mode schema hint both wrapped the literals in `DATE '…'`. Athena Engine v3 throws `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date` because Trino refuses to auto-cast varchar to date. Fixed by switching to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); zero-padded ISO dates compare correctly as strings *and* let partition projection still prune. Updated the schema hint in `server/aws.js` so `/api/analyze` SQL mode generates the correct form.
+- **Athena polling timeout was 20 s with silent fall-through**: `runAthena` polled 40 × 500 ms then proceeded to `GetQueryResultsCommand` even if the query was still RUNNING, which surfaced as a generic `athena_error` when the SDK rejected the call. Bumped to 120 × 500 ms (60 s) and added an explicit timeout error (`Athena query did not finish within 60 s. Try a narrower date range.`).
+
 ## [0.3.0] - 2026-05-09
 
 Reliability + UX milestone. Compliance audit feed pagination is fixed
@@ -148,6 +173,29 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.4.0] - 2026-05-09
+
+UX 다듬기. 사이드바에서 진입하는 모든 페이지의 기본 기간을 14d/30d
+에서 7d로 통일; Analyze와 Cost 페이지에 "PDF로 저장" + "MD로 저장"
+버튼 추가 (브라우저 기본 인쇄 사용, 신규 의존성 0); Archive 기본
+Athena 쿼리가 TYPE_MISMATCH로 실패하던 버그 수정; 사이드바 하단에
+ap-northeast-2 기준 예상 월 비용 표기.
+
+### Added
+
+- **Analyze 페이지 PDF / MD 내보내기** (`src/pages/Analyze.tsx`): 대화가 한 턴 이상 쌓이면 우측 상단에 툴바 노출. *MD*는 Blob 다운로드(타임스탬프 파일명, 쿼리 결과는 GFM 표, SQL은 펜스 코드 블록). *PDF*는 `body.app-print` 추가 후 `window.print()` — 사용자가 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택. `src/index.css`의 일반화된 `@media print` 규칙은 visibility 기반 격리로 `.print-export` 서브트리만 남기고 나머지를 가리며, `<details>`는 자동 확장돼 SQL + 결과 표가 클릭 없이 그대로 인쇄.
+- **Cost 페이지 PDF 내보내기** (`src/pages/Cost.tsx`): Analyze와 동일한 `app-print` 메커니즘 재사용. 버튼은 DateRangeControl 옆에 위치. 정산 expander와 날짜 picker는 `print-hide`로 태깅돼 인쇄본은 KPI + 차트 + Top-10 표만 출력. 라이브/CSV 모드 모두 작동.
+- **사이드바 AWS 월 예상 비용** (`src/components/Layout.tsx`): 사이드바 하단에 `AWS 월 예상: ≈ $65/mo · ap-northeast-2` 라벨. 호버 툴팁에 컴포넌트별 내역 (Fargate $10 · ALB $22 · WAF $8 · Bedrock $5 · Athena $2 · S3+Glue+CloudWatch $2 · Secrets Manager $1 · CloudFront+Lambda@Edge $1 · Collector $0.10). 정적 추정치 — 사용량 기반 항목은 트래픽에 따라 변동.
+
+### Changed
+
+- **기본 기간 14d / 30d → 7d** 통일: Overview, Users, UserProductivity, Productivity, Trends, ClaudeCode, Adoption, Cost, Compliance, `useDateRange()` 기본값까지. UserSearch의 "All" 프리셋도 7d로 변경. Trends와 Cost는 이전엔 30d 기본이었으나 range control로 여전히 30d / 14d 선택 가능.
+
+### Fixed
+
+- **Archive 페이지가 모든 `WHERE date BETWEEN DATE '…' AND DATE '…'` 쿼리에 `athena_error` 반환** (기본 쿼리 포함). 근본 원인: Glue 테이블 파티션 `date`가 `varchar` 타입인데 기본 쿼리와 SQL 모드 스키마 힌트 모두 `DATE '…'` 리터럴로 감쌈. Athena Engine v3는 `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date`를 throw — Trino가 varchar→date 자동 캐스팅을 거부. 단순 문자열 리터럴 (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 전환 — 영-패딩 ISO 날짜는 문자열 비교가 정확히 동작하면서 partition projection도 그대로 pruning. `/api/analyze` SQL 모드가 올바른 형식을 생성하도록 `server/aws.js` 스키마 힌트도 갱신.
+- **Athena 폴링 타임아웃 20초 + 조용한 fall-through**: `runAthena`가 40×500ms 폴링 후에도 쿼리가 RUNNING이면 그냥 `GetQueryResultsCommand`로 진행 → SDK가 거부하면 일반 `athena_error`로만 surface. 120×500ms (60초)로 증가 + 명시적 timeout 에러 (`Athena query did not finish within 60 s. Try a narrower date range.`) 추가.
 
 ## [0.3.0] - 2026-05-09
 

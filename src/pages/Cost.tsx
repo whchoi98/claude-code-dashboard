@@ -156,7 +156,7 @@ export function useCostData(range: { startingDate: string; endingDate: string })
 
 export function Cost() {
   const t = useT()
-  const { range } = useDateRange('30d')
+  const { range } = useDateRange('7d')
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
   const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
@@ -166,6 +166,16 @@ export function Cost() {
   // After a successful upload/delete, invalidate the live cost + efficiency
   // queries that depend on the S3 spend-reports/ prefix.
   const onUploadChange = () => { refetch(); eff.refetch() }
+
+  // Browser-native print → "Save as PDF" in the print dialog. The
+  // app-print body class swaps in @media print rules from index.css
+  // that hide everything except .print-export.
+  const exportPdf = useCallback(() => {
+    const restore = () => document.body.classList.remove('app-print')
+    document.body.classList.add('app-print')
+    window.addEventListener('afterprint', restore, { once: true })
+    setTimeout(() => window.print(), 50)
+  }, [])
 
   const agg = useMemo(() => {
     if (!data?.rows) return null
@@ -351,16 +361,22 @@ export function Cost() {
               : t('cost.source.csv')
         }
       />
-      <div className="p-8 space-y-6">
+      <div className="p-8 space-y-6 print-export">
+        <div className="flex items-center justify-end gap-2 print-hide">
+          {dataSource === 'live' && <DateRangeControl />}
+          <button
+            onClick={exportPdf}
+            title={t('cost.export.pdf.hint')}
+            className="text-[12px] px-3 py-1.5 rounded-lg border border-ink-200 bg-white text-ink-600 hover:bg-paper-muted/40 hover:border-claude-200 hover:text-ink-800 transition inline-flex items-center gap-1.5"
+          >
+            <span aria-hidden>🖨</span>
+            {t('cost.export.pdf')}
+          </button>
+        </div>
         {dataSource === 'live' && (
-          <>
-            <div className="flex items-center justify-end">
-              <DateRangeControl />
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-              {t('cost.live.caveat.30day')}
-            </div>
-          </>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+            {t('cost.live.caveat.30day')}
+          </div>
         )}
         <div className="grid grid-cols-4 gap-4">
           <KpiCard
@@ -526,7 +542,7 @@ export function Cost() {
         {/* ── CSV management (auto-expanded in CSV mode) ────────────── */}
         <details
           open={dataSource === 'csv'}
-          className="pt-6 border-t border-ink-100 group"
+          className="pt-6 border-t border-ink-100 group print-hide"
         >
           <summary className="cursor-pointer text-sm font-semibold text-ink-700 hover:text-ink-900 select-none">
             {t('cost.recon.expander')}

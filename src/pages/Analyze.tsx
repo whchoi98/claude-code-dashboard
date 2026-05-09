@@ -107,16 +107,62 @@ export function Analyze() {
     setBusy(false)
   }
 
+  function exportMarkdown() {
+    if (turns.length === 0) return
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
+    const lines: string[] = ['# Claude Code — Analyze', '', `> ${stamp} UTC · ${t(`analyze.mode.${mode}` as any)}`, '']
+    for (const turn of turns) {
+      if (turn.role === 'user') {
+        lines.push('---', '', `**Q.** ${turn.text}`, '')
+      } else {
+        if (turn.sql) lines.push('```sql', turn.sql, '```', '')
+        if (turn.rows?.length && turn.columns?.length) {
+          lines.push(`_${turn.rows.length} rows_`, '')
+          lines.push('| ' + turn.columns.join(' | ') + ' |')
+          lines.push('|' + turn.columns.map(() => '---').join('|') + '|')
+          for (const r of turn.rows.slice(0, 50)) {
+            lines.push('| ' + turn.columns.map((c) => String((r as any)[c] ?? '').replace(/\|/g, '\\|')).join(' | ') + ' |')
+          }
+          lines.push('')
+        }
+        if (turn.text) lines.push(turn.text, '')
+        if (turn.error) lines.push(`> ⚠ ${turn.error}`, '')
+      }
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `claude-code-analyze-${new Date().toISOString().slice(0, 10)}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Browser-native print → "Save as PDF" in the print dialog. The
+  // app-print body class swaps in @media print rules from index.css
+  // that hide everything except .print-export and auto-expand <details>.
+  function exportPdf() {
+    if (turns.length === 0) return
+    const restore = () => document.body.classList.remove('app-print')
+    document.body.classList.add('app-print')
+    window.addEventListener('afterprint', restore, { once: true })
+    setTimeout(() => window.print(), 50)
+  }
+
   return (
     <div>
-      <PageHeader
-        title={t('analyze.title')}
-        subtitle={t('analyze.subtitle')}
-        right={<ClaudeIcon size={28} animate />}
-      />
-      <div className="p-8 space-y-5 max-w-5xl">
+      <div className="print-hide">
+        <PageHeader
+          title={t('analyze.title')}
+          subtitle={t('analyze.subtitle')}
+          right={<ClaudeIcon size={28} animate />}
+        />
+      </div>
+      <div className="p-8 space-y-5 max-w-5xl print-export">
         {/* Mode selector */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 print-hide">
           {(['direct', 'sql'] as const).map((m) => (
             <button
               key={m}
@@ -133,6 +179,28 @@ export function Analyze() {
             </button>
           ))}
         </div>
+
+        {/* Export toolbar — only when there's something to export */}
+        {turns.length > 0 && (
+          <div className="flex justify-end gap-2 print-hide">
+            <button
+              onClick={exportMarkdown}
+              title={t('analyze.export.md.hint')}
+              className="text-[12px] px-3 py-1.5 rounded-lg border border-ink-200 bg-white text-ink-600 hover:bg-paper-muted/40 hover:border-claude-200 hover:text-ink-800 transition inline-flex items-center gap-1.5"
+            >
+              <span aria-hidden>↓</span>
+              {t('analyze.export.md')}
+            </button>
+            <button
+              onClick={exportPdf}
+              title={t('analyze.export.pdf.hint')}
+              className="text-[12px] px-3 py-1.5 rounded-lg border border-ink-200 bg-white text-ink-600 hover:bg-paper-muted/40 hover:border-claude-200 hover:text-ink-800 transition inline-flex items-center gap-1.5"
+            >
+              <span aria-hidden>🖨</span>
+              {t('analyze.export.pdf')}
+            </button>
+          </div>
+        )}
 
         {/* Conversation */}
         {turns.length === 0 && (
@@ -214,10 +282,10 @@ export function Analyze() {
             </div>
           </div>
         ))}
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="print-hide" />
 
         {/* Composer */}
-        <div className="sticky bottom-6">
+        <div className="sticky bottom-6 print-hide">
           <div className="rounded-xl border border-ink-100 bg-white shadow-card p-4">
             <textarea
               value={question}

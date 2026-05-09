@@ -34,7 +34,7 @@ const TARGETS = {
 
 export function Productivity() {
   const t = useT()
-  const { range: dr } = useDateRange('14d')
+  const { range: dr } = useDateRange('7d')
   const range = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${dr.startingDate}&ending_date=${dr.endingDate}`,
   )

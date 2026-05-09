@@ -245,7 +245,9 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
 • skills_daily:   skill_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
 
-Always filter by partition: WHERE date BETWEEN DATE '...' AND DATE '...'.
+Always filter by partition: WHERE date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'.
+The partition column is varchar — do NOT wrap the literals in DATE '...';
+Athena will throw TYPE_MISMATCH because Trino won't auto-cast varchar to date.
 All values are integers; rates are computed, not stored.
 `.trim()
 
@@ -272,14 +274,23 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       QueryExecutionContext: { Database: DB },
       ResultConfiguration: { OutputLocation: OUT },
     }))
-    for (let i = 0; i < 40; i++) {
+    // 60s budget — 30-day partition scans regularly take 10–30 s on the
+    // shared workgroup. The previous 20 s ceiling silently fell through to
+    // GetQueryResultsCommand on a still-RUNNING query, which surfaced as a
+    // generic athena_error. Now we wait longer and throw a clear timeout
+    // error if the query is still in flight.
+    let finalState = null
+    for (let i = 0; i < 120; i++) {
       const { QueryExecution } = await athena.send(new GetQueryExecutionCommand({ QueryExecutionId }))
       const state = QueryExecution?.Status?.State
-      if (state === 'SUCCEEDED') break
+      if (state === 'SUCCEEDED') { finalState = state; break }
       if (state === 'FAILED' || state === 'CANCELLED') {
         throw new Error(`Athena ${state}: ${QueryExecution?.Status?.StateChangeReason || 'query failed'}`)
       }
       await new Promise((r) => setTimeout(r, 500))
+    }
+    if (finalState !== 'SUCCEEDED') {
+      throw new Error(`Athena query did not finish within 60 s (id=${QueryExecutionId}). Try a narrower date range.`)
     }
     const results = await athena.send(new GetQueryResultsCommand({ QueryExecutionId, MaxResults: 500 }))
     const raw = results.ResultSet?.Rows ?? []

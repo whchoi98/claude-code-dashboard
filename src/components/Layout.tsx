@@ -148,6 +148,17 @@ export function Layout() {
                 data {'>'}= {health.dataConstraints.firstAvailableDate} · {health.dataConstraints.bufferDays}d buffer
               </div>
             )}
+            {/* AWS run-rate — static estimate based on the current
+                architecture (Fargate ARM64 + ALB + WAF + CloudFront +
+                Lambda@Edge + collector + S3 + Athena + Bedrock light use).
+                Hover for the per-component breakdown. */}
+            <div
+              className="mt-2 pt-2 border-t border-ink-100 text-ink-400"
+              title={t('status.aws_cost.hint')}
+            >
+              {t('status.aws_cost.label')}: <b className="text-ink-600 tabular-nums">≈ $65/mo</b>
+              <span className="text-ink-300"> · ap-northeast-2</span>
+            </div>
           </div>
         </div>
       </aside>

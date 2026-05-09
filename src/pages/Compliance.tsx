@@ -94,7 +94,7 @@ function eventSummary(ev: ActivityEvent): string {
 
 export function Compliance() {
   const t = useT()
-  const { range } = useDateRange('14d')
+  const { range } = useDateRange('7d')
   const [filterType, setFilterType] = useState<string | 'all' | 'risk' | 'login'>('all')
   const [q, setQ] = useState('')
 

@@ -29,7 +29,7 @@ type SortKey = 'score' | 'loc' | 'sessions' | 'commits' | 'accept' | 'activeDays
 
 export function UserProductivity() {
   const t = useT()
-  const { range } = useDateRange('14d')
+  const { range } = useDateRange('7d')
   const [sort, setSort] = useState<SortKey>('score')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)

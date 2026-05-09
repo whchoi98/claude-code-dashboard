@@ -70,7 +70,7 @@ export function UserSearch() {
 
   const [selectedEmail, setSelectedEmail] = useState<string>('')
   const [search, setSearch] = useState('')
-  const [rangePreset, setRangePreset] = useState<RangePreset>('all')
+  const [rangePreset, setRangePreset] = useState<RangePreset>('7d')
   const [tab, setTab] = useState<Tab>('overview')
 
   const csv = useFetch<CsvResp>('/api/cost/csv')

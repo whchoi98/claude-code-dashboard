@@ -16,7 +16,7 @@ type SummariesResp = { source: 'live' | 'mock'; reason?: string; data: Summary[]
 
 export function Trends() {
   const t = useT()
-  const { range } = useDateRange('30d')
+  const { range } = useDateRange('7d')
   const { data, loading, error, source, reason } = useFetch<SummariesResp>(
     `/api/analytics/summaries?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )

@@ -53,7 +53,7 @@ function presetToDays(p: Preset): number {
   }
 }
 
-export function useDateRange(defaultPreset: Preset = '14d') {
+export function useDateRange(defaultPreset: Preset = '7d') {
   const [params, setParams] = useSearchParams()
 
   const maxEnd = todayMinusDaysUtc(BUFFER_DAYS)
