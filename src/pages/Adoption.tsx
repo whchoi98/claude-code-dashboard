@@ -15,8 +15,19 @@ import type { Skill, Connector, ChatProject } from '../types'
 type DayEntry<T> = { date: string; source: string; data: T[] }
 type RangeResp<T> = { range: { starting_date: string; ending_date: string }; days: DayEntry<T>[] }
 
-type Row = { name: string; Users: number; Chat: number; Code: number; Cowork: number }
+type Row = { name: string; Users: number; Chat: number; Code: number; Cowork: number; lastSeen: string; staleInWindow: boolean }
 type ProjectRow = Pick<ChatProject, 'project_id' | 'project_name' | 'message_count' | 'distinct_conversation_count' | 'distinct_user_count' | 'created_by'>
+
+// An item is "stale within the window" if it had usage in the earlier
+// half of the window but none in the more recent half — declining
+// adoption signal worth surfacing even when the leaderboard sort still
+// shows it near the top by historical totals.
+function flagStale<T extends { name: string; staleInWindow: boolean; lastSeen: string }>(rows: T[], days: { date: string }[]): T[] {
+  if (days.length < 2) return rows
+  const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date))
+  const cutoff = sorted[Math.floor(sorted.length / 2)].date
+  return rows.map((r) => ({ ...r, staleInWindow: !!r.lastSeen && r.lastSeen < cutoff }))
+}
 
 export function Adoption() {
   const t = useT()
@@ -33,31 +44,44 @@ export function Adoption() {
     const by = new Map<string, Row>()
     for (const day of skills.data?.days ?? []) {
       for (const s of day.data) {
-        const cur = by.get(s.skill_name) ?? { name: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+        const used = s.distinct_user_count > 0
+          || s.chat_metrics.distinct_conversation_skill_used_count > 0
+          || s.claude_code_metrics.distinct_session_skill_used_count > 0
+          || s.cowork_metrics.distinct_session_skill_used_count > 0
+        const cur = by.get(s.skill_name) ?? { name: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0, lastSeen: '', staleInWindow: false }
         cur.Users  = Math.max(cur.Users, s.distinct_user_count)
         cur.Chat  += s.chat_metrics.distinct_conversation_skill_used_count
         cur.Code  += s.claude_code_metrics.distinct_session_skill_used_count
         cur.Cowork += s.cowork_metrics.distinct_session_skill_used_count
+        if (used && day.date > cur.lastSeen) cur.lastSeen = day.date
         by.set(s.skill_name, cur)
       }
     }
-    return Array.from(by.values()).sort((a, b) => b.Users - a.Users)
+    return flagStale(Array.from(by.values()).sort((a, b) => b.Users - a.Users), skills.data?.days ?? [])
   }, [skills.data])
 
   const connectorRows = useMemo<Row[]>(() => {
     const by = new Map<string, Row>()
     for (const day of connectors.data?.days ?? []) {
       for (const c of day.data) {
-        const cur = by.get(c.connector_name) ?? { name: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0 }
+        const used = c.distinct_user_count > 0
+          || c.chat_metrics.distinct_conversation_connector_used_count > 0
+          || c.claude_code_metrics.distinct_session_connector_used_count > 0
+          || c.cowork_metrics.distinct_session_connector_used_count > 0
+        const cur = by.get(c.connector_name) ?? { name: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0, lastSeen: '', staleInWindow: false }
         cur.Users  = Math.max(cur.Users, c.distinct_user_count)
         cur.Chat  += c.chat_metrics.distinct_conversation_connector_used_count
         cur.Code  += c.claude_code_metrics.distinct_session_connector_used_count
         cur.Cowork += c.cowork_metrics.distinct_session_connector_used_count
+        if (used && day.date > cur.lastSeen) cur.lastSeen = day.date
         by.set(c.connector_name, cur)
       }
     }
-    return Array.from(by.values()).sort((a, b) => b.Users - a.Users)
+    return flagStale(Array.from(by.values()).sort((a, b) => b.Users - a.Users), connectors.data?.days ?? [])
   }, [connectors.data])
+
+  const staleSkills = useMemo(() => skillRows.filter((r) => r.staleInWindow), [skillRows])
+  const staleConnectors = useMemo(() => connectorRows.filter((r) => r.staleInWindow), [connectorRows])
 
   // Same uniqueness caveat as skills/connectors. project_name and created_by
   // are taken from the latest day to handle mid-window renames.
@@ -114,6 +138,13 @@ export function Adoption() {
               <Bar dataKey="Code" fill="#1F1E1D" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          {staleSkills.length > 0 && (
+            <div className="mx-3 mt-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span className="font-semibold">{t('adopt.stale.skills', { count: staleSkills.length })}</span>
+              {' — '}
+              {staleSkills.map((s) => `${s.name} (${s.lastSeen || 'never'})`).join(', ')}
+            </div>
+          )}
         </ChartCard>
 
         <ChartCard title="Connectors" subtitle="Peak distinct users per connector; Chat/Code/Cowork are window totals">
@@ -129,6 +160,13 @@ export function Adoption() {
               <Bar dataKey="Code" fill="#1F1E1D" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          {staleConnectors.length > 0 && (
+            <div className="mx-3 mt-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span className="font-semibold">{t('adopt.stale.connectors', { count: staleConnectors.length })}</span>
+              {' — '}
+              {staleConnectors.map((c) => `${c.name} (${c.lastSeen || 'never'})`).join(', ')}
+            </div>
+          )}
         </ChartCard>
 
         <ChartCard title="Top Chat Projects" subtitle="Total messages per project across the window (top 10)">

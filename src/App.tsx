@@ -12,6 +12,7 @@ import { Compliance } from './pages/Compliance'
 import { Analyze } from './pages/Analyze'
 import { Archive } from './pages/Archive'
 import { UserSearch } from './pages/UserSearch'
+import { Executive } from './pages/Executive'
 import { Changelog } from './pages/Changelog'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
+        <Route path="exec" element={<Executive />} />
         <Route path="users" element={<Users />} />
         <Route path="trends" element={<Trends />} />
         <Route path="claude-code" element={<ClaudeCode />} />

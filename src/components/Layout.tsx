@@ -13,6 +13,7 @@ const APP_VERSION = pkg.version
 
 const NAV = [
   { to: '/',                  key: 'overview' },
+  { to: '/exec',              key: 'exec', badge: 'Exec' },
   { to: '/users',             key: 'users' },
   { to: '/user-productivity', key: 'user_productivity' },
   { to: '/user-search',       key: 'user_search', badge: '🔍' },

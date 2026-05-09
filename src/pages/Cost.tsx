@@ -177,6 +177,34 @@ export function Cost() {
     setTimeout(() => window.print(), 50)
   }, [])
 
+  // Derived insights — cost per active developer + 30-day projection.
+  // Per-dev works in both live and CSV (uses any of: efficiency user_count,
+  // CSV distinct_users, or model count as a last-resort fallback).
+  // Projection only renders when live mode supplies a `daily` series.
+  const insights = useMemo(() => {
+    if (!data) return null
+    const totalSpend = data.totals.net_spend_usd
+    const activeDevs =
+      eff.data?.user_count ??
+      csvData?.totals?.distinct_users ??
+      data.totals.distinct_users
+    const costPerDev = activeDevs > 0 ? totalSpend / activeDevs : 0
+
+    let projection30d: number | null = null
+    let avg7d: number | null = null
+    if (data.daily?.length) {
+      const byDate = new Map<string, number>()
+      for (const d of data.daily) byDate.set(d.date, (byDate.get(d.date) ?? 0) + (d.spend ?? 0))
+      const sortedSpend = [...byDate.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, v]) => v)
+      const last7 = sortedSpend.slice(-7)
+      if (last7.length > 0) {
+        avg7d = last7.reduce((a, b) => a + b, 0) / last7.length
+        projection30d = avg7d * 30
+      }
+    }
+    return { costPerDev, activeDevs, projection30d, avg7d }
+  }, [data, eff.data, csvData])
+
   const agg = useMemo(() => {
     if (!data?.rows) return null
     const rows = data.rows
@@ -400,6 +428,32 @@ export function Cost() {
             hint={`${data.totals.distinct_models} models · ${data.totals.distinct_products} products`}
           />
         </div>
+
+        {/* Forecast / per-developer KPIs (always shown; forecast columns
+            only render when live mode supplies a daily series). */}
+        {insights && (
+          <div className={`grid gap-4 ${insights.projection30d != null ? 'grid-cols-3' : 'grid-cols-1'}`}>
+            <KpiCard
+              label={t('cost.kpi.per_dev')}
+              value={fmtUsd(insights.costPerDev)}
+              hint={t('cost.kpi.per_dev.hint', { n: fmtNum(insights.activeDevs) })}
+            />
+            {insights.projection30d != null && insights.avg7d != null && (
+              <>
+                <KpiCard
+                  label={t('cost.kpi.projection_30d')}
+                  value={fmtUsd(insights.projection30d)}
+                  hint={t('cost.kpi.projection_30d.hint')}
+                />
+                <KpiCard
+                  label={t('cost.kpi.avg7d')}
+                  value={fmtUsd(insights.avg7d)}
+                  hint={t('cost.kpi.avg7d.hint')}
+                />
+              </>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-6">
           <ChartCard title={t('cost.product_share')} subtitle={t('cost.product_share.sub')}>

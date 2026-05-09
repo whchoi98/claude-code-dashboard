@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.5.0] - 2026-05-09
+
+Insights pass. Adds the metrics + visualizations the dashboard was
+missing for CFO/CTO conversations: a single-page Executive snapshot,
+end-of-month cost forecast and per-developer cost on the Cost page,
+risk-event spike detection on the Compliance page, and a "stale"
+callout on Adoption that flags skills/connectors going unused inside
+the selected window.
+
+### Added
+
+- **Executive page (`/exec`)** — single-screen CFO/CTO snapshot with 6 headline KPIs (active devs, monthly adoption, LOC, window spend, 30-day projection, risk events) + 1-line headline summary + DAU and daily-spend trend charts. Built on the same `app-print` pattern as Analyze/Cost so the print dialog produces a clean, sidebar-free PDF for sharing. Sidebar nav entry "Executive" with `Exec` badge.
+- **Cost · per-developer KPI** (`src/pages/Cost.tsx`): `total_spend / active_devs_in_range` rendered as a new KPI card. Active devs falls back through `eff.user_count → csv.distinct_users → cost.totals.distinct_users` so the metric works in live, CSV, and hybrid modes.
+- **Cost · 30-day projection KPI** (live mode only): rolling forecast = avg of last 7 days × 30, sourced from `data.daily`. Also exposes a sibling "Daily avg (7d)" KPI for context. Hidden in CSV-only mode where there's no daily series.
+- **Compliance · risk-event spike threshold**: the daily-events chart now includes a horizontal reference line at `mean(daily risk count) + 1·stdev` (rounded, floored at 1). Bars rendered above the line are statistical outliers worth investigating. Subtitle calls out the threshold value.
+- **Adoption · stale skills/connectors callout**: each chart card now shows an amber callout listing items used in the *earlier half* of the window but not the more recent half. Highlights declining adoption that the absolute leaderboard sort still hides at the top.
+
+### Changed
+
+- **Compliance daily chart** switched from a pure line chart to a `ComposedChart` — risk count is now drawn as orange bars (easier to spot spikes) with the total-events line on top, plus the new threshold reference line.
+
+### Internal
+
+- Generalized print CSS class from `analyze-print` to `app-print` so multiple pages (Analyze, Cost, Executive) share one set of `@media print` rules. Visibility-based isolation, `<details>` auto-expansion, and color-preserve hints all live in `src/index.css`.
+
 ## [0.4.0] - 2026-05-09
 
 UX polish + ergonomics. Default date window narrowed from 14d to 7d
@@ -173,6 +198,30 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.5.0] - 2026-05-09
+
+인사이트 강화. CFO/CTO 대화에서 부족했던 지표와 시각화를 추가:
+경영 요약 단일 화면 페이지, Cost 페이지의 월말 예상 + 개발자당 비용,
+Compliance 페이지의 위험 이벤트 spike 임계선, Adoption 페이지에서
+선택 윈도우 내에서 사용량이 줄어든 스킬/커넥터를 표면화하는
+"stale" 콜아웃.
+
+### Added
+
+- **경영 요약 페이지 (`/exec`)** — 단일 화면 CFO/CTO 스냅샷. 6개 헤드라인 KPI(활동 개발자, 월간 도입률, LOC, 윈도우 지출, 30일 예상, 위험 이벤트) + 1줄 헤드라인 요약 + DAU·일별 지출 트렌드 차트. Analyze/Cost와 같은 `app-print` 패턴 사용 — 인쇄 대화상자에서 사이드바 없이 깔끔한 PDF로 공유. 사이드바에 "Executive" 항목 (`Exec` 배지) 추가.
+- **Cost 페이지 개발자당 비용 KPI** (`src/pages/Cost.tsx`): `총 지출 / 윈도우 활동 개발자 수`를 새 KPI 카드로 표시. 활동 개발자 수는 `eff.user_count → csv.distinct_users → cost.totals.distinct_users` 순으로 폴백 — 라이브, CSV, 하이브리드 모드 모두 작동.
+- **Cost 페이지 30일 예상 KPI** (라이브 모드 전용): `data.daily`에서 최근 7일 평균 × 30으로 롤링 예측. 형제 KPI "일평균 (7일)"도 함께. CSV 전용 모드에선 일별 데이터가 없어 숨김.
+- **Compliance 위험 이벤트 spike 임계선**: 일별 이벤트 차트에 `평균(일별 위험 수) + 1·표준편차` (반올림, 1 이상 floor) 가로 reference line 추가. 임계선 위 막대 = 통계적 outlier로 조사 필요. 차트 부제에 임계값 노출.
+- **Adoption 스킬/커넥터 stale 콜아웃**: 각 차트 카드 아래 amber 콜아웃이 *윈도우 전반부에만 사용되고 후반부에 0인* 항목을 나열. 절대 합계 정렬로는 여전히 상단에 보이는 도입 감소 항목을 표면화.
+
+### Changed
+
+- **Compliance 일별 차트**가 단순 line chart → `ComposedChart`로 전환. 위험 카운트는 주황색 막대(spike 인지 용이) + 총 이벤트 선 + 새 임계선 결합.
+
+### Internal
+
+- 인쇄 CSS 클래스를 `analyze-print` → `app-print`로 일반화 — Analyze, Cost, Executive 등 여러 페이지가 하나의 `@media print` 규칙을 공유. visibility 기반 격리, `<details>` 자동 확장, 색상 보존 힌트는 `src/index.css`에서 관리.
 
 ## [0.4.0] - 2026-05-09
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line,
+  ComposedChart, Line, ReferenceLine, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { KpiCard } from '../components/KpiCard'
@@ -155,11 +155,21 @@ export function Compliance() {
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((d) => ({ date: fmtDate(d.date), Events: d.count, Risk: d.risk }))
 
+    // Spike threshold = mean + 1·stdev of daily risk count, floored at 1.
+    // The reference line on the daily chart highlights days with unusual
+    // risk activity so the user can spot anomalies at a glance.
+    const riskCounts = daily.map((d) => d.Risk)
+    const meanRisk = riskCounts.length ? riskCounts.reduce((a, b) => a + b, 0) / riskCounts.length : 0
+    const stdRisk = riskCounts.length
+      ? Math.sqrt(riskCounts.reduce((a, b) => a + (b - meanRisk) ** 2, 0) / riskCounts.length)
+      : 0
+    const riskThreshold = Math.max(1, Math.round(meanRisk + stdRisk))
+
     return {
       total: events.length,
       risk, login, apiCalls,
       uniqueActors: uniqueActors.size,
-      topTypes, topActors, daily,
+      topTypes, topActors, daily, riskThreshold,
     }
   }, [events])
 
@@ -241,16 +251,32 @@ export function Compliance() {
           </ChartCard>
         </div>
 
-        <ChartCard title={t('audit.daily')}>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={derived.daily} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
+        <ChartCard
+          title={t('audit.daily')}
+          subtitle={t('audit.daily.sub', { threshold: derived.riskThreshold })}
+        >
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={derived.daily} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
               <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="Risk" fill="#D97757" radius={[3, 3, 0, 0]} />
               <Line type="monotone" dataKey="Events" stroke="#1F1E1D" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="Risk"   stroke="#D97757" strokeWidth={2} dot={{ r: 2 }} />
-            </LineChart>
+              <ReferenceLine
+                y={derived.riskThreshold}
+                stroke="#D97757"
+                strokeDasharray="4 4"
+                strokeOpacity={0.5}
+                label={{
+                  value: `risk threshold ${derived.riskThreshold}`,
+                  position: 'insideTopRight',
+                  fill: '#D97757',
+                  fontSize: 10,
+                }}
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
 
