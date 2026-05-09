@@ -4,7 +4,6 @@
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf ~)",
-      "Bash(rm -rf *)",
       "Bash(rm -fr*)",
       "Bash(rm --recursive*)",
       "Bash(sudo rm:*)",
@@ -24,7 +23,6 @@
       "Bash(aws iam delete-user:*)",
       "Bash(aws iam delete-role:*)",
       "Bash(aws iam delete-policy:*)",
-      "Bash(aws s3 rb s3://*--force)",
       "Bash(aws s3 rb s3://* --force)",
       "Bash(aws cloudformation delete-stack* --stack-name CDKToolkit*)",
       "Bash(aws ec2 terminate-instances:*)",

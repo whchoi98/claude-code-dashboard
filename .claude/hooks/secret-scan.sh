@@ -11,19 +11,13 @@ content=$(echo "$payload" | grep -oE '("content"|"command"|"new_string")[[:space
 
 [ -z "$content" ] && exit 0
 
-# True-positive patterns
-patterns=(
-  'sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}'      # Anthropic API key
-  'sk-ant-admin[0-9]{2}-[A-Za-z0-9_-]{40,}'    # Anthropic Admin key
-  'AKIA[0-9A-Z]{16}'                            # AWS Access Key ID
-  'aws_secret_access_key[[:space:]]*=[[:space:]]*[A-Za-z0-9/+=]{40}'
-  'ghp_[A-Za-z0-9]{36,}'                        # GitHub PAT
-  'xox[baprs]-[A-Za-z0-9-]{10,}'                # Slack tokens
-  '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----'
-)
+# shellcheck source=lib/secret-patterns.sh
+. "$(dirname "$0")/lib/secret-patterns.sh"
 
-for pat in "${patterns[@]}"; do
-  if echo "$content" | grep -qE "$pat"; then
+for pat in "${SECRET_PATTERNS[@]}"; do
+  # `--` is load-bearing: PEM-style patterns start with `-----` which
+  # grep otherwise misinterprets as an option flag.
+  if echo "$content" | grep -qE -- "$pat"; then
     echo "🚨 BLOCKED: Secret pattern detected in tool input." >&2
     echo "   Pattern: ${pat:0:50}..." >&2
     echo "   Move the secret to AWS Secrets Manager or a gitignored .env file." >&2
