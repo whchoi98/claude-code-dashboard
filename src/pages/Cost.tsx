@@ -76,10 +76,21 @@ function fmtUsd(v: number) {
 
 type EfficiencyUser = {
   email: string
+  // CSV-period totals (whole CSV period, range-agnostic):
   spend_usd: number
   total_tokens: number
   prompt_tokens: number
   completion_tokens: number
+  requests: number
+  // Activity-weighted scaling to the selected range (sessions_in_range /
+  // sessions_over_csv_period, capped at 1.0). If the range matches the CSV
+  // period these equal the totals above.
+  range_spend_usd?: number
+  range_prompt_tokens?: number
+  range_completion_tokens?: number
+  range_total_tokens?: number
+  range_requests?: number
+  activity_ratio?: number
   loc_added: number
   commits: number
   prs: number
@@ -222,11 +233,26 @@ export function Cost() {
     return { userRows, modelRows, productRows, productModelStack, allModels }
   }, [data])
 
-  // Per-user aggregation always sourced from CSV — Anthropic's Analytics
-  // cost_report/usage_report endpoints don't expose user attribution, so
-  // even in live mode we render the Top-N per-user widgets from the most
-  // recent uploaded Spend Report. Falls back to `null` if no CSV uploaded
-  // yet, in which case the per-user tables are simply not rendered.
+  // Per-user aggregation: prefer the activity-weighted range_* fields from
+  // /api/cost/efficiency (which scales each user's CSV-period total spend by
+  // sessions_in_range/sessions_in_csv_period), so the per-user numbers
+  // respond to the selected date range. Fall back to raw CSV totals
+  // (range-agnostic) if eff data isn't available.
+  const effUserRows = useMemo(() => {
+    if (!eff.data?.users?.length) return null
+    return eff.data.users.map((u) => ({
+      email: u.email,
+      masked: maskEmail(u.email),
+      spend: u.range_spend_usd ?? u.spend_usd,
+      input: u.range_prompt_tokens ?? u.prompt_tokens,
+      output: u.range_completion_tokens ?? u.completion_tokens,
+      total_tokens: u.range_total_tokens ?? u.total_tokens,
+      requests: u.range_requests ?? u.requests,
+      products: 0,  // not provided by eff endpoint
+      models: 0,    // not provided by eff endpoint
+    }))
+  }, [eff.data])
+
   const csvUserRows = useMemo(() => {
     if (!csvData?.rows?.length) return null
     const byUser = new Map<string, { spend: number; input: number; output: number; requests: number; products: Set<string>; models: Set<string> }>()
@@ -297,9 +323,13 @@ export function Cost() {
     )
   }
 
-  // Per-user Top-N tables always source from CSV (the live API can't attribute
-  // per user). When CSV is the active source, csvUserRows mirrors agg.userRows.
-  const userRowsForTop = csvUserRows ?? agg.userRows
+  // Per-user Top-N tables. Preference order:
+  //   1. eff.data.users (activity-weighted, range-aware)  ← most accurate
+  //   2. csvUserRows (raw CSV totals, range-agnostic)
+  //   3. agg.userRows (live data; in live mode user_email is empty so unused)
+  // The eff path requires both a CSV upload AND analytics activity data;
+  // csvUserRows is the safe baseline when eff is loading or returns no users.
+  const userRowsForTop = effUserRows ?? csvUserRows ?? agg.userRows
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
   const topInput  = [...userRowsForTop].sort((a, b) => b.input - a.input).slice(0, 10)
   const topOutput = [...userRowsForTop].sort((a, b) => b.output - a.output).slice(0, 10)
@@ -456,13 +486,22 @@ export function Cost() {
           </ChartCard>
         )}
 
-        {/* Top-N per-user tables — sourced from the uploaded CSV (always),
-            because the Anthropic Analytics cost_report/usage_report endpoints
-            don't expose a per-user dimension. When in live mode, the CSV
-            period may differ from the live window — show a small caveat. */}
-        {csvUserRows && csvUserRows.length > 0 && (
+        {/* Top-N per-user tables. Sourced (in priority order) from
+            eff.data.users (activity-weighted, range-aware), csvUserRows
+            (CSV-period totals), or agg.userRows. The Anthropic Analytics
+            cost_report/usage_report endpoints don't expose user attribution,
+            so all three paths trace back to the uploaded CSV. */}
+        {userRowsForTop && userRowsForTop.length > 0 && userRowsForTop[0].email !== '' && (
           <div>
-            {dataSource === 'live' && csvData?.period && (
+            {effUserRows && csvData?.period && (
+              <p className="text-[11px] text-ink-400 mb-2 px-1">
+                {t('cost.top.range_caveat', {
+                  start: csvData.period.starting_date,
+                  end:   csvData.period.ending_date,
+                })}
+              </p>
+            )}
+            {!effUserRows && csvUserRows && dataSource === 'live' && csvData?.period && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">
                 {t('cost.top.csv_caveat', {
                   start: csvData.period.starting_date,

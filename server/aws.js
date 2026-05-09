@@ -856,6 +856,34 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${starting}&ending_date=${ending}`,
     ).then((r) => r.json()).catch(() => ({ days: [] }))
 
+    // 3a) Activity-weighted scaling support: also fetch analytics over the
+    //     CSV's full period to compute each user's total activity in CSV
+    //     scope. The CSV gives us TOTAL spend per user across the CSV
+    //     period — to derive per-user spend within the requested sub-range
+    //     we need a denominator. Sessions per user is the activity proxy.
+    //     Fetch only if (a) CSV period exists and (b) it differs from the
+    //     selected range (otherwise the ratio is trivially 1.0 and we skip
+    //     the round trip).
+    const sessionsByUserInCsvPeriod = new Map()
+    const csvPeriodStart = csvPeriod?.starting_date
+    let   csvPeriodEnd   = csvPeriod?.ending_date
+    if (csvPeriodEnd && csvPeriodEnd > maxEnd) csvPeriodEnd = maxEnd
+    const sameRange = csvPeriodStart === starting && csvPeriodEnd === ending
+    const csvAnalyticsResp = (csvPeriodStart && csvPeriodEnd && !sameRange)
+      ? await fetch(
+          `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${csvPeriodStart}&ending_date=${csvPeriodEnd}`,
+        ).then((r) => r.json()).catch(() => ({ days: [] }))
+      : { days: rangeResp.days || [] }
+    for (const d of csvAnalyticsResp.days || []) {
+      if (d.source === 'mock') continue
+      for (const rec of d.data || []) {
+        const sess = rec.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0
+        const email = rec.user?.email_address
+        if (!email) continue
+        sessionsByUserInCsvPeriod.set(email, (sessionsByUserInCsvPeriod.get(email) ?? 0) + sess)
+      }
+    }
+
     // 4) Aggregate productivity per user. Skip mock-fallback days so bogus
     //    @acme.com records from the mock generator never contaminate results.
     const byProdUser = new Map()
@@ -897,6 +925,26 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       const total_tokens = s.prompt_tokens + s.completion_tokens
       const tool_total = p.accepted + p.rejected
 
+      // Activity-weighted scaling: distribute the user's CSV-period total
+      // spend across days proportional to their session count. The CSV is a
+      // single-period aggregate; this lets the per-user numbers respond to
+      // the user's date-range selection.
+      //
+      //   ratio = sessions_in_selected_range / sessions_over_csv_period
+      //
+      // Capped at 1.0 so a range wider than the CSV period (or noisy session
+      // counts) cannot inflate spend beyond what the CSV actually charged.
+      // When sameRange is true, ratio is 1.0 and range_* values equal totals.
+      const sessionsCsv = sessionsByUserInCsvPeriod.get(email) ?? 0
+      const ratio = sameRange ? 1
+        : sessionsCsv > 0 ? Math.min(1, p.sessions / sessionsCsv)
+        : 0
+      const range_spend_usd        = Number((s.spend * ratio).toFixed(2))
+      const range_prompt_tokens    = Math.round(s.prompt_tokens * ratio)
+      const range_completion_tokens = Math.round(s.completion_tokens * ratio)
+      const range_total_tokens     = range_prompt_tokens + range_completion_tokens
+      const range_requests         = Math.round(s.requests * ratio)
+
       return {
         email,
         spend_usd: Number(s.spend.toFixed(2)),
@@ -922,6 +970,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         cost_per_session:  p.sessions  > 0 ? Number((s.spend / p.sessions).toFixed(2))  : null,
         output_per_dollar: s.spend > 0 ? Number((output_score / s.spend).toFixed(2))    : null,
         tokens_per_loc:    p.loc_added > 0 ? Math.round(total_tokens / p.loc_added)     : null,
+        // Activity-weighted, range-aware values:
+        range_spend_usd,
+        range_prompt_tokens,
+        range_completion_tokens,
+        range_total_tokens,
+        range_requests,
+        sessions_in_csv_period: sessionsCsv,
+        activity_ratio: Number(ratio.toFixed(4)),
       }
     })
 
