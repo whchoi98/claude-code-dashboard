@@ -12,7 +12,7 @@ Enterprise analytics dashboard for Claude Code — engagement, productivity, cos
 
 Click any section below to jump directly to it. Every metric shown on these pages is documented in [`docs/metrics-catalog.md`](./docs/metrics-catalog.md).
 
-**Page index** — [Overview](#overview) · [Users](#users) · [User Productivity](#user-productivity) · [Trends](#trends) · [Claude Code](#claude-code) · [Productivity](#productivity) · [Cost](#cost) · [Audit](#audit) · [Analyze (AI)](#analyze-ai)
+**Page index** — [Overview](#overview) · [Executive](#executive) · [Users](#users) · [User Productivity](#user-productivity) · [User Search](#user-search) · [Trends](#trends) · [Claude Code](#claude-code) · [Productivity](#productivity) · [Adoption](#adoption) · [Cost](#cost) · [Audit](#audit) · [Analyze (AI)](#analyze-ai) · [Archive](#archive) · [Changelog](#changelog)
 
 ---
 
@@ -149,7 +149,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **12 pages** — Overview · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Productivity · Adoption · Cost · Audit · Analyze (AI) · Archive.
+- **14 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Productivity · Adoption · Cost (live + CSV reconciliation, PDF export) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
@@ -227,7 +227,7 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # Shared UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 12 routes
+│   ├── pages/              # 14 routes (incl. Executive + Changelog)
 │   ├── lib/                # i18n, useFetch, useDateRange, formatting
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations

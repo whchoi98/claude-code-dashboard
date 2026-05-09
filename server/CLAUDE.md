@@ -22,7 +22,10 @@ fallback.
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (CSV × Analytics activity-weighted join).
   - AI: `POST /analyze` (Bedrock `ConverseStream` SSE), Bedrock SQL
-    generation with robust parsing, Athena execution, S3 CSV reading.
+    generation with robust parsing, Athena execution (`runAthena` polls
+    for up to 60s and throws an explicit timeout error rather than
+    falling through to `GetQueryResultsCommand` on a still-RUNNING
+    query), S3 CSV reading.
   - The `analyticsReportsToCostResp` reshape function — pure, exported,
     unit-tested in `tests/server/test-cost-live-reshape.mjs`.
 - **`mock.js`** — Deterministic mock generators for local dev when no

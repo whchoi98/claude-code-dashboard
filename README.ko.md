@@ -12,7 +12,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 각 페이지에 표시되는 모든 지표는 [`docs/metrics-catalog.md`](./docs/metrics-catalog.md)에서 확인할 수 있습니다.
 
-**페이지 목차** — [개요](#개요) · [사용자](#사용자) · [사용자별 생산성](#사용자별-생산성) · [추세](#추세) · [Claude Code](#claude-code) · [생산성](#생산성) · [비용](#비용) · [감사](#감사) · [AI 분석](#ai-분석)
+**페이지 목차** — [개요](#개요) · [경영 요약](#경영-요약) · [사용자](#사용자) · [사용자별 생산성](#사용자별-생산성) · [사용자 검색](#사용자-검색) · [추세](#추세) · [Claude Code](#claude-code) · [생산성](#생산성) · [도입](#도입) · [비용](#비용) · [감사](#감사) · [AI 분석](#ai-분석) · [아카이브](#아카이브) · [변경 내역](#변경-내역)
 
 ---
 
@@ -149,7 +149,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ## 주요 기능
 
-- **12개 페이지** — 개요 · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · 생산성 · 도입 · 비용 · 감사 · 분석(AI) · 아카이브.
+- **14개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · 생산성 · 도입 · 비용(라이브 + CSV 정산, PDF 내보내기) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **변경 내역**(인앱 릴리즈 이력).
 - **세 개의 API 통합** — Analytics, Admin, Compliance (각각 별도 Secrets Manager 시크릿으로 주입; 모두 선택적이며 키가 없어도 UI는 graceful하게 동작).
 - **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷을 파티셔닝된 NDJSON으로 S3에 저장합니다. 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
 - **AI 자연어 질의** — Amazon Bedrock(Claude Sonnet 4.6 cross-region 프로파일) 기반 SSE 스트리밍. 두 모드: 실시간 스냅샷 직접 분석, 자율 Athena SQL 생성 + 실행.
@@ -227,7 +227,7 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # 공용 UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 12개 라우트
+│   ├── pages/              # 14개 라우트 (경영 요약 + 변경 내역 포함)
 │   ├── lib/                # i18n, useFetch, useDateRange, 포맷팅
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합

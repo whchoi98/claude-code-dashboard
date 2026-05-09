@@ -24,15 +24,16 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 ```
 claude-code-dashboard/
 ├── src/                    React SPA (Vite)
-│   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, UserDetailPanel, DateRangeControl, Markdown)
-│   ├── pages/              12 routes (Overview, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive)
-│   ├── lib/                i18n (ko/en), useDateRange, useFetch, format (masking, number, date)
+│   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, PageHeader, LoadingState, UserDetailPanel, DateRangeControl, CsvUploader, Markdown). Layout also renders the sidebar version badge (links to /changelog) and the static AWS run-rate label.
+│   ├── pages/              14 routes (Overview, Executive, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive, Changelog). Default date range across every range-aware page is 7d (was 14d/30d before v0.4.0).
+│   ├── lib/                i18n (ko/en), useDateRange, useFetch, useHealth, format (masking, number, date)
 │   ├── types.ts            Analytics API schema types
 │   ├── App.tsx             Router
+│   ├── index.css           Tailwind entry + the generic `@media print` block keyed off `body.app-print` that powers Save-as-PDF on Analyze, Cost, and Executive (visibility-isolated `.print-export` subtree, auto-expanded `<details>`, Claude palette preserved on paper)
 │   └── main.tsx            Entry + I18nProvider
 ├── server/                 Express API layer
-│   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/* (after_id cursor + 7d/14d/30d prewarm), health, plus a 10-minute in-memory cache shared across upstream calls
-│   ├── aws.js              registerAwsRoutes(): /api/cost/{live,csv,upload,uploads,uploads/:file,efficiency}, /api/analyze (Bedrock SSE), /api/archive/query (Athena), plus the analytics→CsvResp reshape used by /cost/live
+│   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/* (after_id cursor; startup prewarm + 5-min interval refresh for the 7d/14d/30d audit windows), /api/health, plus a 10-minute in-memory cache shared across upstream calls
+│   ├── aws.js              registerAwsRoutes(): /api/cost/{live,csv,upload,uploads,uploads/:file,efficiency}, /api/analyze (Bedrock SSE), /api/archive/query (Athena, 60-second polling budget), plus the analytics→CsvResp reshape used by /cost/live
 │   └── mock.js             Deterministic mock generators (dev fallback only)
 ├── collector/              Node 20 Lambda — daily S3 snapshot of Analytics API
 │   ├── handler.js          Flatten → NDJSON → s3://<bucket>/<table>/date=YYYY-MM-DD/

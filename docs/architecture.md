@@ -19,7 +19,7 @@
 
 | Component | Purpose |
 |-----------|---------|
-| Express proxy (`server/index.js`) | Per-request fan-out to Analytics / Admin / Compliance APIs with a 5-minute in-memory cache |
+| Express proxy (`server/index.js`) | Per-request fan-out to Analytics / Admin / Compliance APIs with a 10-minute in-memory cache and a startup-+-5-min compliance prewarm scheduler |
 | Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints into partitioned NDJSON on S3 |
 | Spend Report uploader (manual) | Claude Console CSV dropped into `s3://<archive>/spend-reports/` for the Cost page |
 
@@ -43,7 +43,7 @@
 
 | Component | Purpose |
 |-----------|---------|
-| React SPA | 12 pages, i18n (en/ko), date range control, user drill-down panel, markdown rendering |
+| React SPA | 14 pages, i18n (en/ko), date range control (7d default), user drill-down panel, markdown rendering, single-page Executive snapshot at `/exec` and an in-app Changelog page at `/changelog` (renders bundled `CHANGELOG.md` via Vite `?raw`) |
 | Recharts | Line / area / bar / stacked bar / pie / scatter / radial charts |
 | react-markdown + remark-gfm | Streamed markdown rendering for AI analysis output |
 
@@ -135,8 +135,11 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **CloudFront prefix list on ALB SG** — blocks direct ALB access from the internet without requiring mTLS or a private ALB.
 - **ARM64 Fargate** — cheaper than x86 (~20 %) and matches the dev host architecture so Docker image builds don't need QEMU emulation.
 - **Email masking as a contract** — `maskEmail()` is called in both the frontend and the LLM system prompt, making the UI safe by default.
-- **Hybrid live + CSV cost** — main Cost page widgets are sourced from the live Analytics API (org-wide, no per-user dimension) while per-user Top-N tables are sourced from the uploaded CSV. CSV totals are activity-weighted (sessions ratio) so they respond to the selected date range. See [ADR-0003](decisions/0003-hybrid-live-cost.md).
-- **Compliance after_id pagination + prewarm** — the Compliance API has no timestamp filter and only paginates via `after_id`. ECS task startup self-fetches the 7d / 14d / 30d windows in the background and refreshes every 5 minutes; the upstream cache (TTL 10 min) absorbs subsequent user requests so the audit feed renders in <1 s instead of paginating 30+ s of API calls.
+- **Hybrid live + CSV cost** — main Cost page widgets are sourced from the live Analytics API (org-wide, no per-user dimension) while per-user Top-N tables are sourced from the uploaded CSV. CSV totals are activity-weighted (sessions ratio) so they respond to the selected date range. The Cost page also surfaces a per-developer KPI (`spend / active devs in range`) and a 30-day projection (`avg of last 7 days × 30`) sourced from the live API's `daily` array. See [ADR-0003](decisions/0003-hybrid-live-cost.md).
+- **Compliance after_id pagination + prewarm** — the Compliance API has no timestamp filter and only paginates via `after_id`. ECS task startup self-fetches the 7d / 14d / 30d windows in the background and refreshes every 5 minutes; the upstream cache (TTL 10 min) absorbs subsequent user requests so the audit feed renders in <1 s instead of paginating 30+ s of API calls. The daily chart adds a `mean+1·stdev` reference line so risk spikes are obvious. See [ADR-0004](decisions/0004-compliance-pagination-prewarm.md).
+- **7d default range** — every range-aware page boots on `range=7d` (was 14d / 30d in v0.3.0). Trade-off: tighter signal, but at 7 days the half-window bisection used by Adoption's stale-skill detector and the Compliance spike threshold both still produce useful values. See [ADR-0005](decisions/0005-default-7d-window.md).
+- **Athena varchar partitions** — Glue tables partition `date` as `varchar`, not `DATE`, because the collector writes ISO strings. Queries must compare to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); wrapping in `DATE '…'` raises `TYPE_MISMATCH` on Engine v3. The `/api/analyze` SQL-mode prompt and the Archive page's pre-filled query both follow this convention. See [ADR-0007](decisions/0007-athena-varchar-partitions.md).
+- **Print-driven PDF export** — Save-as-PDF on Analyze, Cost, and Executive uses browser `window.print()` against a body-class-toggled `@media print` block (`body.app-print`). Zero new infra (no Puppeteer, no Lambda) and the printout matches what the user sees on screen because the styles are the same. See [ADR-0006](decisions/0006-print-driven-pdf-export.md).
 
 ## Cost breakdown
 
@@ -175,7 +178,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| Express 프록시 (`server/index.js`) | Analytics / Admin / Compliance API 요청 fan-out, 5분 in-memory 캐시 |
+| Express 프록시 (`server/index.js`) | Analytics / Admin / Compliance API 요청 fan-out, 10분 in-memory 캐시, 부팅 시점 + 5분 주기 compliance prewarm 스케줄러 |
 | Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 |
 | Spend Report 업로더 (수동) | Claude Console CSV를 `s3://<archive>/spend-reports/`에 투입, 비용 페이지 입력 |
 
@@ -199,7 +202,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| React SPA | 12개 페이지, i18n(영/한), 날짜 범위 컨트롤, 사용자 drill-down 패널, 마크다운 렌더링 |
+| React SPA | 14개 페이지, i18n(영/한), 날짜 범위 컨트롤(7d 기본), 사용자 drill-down 패널, 마크다운 렌더링, `/exec` 단일 화면 경영 요약, `/changelog`에서 Vite `?raw`로 번들된 `CHANGELOG.md` 렌더링 |
 | Recharts | 라인/영역/막대/스택/파이/산점도/방사형 차트 |
 | react-markdown + remark-gfm | AI 분석 결과 스트리밍 마크다운 렌더링 |
 
@@ -291,8 +294,11 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 - **ALB SG에 CloudFront prefix list** — mTLS나 private ALB 없이도 인터넷 직접 접근 차단.
 - **ARM64 Fargate** — x86 대비 약 20% 저렴, 개발 호스트 아키텍처와 일치해 Docker 빌드 시 QEMU 에뮬레이션 불필요.
 - **이메일 마스킹을 계약으로** — `maskEmail()`을 프론트엔드와 LLM 시스템 프롬프트 양쪽에서 호출해 UI를 기본적으로 안전하게 유지.
-- **하이브리드 라이브 + CSV 비용** — Cost 페이지 메인 위젯은 라이브 Analytics API(조직 단위, 사용자 차원 없음), per-user Top-N은 업로드된 CSV. CSV 합계는 활동량 가중 분배(세션 비율)로 선택 기간에 반응. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조.
-- **Compliance after_id 페이지네이션 + prewarm** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. ECS task 부팅 시 7d / 14d / 30d 백그라운드 fetch + 5분마다 재실행. upstream 캐시(TTL 10분)가 사용자 요청을 흡수해 audit 페이지가 30+ 초 페이지네이션 대신 1초 미만 응답.
+- **하이브리드 라이브 + CSV 비용** — Cost 페이지 메인 위젯은 라이브 Analytics API(조직 단위, 사용자 차원 없음), per-user Top-N은 업로드된 CSV. CSV 합계는 활동량 가중 분배(세션 비율)로 선택 기간에 반응. Cost 페이지에는 라이브 API의 `daily` 배열 기반 *개발자당 비용*(`총 지출 / 활동 개발자 수`)과 *30일 예상*(`최근 7일 평균 × 30`) KPI도 함께 노출. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조.
+- **Compliance after_id 페이지네이션 + prewarm** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. ECS task 부팅 시 7d / 14d / 30d 백그라운드 fetch + 5분마다 재실행. upstream 캐시(TTL 10분)가 사용자 요청을 흡수해 audit 페이지가 30+ 초 페이지네이션 대신 1초 미만 응답. 일별 차트에는 `평균+1σ` reference line이 추가돼 위험 spike를 즉시 인지. [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) 참조.
+- **7d 기본 기간** — 모든 기간 인지 페이지가 `range=7d`로 부팅 (v0.3.0까지는 14d / 30d). 더 좁은 신호와 트레이드오프이지만, Adoption stale-skill 감지의 윈도우 이등분과 Compliance spike 임계값 계산이 7d에서도 의미 있는 값을 산출. [ADR-0005](decisions/0005-default-7d-window.md) 참조.
+- **Athena varchar 파티션** — Glue 테이블의 `date` 파티션은 `varchar`이지 `DATE`가 아님 (collector가 ISO 문자열로 적재). 쿼리는 단순 문자열 리터럴(`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 비교해야 하며, `DATE '…'`로 감싸면 Engine v3가 `TYPE_MISMATCH`로 거부. `/api/analyze` SQL 모드 프롬프트와 Archive 페이지의 기본 쿼리 모두 이 규칙을 따름. [ADR-0007](decisions/0007-athena-varchar-partitions.md) 참조.
+- **인쇄 기반 PDF 내보내기** — Analyze · Cost · Executive 의 Save-as-PDF는 `body.app-print` 클래스로 토글되는 `@media print` 블록 + 브라우저 `window.print()`만 사용. 신규 인프라 0(Puppeteer · Lambda 불필요)이며, 화면과 동일한 스타일을 그대로 인쇄. [ADR-0006](decisions/0006-print-driven-pdf-export.md) 참조.
 
 ## 비용 내역
 
