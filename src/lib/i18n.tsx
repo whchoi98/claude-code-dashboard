@@ -236,6 +236,7 @@ const DICT = {
     // Audit / Compliance
     'audit.title':    'Audit',
     'audit.subtitle': 'Compliance API activity feed — {shown} of {total} fetched events fall within {start} → {end}.',
+    'audit.cap.warning': 'Showing {fetched} most recent events ({start} → {end}); the org generated more events in this window than the per-request cap allows. Older events from the early part of this window may be missing — refresh later (cache pre-warmed) or pick a narrower range.',
     'audit.kpi.total':      'Total events',
     'audit.kpi.total.hint': 'in this window',
     'audit.kpi.risk':       'High-risk events',
@@ -507,6 +508,7 @@ const DICT = {
     // Audit (ko)
     'audit.title':    '감사',
     'audit.subtitle': 'Compliance API 활동 피드 — {start} → {end} 윈도우에 {shown}/{total}개 이벤트가 해당.',
+    'audit.cap.warning': '최근 {fetched}개 이벤트만 표시 ({start} → {end}). 조직 활동량이 1회 요청 한도를 초과해, 윈도우 앞부분의 오래된 이벤트가 누락됐을 수 있습니다. 잠시 후 새로고침(서버 캐시 pre-warm) 또는 더 좁은 범위 선택을 권장합니다.',
     'audit.kpi.total':      '전체 이벤트',
     'audit.kpi.total.hint': '조회 기간',
     'audit.kpi.risk':       '고위험 이벤트',

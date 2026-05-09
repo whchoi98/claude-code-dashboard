@@ -33,7 +33,17 @@ type ActivityEvent = {
   [k: string]: unknown
 }
 
-type Resp = { source: 'live'; data: ActivityEvent[]; has_more: boolean; next_page: string | null; total_fetched: number }
+type Resp = {
+  source: 'live'
+  data: ActivityEvent[]
+  has_more: boolean
+  total_fetched: number
+  in_window?: number
+  /** Why server-side pagination stopped: 'starting_date' = date boundary
+   *  reached (good); 'max' = hit max records cap (older events missing);
+   *  'has_more=false' = no more upstream events; 'cap' = page cap; 'empty'. */
+  stop_reason?: 'starting_date' | 'max' | 'has_more=false' | 'cap' | 'empty'
+}
 
 // Event categories for filtering + coloring
 const RISK_TYPES = new Set([
@@ -88,26 +98,23 @@ export function Compliance() {
   const [filterType, setFilterType] = useState<string | 'all' | 'risk' | 'login'>('all')
   const [q, setQ] = useState('')
 
-  // Fetch up to 2000 recent events. The Compliance API's cursor pagination
-  // doesn't take a from/to date filter cleanly, so we fetch a fixed window of
-  // most-recent events and filter to the selected range client-side. Active
-  // orgs can produce hundreds of events per day, so 500 was often only 1-2
-  // days of history; bumped to 2000 (20 pages of 100). The server stops
-  // paginating early when has_more=false, so smaller orgs don't pay extra.
-  const { data, loading, error } = useFetch<Resp>('/api/compliance/activities?max=2000&pages=20')
-
   // useDateRange clamps endingDate to today-3 for the Analytics API's data
   // buffer. Compliance is real-time, so preset modes use today as the upper
   // bound; only an explicit custom endingDate is honored.
   const today = new Date().toISOString().slice(0, 10)
   const upper = range.preset === 'custom' ? range.endingDate : today
 
-  const events = useMemo(() => {
-    return (data?.data ?? []).filter((e) => {
-      const day = e.created_at.slice(0, 10)
-      return day >= range.startingDate && day <= upper
-    })
-  }, [data, range.startingDate, upper])
+  // Pass the date window to the server so it can paginate via after_id only
+  // until it crosses range.startingDate (huge savings for noisy orgs that
+  // produce 1000+ events/day). The Compliance API has no timestamp filter
+  // and pagination is sequential — fetching 14d on a noisy org could take
+  // several minutes. We cap at max=5000 (~1.5 min worst case) and surface
+  // stop_reason so the UI can warn that older events were truncated.
+  const url = `/api/compliance/activities?max=5000&pages=50&starting_date=${range.startingDate}&ending_date=${upper}`
+  const { data, loading, error } = useFetch<Resp>(url)
+
+  // The server already filtered by date; pass through directly.
+  const events = useMemo(() => data?.data ?? [], [data])
 
   const derived = useMemo(() => {
     const byType = new Map<string, number>()
@@ -189,6 +196,15 @@ export function Compliance() {
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
+        {data?.stop_reason === 'max' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+            {t('audit.cap.warning', {
+              fetched: fmtNum(data.total_fetched),
+              start: range.startingDate,
+              end: upper,
+            })}
+          </div>
+        )}
         <div className="grid grid-cols-4 gap-4">
           <KpiCard accent label={t('audit.kpi.total')} value={fmtNum(derived.total)} hint={t('audit.kpi.total.hint')} />
           <KpiCard       label={t('audit.kpi.risk')}  value={fmtNum(derived.risk)}  hint={t('audit.kpi.risk.hint')} />

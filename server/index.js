@@ -450,41 +450,68 @@ app.get('/api/compliance/activities', async (req, res) => {
       message: 'Set ANTHROPIC_COMPLIANCE_KEY (Enterprise Compliance API scope).',
     })
   }
-  const pagesCap = Number(req.query.pages || 5) // server-side cap on pages
+  // The Compliance API uses cursor pagination via `after_id` (the last event
+  // id of the previous page) to walk *backward* in time. It does NOT return a
+  // `next_page` token and does NOT accept timestamp-based filters. To honor a
+  // requested date window we paginate page by page and break out as soon as
+  // we cross the lower bound — for noisy orgs this prevents pulling tens of
+  // thousands of events when the user only asked for the last 14 days.
+  const pagesCap = Math.min(Number(req.query.pages || 50), 200)
   const limit = Math.min(Number(req.query.limit || 100), 100)
-  const before = req.query.before
-  const after = req.query.after
   const eventType = req.query.type // single type filter (client-side after fetch)
-  const maxRecords = Number(req.query.max || 500)
+  const maxRecords = Number(req.query.max || 5000)
+  const startingDate = req.query.starting_date // YYYY-MM-DD; older events stop pagination
+  const endingDate = req.query.ending_date     // YYYY-MM-DD; newer events filtered out
+  const initialAfterId = req.query.after_id     // cursor passthrough for incremental fetches
 
   const aggregated = []
-  let page = req.query.page
+  let afterId = initialAfterId
   let lastBody
+  let stopReason = 'cap'  // why pagination stopped: cap | empty | has_more=false | starting_date
   for (let i = 0; i < pagesCap; i++) {
     const params = {
       limit,
-      ...(page ? { page } : {}),
-      ...(before ? { before } : {}),
-      ...(after ? { after } : {}),
+      ...(afterId ? { after_id: afterId } : {}),
     }
     const upstream = await fetchJson('/v1/compliance/activities', params, COMPLIANCE_KEY)
     if (!upstream.ok) return res.status(upstream.status).json(upstream.body)
     lastBody = upstream.body
-    if (Array.isArray(upstream.body?.data)) aggregated.push(...upstream.body.data)
-    if (aggregated.length >= maxRecords) break
-    if (!upstream.body?.has_more || !upstream.body?.next_page) break
-    page = upstream.body.next_page
+    const pageData = Array.isArray(upstream.body?.data) ? upstream.body.data : []
+    if (pageData.length === 0) { stopReason = 'empty'; break }
+    aggregated.push(...pageData)
+
+    // Stop walking back once the oldest event on this page predates the
+    // requested starting_date. Events come newest-first within a page, so
+    // pageData[length-1] is the oldest in the page.
+    if (startingDate) {
+      const oldestDay = (pageData[pageData.length - 1].created_at || '').slice(0, 10)
+      if (oldestDay < startingDate) { stopReason = 'starting_date'; break }
+    }
+    if (aggregated.length >= maxRecords) { stopReason = 'max'; break }
+    if (!upstream.body?.has_more) { stopReason = 'has_more=false'; break }
+    afterId = pageData[pageData.length - 1].id
   }
 
-  const filtered = eventType
-    ? aggregated.filter((a) => a.type === eventType)
-    : aggregated
+  // Apply date and type filters. Date filtering is required because the
+  // *last* page we fetched may straddle the boundary (some events older,
+  // some newer than starting_date).
+  const inWindow = (a) => {
+    if (!startingDate && !endingDate) return true
+    const day = (a.created_at || '').slice(0, 10)
+    if (startingDate && day < startingDate) return false
+    if (endingDate && day > endingDate) return false
+    return true
+  }
+  let filtered = aggregated.filter(inWindow)
+  if (eventType) filtered = filtered.filter((a) => a.type === eventType)
+
   res.json({
     source: 'live',
     data: filtered.slice(0, maxRecords),
     has_more: lastBody?.has_more ?? false,
-    next_page: lastBody?.next_page ?? null,
     total_fetched: aggregated.length,
+    in_window: filtered.length,
+    stop_reason: stopReason,
   })
 })
 
