@@ -99,14 +99,14 @@ export function ClaudeCode() {
       />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
-          <KpiCard accent label="Active Developers" value={fmtNum(agg.activeUsers)} hint="users with CC sessions" />
-          <KpiCard label="Lines of Code" value={fmtCompact(agg.loc)} hint={`-${fmtCompact(agg.locRem)} removed`} />
-          <KpiCard label="Commits / PRs" value={`${fmtNum(agg.commits)} / ${fmtNum(agg.prs)}`} hint="by Claude Code" />
-          <KpiCard label="Tool Acceptance" value={fmtPct(agg.overallAccept)} hint={`${fmtNum(agg.sessions)} sessions`} />
+          <KpiCard accent label={t('cc.active_devs')} value={fmtNum(agg.activeUsers)} hint={t('cc.active_devs.hint')} />
+          <KpiCard label={t('cc.kpi.loc')} value={fmtCompact(agg.loc)} hint={t('cc.removed', { n: fmtCompact(agg.locRem) })} />
+          <KpiCard label={t('cc.kpi.commits_prs')} value={`${fmtNum(agg.commits)} / ${fmtNum(agg.prs)}`} hint={t('cc.kpi.commits_prs.hint')} />
+          <KpiCard label={t('cc.kpi.tool_accept')} value={fmtPct(agg.overallAccept)} hint={t('cc.kpi.sessions_count', { n: fmtNum(agg.sessions) })} />
         </div>
 
         <div className="grid grid-cols-3 gap-6">
-          <ChartCard title="Acceptance by Tool" className="col-span-2">
+          <ChartCard title={t('cc.accept_by_tool')} className="col-span-2">
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={agg.tools} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="2 4" />
@@ -120,7 +120,7 @@ export function ClaudeCode() {
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="Acceptance Rates" subtitle="% accepted per tool">
+          <ChartCard title={t('cc.accept_rates')} subtitle={t('cc.accept_rates.sub')}>
             <ResponsiveContainer width="100%" height={280}>
               <RadialBarChart
                 data={agg.tools} startAngle={90} endAngle={-270}
@@ -138,14 +138,14 @@ export function ClaudeCode() {
           </ChartCard>
         </div>
 
-        <ChartCard title="Top Contributors" subtitle="Lines of code added (top 10)">
+        <ChartCard title={t('cc.top_contrib')} subtitle={t('cc.top_contrib.sub')}>
           <ResponsiveContainer width="100%" height={360}>
             <BarChart data={agg.topCreators} layout="vertical" margin={{ top: 8, right: 16, left: 60, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
               <XAxis type="number" />
               <YAxis dataKey="email" type="category" width={180} tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="loc" fill="#D97757" radius={[0, 4, 4, 0]} name="Lines of Code" />
+              <Bar dataKey="loc" fill="#D97757" radius={[0, 4, 4, 0]} name={t('cc.contrib.loc_label')} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
