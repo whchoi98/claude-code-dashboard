@@ -8,6 +8,24 @@ ROOT=$(pwd)
 
 echo "# Session context for claude-code-dashboard"
 echo
+
+# Settings-file secret guard. The PreToolUse secret-scan.sh hook only
+# inspects tool_input payloads — it cannot catch a secret that already
+# lives inside .claude/settings*.json (those are loaded straight into
+# the agent context). Scan them at session start and warn loudly if a
+# live API key snuck in via the permission-acceptance flow.
+SECRET_REGEX='sk-ant-(api|admin)0[0-9]+-[A-Za-z0-9_-]{40,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[bp]-[A-Za-z0-9-]{20,}'
+for f in .claude/settings.json .claude/settings.local.json; do
+  [ -f "$f" ] || continue
+  # Strip lines that are clearly search patterns (grep / git grep arguments)
+  # before scanning, so the scanner doesn't flag legitimate audit commands.
+  if grep -vE 'grep .*"sk-ant-' "$f" 2>/dev/null | grep -qE "$SECRET_REGEX"; then
+    echo "## ⚠️  SECURITY WARNING"
+    echo "- Live secret detected in $f. Rotate the credential and replace the literal value with __TRACKED_VAR__."
+    echo
+  fi
+done
+
 echo "## Git"
 if [ -d .git ]; then
   echo "- branch: $(git branch --show-current 2>/dev/null || echo '(unknown)')"

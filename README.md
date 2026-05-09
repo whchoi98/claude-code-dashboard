@@ -309,3 +309,9 @@ Released under the [MIT License](./LICENSE).
 
 - Maintainer: [@whchoi98](https://github.com/whchoi98)
 - Issues: [github.com/whchoi98/claude-code-dashboard/issues](https://github.com/whchoi98/claude-code-dashboard/issues)
+
+<!-- harness-eval-badge:start -->
+![Harness Score](https://img.shields.io/badge/harness-7.0%2F10-yellow)
+![Harness Grade](https://img.shields.io/badge/grade-B-yellow)
+![Last Eval](https://img.shields.io/badge/eval-2026--05--09-blue)
+<!-- harness-eval-badge:end -->
