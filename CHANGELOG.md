@@ -15,6 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.5.1] - 2026-05-09
+
+Fixes the Executive page so changing the date range actually updates
+every KPI on the page (the previous version had a single-day `users`
+fetch that always returned `endingDate-3` regardless of preset, so LOC
+and tool-acceptance never moved). Also expands from 6 KPIs to 12,
+adds a productivity score gauge, and rewrites the headline summary
+to reference window-aware totals instead of single-day snapshots.
+
+### Changed
+
+- **Executive page rebuilt around `/api/analytics/users/range`** (was: single-day `/api/analytics/users?date=...`). LOC, commits, PRs, sessions, tool-acceptance, distinct active devs are now real window aggregates that recompute on every range change.
+- **Layout: 6 KPIs → 12 KPIs** organized into three labeled sections (People · Productivity · Cost & Risk):
+  - *People*: Active devs (window distinct), Avg DAU (with peak), Monthly adoption, Assigned seats.
+  - *Productivity*: LOC added (window total + commits/PRs), Tool acceptance (window total), Sessions/dev/day, Composite productivity score (0–100, same formula as the Productivity page).
+  - *Cost & Risk*: Spend (with $/dev/day hint), 30-day projection (with 7-day avg basis hint), Cost per 1k LOC, Risk events.
+- **Headline rewritten** to reference window aggregates (`{days}d`, `{devs} of {seats} developers`, `{loc} LOC`, `{commits} commits`, `{accept}`, `{spend}`, `{proj}`, `{score}/100`, `{risk}`, top model). Every value moves with the date picker.
+- **Subtitle** now spells out the contract — `"All KPIs are window aggregates — change the date range to refresh every number on this page."`
+
 ## [0.5.0] - 2026-05-09
 
 Insights pass. Adds the metrics + visualizations the dashboard was
@@ -198,6 +217,24 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.5.1] - 2026-05-09
+
+경영 요약 페이지에서 기간을 변경해도 KPI가 갱신되지 않던 문제 수정
+(이전엔 `users` 단일 일자 호출이라 LOC와 도구 수락률이 항상
+`endingDate-3` 값으로만 보였음). 동시에 KPI를 6개 → 12개로 확장하고
+생산성 점수 게이지를 추가, 헤드라인 요약을 윈도우 집계 기준으로
+재작성.
+
+### Changed
+
+- **경영 요약 페이지를 `/api/analytics/users/range` 기반으로 재구성** (이전: 단일 일자 `/api/analytics/users?date=...`). LOC · 커밋 · PR · 세션 · 도구 수락률 · 활동 개발자 distinct 카운트 모두 윈도우 집계값으로 — 기간 변경 시 모든 수치가 재계산됨.
+- **레이아웃: KPI 6개 → 12개**, 3개 섹션(사용자 · 생산성 · 비용 & 리스크)으로 그룹화:
+  - *사용자*: 활동 개발자(윈도우 distinct), 평균 DAU(피크 동시 표시), 월간 도입률, 할당된 시트.
+  - *생산성*: 추가 LOC(윈도우 합 + 커밋/PR), 도구 수락률(윈도우 합), 세션/개발자/일, 복합 생산성 점수(0-100, Productivity 페이지와 동일 공식).
+  - *비용 & 리스크*: 지출(개발자/일당 비용 hint), 30일 예상(7일 평균 기준 hint), 1k LOC당 비용, 위험 이벤트.
+- **헤드라인 재작성** — 윈도우 집계값 참조 (`{days}일`, `{seats}명 시트 중 {devs}명`, `{loc} LOC`, `{commits} 커밋`, `{accept}`, `{spend}`, `{proj}`, `{score}/100`, `{risk}`, 최대 지출 모델). 모든 값이 기간 picker에 반응.
+- **부제** 명시화 — `"모든 KPI는 윈도우 집계값 — 기간을 변경하면 모든 수치가 갱신됩니다."`
 
 ## [0.5.0] - 2026-05-09
 
