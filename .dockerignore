@@ -10,8 +10,11 @@ collector
 README.md
 docs
 screenshots
+sample
 tests
 _local
 .harness-eval
-CHANGELOG.md
+# Note: CHANGELOG.md is intentionally NOT excluded — Vite's `?raw` import
+# bundles its content into the SPA at build time so the /changelog page
+# can render it without a runtime fetch. See src/pages/Changelog.tsx.
 CLAUDE.md
