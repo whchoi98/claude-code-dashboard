@@ -94,8 +94,8 @@ export function DateRangeControl() {
             </label>
           </div>
           <div className="flex items-center justify-between pt-1 border-t border-ink-100">
-            <div className="text-[10px] text-ink-400">
-              {t('status.analytics_key')}: 3d buffer · 90d max
+            <div className="text-[10px] text-ink-400 leading-snug">
+              {t('range.footnote')}
             </div>
             <button
               onClick={() => {
@@ -104,7 +104,7 @@ export function DateRangeControl() {
               }}
               className="px-3 py-1 rounded-md bg-claude-500 text-white text-xs font-medium hover:bg-claude-600"
             >
-              Apply
+              {t('range.apply')}
             </button>
           </div>
         </div>

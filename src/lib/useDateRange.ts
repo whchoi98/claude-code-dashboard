@@ -9,7 +9,11 @@ import { useSearchParams } from 'react-router-dom'
  *
  * Respects Analytics API constraints:
  *   - Data starts 2026-01-01
- *   - 3-day buffer → ending date clamped to today - 3
+ *   - Data is UTC and refreshes daily — the picker allows up to today,
+ *     and the server returns whatever has finalized. The most recent
+ *     ~3 days may show partial counts because the upstream Analytics
+ *     buffer is still settling. The DateRangeControl footnote spells
+ *     this out for the user.
  *   - Max 90-day lookback
  *   - Summaries endpoint max 31-day range
  */
@@ -24,7 +28,6 @@ export interface DateRange {
 }
 
 const FIRST_AVAILABLE = '2026-01-01'
-const BUFFER_DAYS = 3
 
 function todayMinusDaysUtc(n: number) {
   const d = new Date()
@@ -56,8 +59,8 @@ function presetToDays(p: Preset): number {
 export function useDateRange(defaultPreset: Preset = '7d') {
   const [params, setParams] = useSearchParams()
 
-  const maxEnd = todayMinusDaysUtc(BUFFER_DAYS)
-  const maxStart = todayMinusDaysUtc(BUFFER_DAYS + 90)
+  const maxEnd = todayMinusDaysUtc(0)         // today (UTC)
+  const maxStart = todayMinusDaysUtc(90)      // 90-day lookback floor
 
   const rawPreset = (params.get('range') as Preset | null) ?? defaultPreset
   const rawStart = params.get('start')
@@ -78,7 +81,7 @@ export function useDateRange(defaultPreset: Preset = '7d') {
     const preset: Preset = ['7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
     const days = presetToDays(preset)
     const endingDate = maxEnd
-    const startingDate = clamp(todayMinusDaysUtc(BUFFER_DAYS + days - 1), FIRST_AVAILABLE, endingDate)
+    const startingDate = clamp(todayMinusDaysUtc(days - 1), FIRST_AVAILABLE, endingDate)
     return { startingDate, endingDate, preset, days }
   }, [rawPreset, rawStart, rawEnd, maxEnd, defaultPreset])
 

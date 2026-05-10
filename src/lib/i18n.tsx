@@ -44,6 +44,8 @@ const DICT = {
     'status.source.mock': 'Mock',
     'status.analytics_key': 'Analytics key',
     'status.admin_key':     'Admin key',
+    'range.apply':          'Apply',
+    'range.footnote':       'Data is UTC · refreshed daily · last ~3 days may show partial counts (Analytics buffer)',
     'status.aws_cost.label': 'AWS run-rate',
     'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 4.6 (light /api/analyze use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
 
@@ -458,6 +460,8 @@ const DICT = {
     'status.source.mock': '목업',
     'status.analytics_key': 'Analytics 키',
     'status.admin_key':     'Admin 키',
+    'range.apply':          '적용',
+    'range.footnote':       '데이터 시간대 UTC · 매일 업데이트 · 최근 3일은 부분 집계일 수 있음 (Analytics 버퍼)',
     'status.aws_cost.label': 'AWS 월 예상',
     'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 4.6 (/api/analyze 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
 
