@@ -113,6 +113,10 @@ const DICT = {
     // Trends
     'trends.title':    'Trends',
     'trends.subtitle': 'Active users, seat utilization, and Cowork adoption over time (≤31-day window).',
+    'trends.active_users':       'Active Users (DAU · WAU · MAU)',
+    'trends.seats_vs_mau':       'Seats vs Monthly Active',
+    'trends.adoption_rate':      'Adoption Rate',
+    'trends.adoption_rate.sub':  'Daily adoption (% of seats)',
     'chart.active_line': 'Active Users (DAU · WAU · MAU)',
     'chart.seats_mau':   'Seats vs Monthly Active',
     'chart.adoption':    'Adoption Rate',
@@ -419,6 +423,8 @@ const DICT = {
     'archive.empty':    'Run an Athena query to see archived data',
     'archive.empty.hint':'The collector Lambda writes one JSON-partitioned file per day. Schema mirrors the Analytics API responses.',
     'archive.hint':     'Collector writes daily snapshots to s3://$BUCKET/analytics/date=YYYY-MM-DD/. Glue Data Catalog exposes the claude_code_analytics table.',
+    'archive.no_rows.title': 'Query returned no rows',
+    'archive.no_rows.hint':  'Check the date range or partition values.',
   },
   ko: {
     'nav.overview':          '개요',
@@ -524,6 +530,10 @@ const DICT = {
 
     'trends.title':    '추세',
     'trends.subtitle': '시간별 활성 사용자, 좌석 활용, Cowork 도입 (≤31일 윈도우).',
+    'trends.active_users':       '활성 사용자 (DAU · WAU · MAU)',
+    'trends.seats_vs_mau':       '좌석 vs 월간 활성',
+    'trends.adoption_rate':      '도입률',
+    'trends.adoption_rate.sub':  '일별 도입률 (좌석 대비 %)',
     'chart.active_line': '활성 사용자 (DAU · WAU · MAU)',
     'chart.seats_mau':   '좌석 대비 월간 활성',
     'chart.adoption':    '도입률',
@@ -825,6 +835,8 @@ const DICT = {
     'archive.empty':    'Athena 쿼리를 실행하면 아카이브 데이터가 표시됩니다',
     'archive.empty.hint':'Collector Lambda가 일자별로 JSON을 파티셔닝해 저장합니다. 스키마는 Analytics API 응답과 동일합니다.',
     'archive.hint':     'Collector는 매일 s3://$BUCKET/analytics/date=YYYY-MM-DD/에 스냅샷을 저장합니다. Glue 카탈로그는 claude_code_analytics 테이블을 노출합니다.',
+    'archive.no_rows.title': '결과가 없습니다',
+    'archive.no_rows.hint':  '날짜 범위나 파티션 값을 확인하세요.',
   },
 } as const
 

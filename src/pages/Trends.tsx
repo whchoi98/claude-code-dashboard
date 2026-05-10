@@ -44,7 +44,7 @@ export function Trends() {
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
-        <ChartCard title="Active Users (DAU · WAU · MAU)">
+        <ChartCard title={t('trends.active_users')}>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -60,7 +60,7 @@ export function Trends() {
         </ChartCard>
 
         <div className="grid grid-cols-2 gap-6">
-          <ChartCard title="Seats vs Monthly Active">
+          <ChartCard title={t('trends.seats_vs_mau')}>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="2 4" />
@@ -74,7 +74,7 @@ export function Trends() {
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="Adoption Rate" subtitle="Daily adoption (% of seats)">
+          <ChartCard title={t('trends.adoption_rate')} subtitle={t('trends.adoption_rate.sub')}>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="2 4" />
