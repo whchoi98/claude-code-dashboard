@@ -15,6 +15,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.6.0] - 2026-05-10
+
+UX + security pass on top of the v0.5.x line. Sortable statistics
+tables across 5 pages, the sidebar now stays put while the main pane
+scrolls, the date picker advances to "today" instead of stopping 3
+days short (with a UTC/daily-refresh footnote explaining the partial
+counts), and a round of harness-side hardening kicked off by the v0.1.0
+harness-eval Full report (live API keys redacted from
+`.claude/settings.local.json`, deny-list expanded 12 → 29, allow-list
+catch-all wildcards pruned, secret patterns deduped into a shared lib,
+and a SessionStart guard that scans the settings files at boot).
+
+### Added
+
+- **Bidirectional column sorting** on 5 statistics tables (Cost · Full Efficiency Matrix · Adoption · Top Chat Projects · Users · UserProductivity · Compliance · Audit Feed). Click any column to sort, click again to flip; active column shows ▲/▼, inactive columns show a faint ↕ to advertise that they're clickable. User / project / actor / event-type columns sort as strings (case-insensitive `localeCompare` — Korean labels sort by Hangul order); numeric columns sort by value; `null` / `undefined` are always pinned to the bottom regardless of direction so "$/LOC = 0" rows don't pollute the top of the leaderboard. New shared primitives: `src/lib/useSortable.ts` + `src/components/SortableTh.tsx`. Replaces the per-page unidirectional `Th` components in Users / UserProductivity.
+- **DateRangeControl footnote**: `Data is UTC · refreshed daily · last ~3 days may show partial counts (Analytics buffer)` (KO: `데이터 시간대 UTC · 매일 업데이트 · 최근 3일은 부분 집계일 수 있음`). Both the `Apply` button and the footnote now flow through i18n.
+- **`docs/anthropic-api-fields.md`** — new reference (309 LOC) cataloging every field the dashboard consumes from Anthropic's Analytics + Compliance APIs, with canonical doc links (incl. the `.md` suffix trick for LLM consumption of the Mintlify-rendered docs site).
+- **`.claude/hooks/lib/secret-patterns.sh`** — shared 7-pattern array sourced by both `secret-scan.sh` (PreToolUse) and `session-context.sh` (SessionStart) so the two hooks can no longer drift apart.
+
+### Changed
+
+- **Sidebar is now pinned to the viewport.** Outer flex wrapper is `h-screen`; the sidebar (`aside`) and main pane each get `h-full overflow-y-auto` so they scroll independently. Body-level scrolling no longer drags the sidebar out of view alongside the content.
+- **Date picker `maxEnd` raised from `today − 3` to `today`** (UTC). The Analytics API will simply return partial counts for the last ~3 days; the new footnote explains. Preset windows now end on today (e.g., 7d preset = `[today−6, today]` instead of `[today−9, today−3]`).
+- **Harness deny-list expanded 12 → 29 entries**: added `rm -fr*`, `rm --recursive*`, `chmod -R 777*`, `chmod 777 /*`, `dd of=/*`, `mkfs.*`, `curl|bash`, `curl|sh`, `wget|bash`, `wget|sh`, `git push --mirror`, `git filter-branch`, `aws iam delete-policy`, `aws s3 rb s3://* --force` (with space — the standard CLI form), `aws ec2 terminate-instances`, `aws rds delete-db-instance`, `aws rds delete-db-cluster`, `aws cognito-idp delete-user-pool`, `aws secretsmanager delete-secret`. Dropped `Bash(rm -rf *)` (subsumed by `rm -fr*`) and `Bash(aws s3 rb s3://*--force)` (the no-space form was unreachable as a real CLI invocation).
+- **`session-context.sh` SessionStart secret guard** scans both `.claude/settings*.json` files at boot using a JSON-aware Python walk over string values (skips `grep`/`git grep` audit-command strings to avoid false-positives on legitimate search patterns). Replaces a fragile `grep -v` line filter that only matched one quoting style. Closes the gap that allowed the v0.5.1 key-commit incident — the PreToolUse `secret-scan.sh` hook only inspects `tool_input` payloads and can't see secrets that arrive via the permission-acceptance flow.
+
+### Fixed
+
+- **Live Anthropic API keys committed to `.claude/settings.local.json`** (lines 30, 58, 59 in v0.5.1) replaced with `__TRACKED_VAR__` placeholders. Verified via `git log -p -S` that the keys never reached git history (the file is gitignored). The user is still responsible for rotating the underlying credentials in Anthropic Console — placeholder swap only stops disk-at-rest exposure.
+- **Allow-list catch-all wildcards pruned** (8 entries removed — `Bash(bash *)`, `Bash(node *)`, `Bash(python3 *)`, `Bash(git *)`, `Bash(grep *)`, `Bash(aws ec2 *)`, `Bash(aws ecs *)`, `Bash(aws secretsmanager *)`). These had silently superseded the deny-list for the most dangerous tool families; replaced with scoped read-only entries (`git status`/`diff`/`show`/`log`, `grep -n`/`-E`/`-rn`, `aws ec2 describe-instances`, `aws ecs describe-tasks`/`list-services`, `aws secretsmanager get-secret-value`/`list-secrets`).
+- **Hardcoded English strings** that bypassed i18n in `ClaudeCode.tsx` (4 KPI labels + hints, 3 ChartCard titles/subtitles, Bar legend `name="Lines of Code"`) and `Adoption.tsx` (3 ChartCard titles/subtitles, 5 table headers, 4 Bar legends, "never" fallback in stale callout). All keys were already defined in both `en` and `ko` dictionaries — the JSX just wasn't using them. With Korean locale active the affected pages now render entirely in Korean.
+- **`secret-scan.sh` PEM private-key true-positive fixture #20 was silently failing**: `grep -E` parsed the leading dashes of the PEM begin-marker as an option flag, so the hook returned exit 0 instead of blocking. Added the `--` separator (`grep -qE -- "$pat"`). Tests: 53/54 → 54/54 pass.
+- **Python `FutureWarning: Possible nested set`** from the SessionStart guard's regex (Python's `re` module flags POSIX `[[:space:]]` inside a char class). Switched the AWS secret-key pattern to `\s` which both `grep -E` and Python `re` accept cleanly.
+
 ## [0.5.1] - 2026-05-09
 
 Fixes the Executive page so changing the date range actually updates
@@ -217,6 +251,39 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.6.0] - 2026-05-10
+
+v0.5.x 라인 위에서 UX + 보안 정비. 5개 페이지 통계 테이블이 컬럼별로
+양방향 정렬되도록 변경, 사이드바가 메인 스크롤과 함께 움직이지 않도록
+viewport에 고정, 날짜 picker가 today−3에서 멈추지 않고 today까지
+허용 (UTC/일별 업데이트 안내문 함께 노출), 그리고 v0.1.0 harness-eval
+Full 보고서를 받아 진행한 한 차례 보안 hardening
+(`.claude/settings.local.json`의 라이브 API 키 redact, deny-list
+12 → 29 entries로 확장, allow-list catch-all 와일드카드 prune,
+secret 패턴을 공유 lib로 통합, 부팅 시 settings 파일 스캔 가드 추가).
+
+### Added
+
+- **5개 통계 테이블에 양방향 컬럼 정렬** (Cost · Full Efficiency Matrix · Adoption · Top Chat Projects · Users · UserProductivity · Compliance · 감사 피드). 컬럼 클릭 시 정렬, 한 번 더 클릭 시 방향 토글. 활성 컬럼은 ▲/▼ 표시, 비활성은 흐린 ↕로 클릭 가능함을 알림. User / project / actor / event-type 컬럼은 문자열 정렬(`localeCompare` — 한글도 정상 정렬), 숫자 컬럼은 수치 비교, `null` / `undefined`는 방향 무관하게 항상 하단 고정. 신규 공유 컴포넌트: `src/lib/useSortable.ts` + `src/components/SortableTh.tsx`. Users / UserProductivity의 페이지별 단방향 `Th` 컴포넌트를 대체.
+- **DateRangeControl 안내문**: `데이터 시간대 UTC · 매일 업데이트 · 최근 3일은 부분 집계일 수 있음 (Analytics 버퍼)`. `Apply` 버튼과 안내문 모두 i18n.
+- **`docs/anthropic-api-fields.md`** — 신규 레퍼런스 (309 LOC). 대시보드가 사용하는 Anthropic Analytics + Compliance API의 모든 필드를 카탈로그화하고 공식 문서 canonical URL과 LLM-friendly `.md` 변형 트릭을 명시.
+- **`.claude/hooks/lib/secret-patterns.sh`** — 공유 7-pattern 배열. `secret-scan.sh` (PreToolUse)와 `session-context.sh` (SessionStart) 양쪽이 source — 두 hook의 패턴 drift 방지.
+
+### Changed
+
+- **사이드바를 viewport에 고정.** 외부 flex 래퍼가 `h-screen`, 사이드바와 메인이 각각 `h-full overflow-y-auto`로 독립 스크롤. body-level 스크롤이 사이드바를 함께 끌고 가던 문제 해결.
+- **날짜 picker `maxEnd`를 `today − 3`에서 `today` (UTC)로 상향.** Analytics API는 최근 ~3일에 대해 부분 집계만 반환하지만 안내문에서 그 이유를 명시. Preset 윈도우는 today를 끝으로 (예: 7d preset = `[today−6, today]`, 이전엔 `[today−9, today−3]`).
+- **Harness deny-list 12 → 29 entries로 확장**: `rm -fr*`, `rm --recursive*`, `chmod -R 777*`, `chmod 777 /*`, `dd of=/*`, `mkfs.*`, `curl|bash`, `curl|sh`, `wget|bash`, `wget|sh`, `git push --mirror`, `git filter-branch`, `aws iam delete-policy`, `aws s3 rb s3://* --force` (공백 포함 — 표준 CLI 문법), `aws ec2 terminate-instances`, `aws rds delete-db-instance`, `aws rds delete-db-cluster`, `aws cognito-idp delete-user-pool`, `aws secretsmanager delete-secret` 추가. `Bash(rm -rf *)` (`rm -fr*`에 포섭됨)와 `Bash(aws s3 rb s3://*--force)` (공백 없는 형식은 실제 CLI 호출에 도달 불가) 제거.
+- **`session-context.sh` SessionStart secret 가드**가 부팅 시 `.claude/settings*.json` 두 파일을 JSON 트리 walk으로 스캔 (`grep`/`git grep` 감사 명령 string은 false-positive 방지를 위해 skip). 한 가지 quoting 스타일만 매칭하던 fragile한 `grep -v` 라인 필터를 대체. PreToolUse `secret-scan.sh`가 `tool_input` payload만 검사하므로 permission-acceptance 흐름으로 들어온 secret은 잡히지 않던 v0.5.1 사고의 gap을 보강.
+
+### Fixed
+
+- **`.claude/settings.local.json`에 commit된 라이브 Anthropic API 키** (v0.5.1 기준 라인 30, 58, 59)를 `__TRACKED_VAR__` placeholder로 redact. `git log -p -S`로 키가 git 히스토리에 들어간 적 없음 확인 (gitignored). 사용자는 여전히 Anthropic Console에서 자격증명을 회전해야 함 — placeholder 교체는 disk-at-rest 노출만 차단.
+- **Allow-list catch-all 와일드카드 prune** (8개 제거 — `Bash(bash *)`, `Bash(node *)`, `Bash(python3 *)`, `Bash(git *)`, `Bash(grep *)`, `Bash(aws ec2 *)`, `Bash(aws ecs *)`, `Bash(aws secretsmanager *)`). 가장 위험한 도구 family들에 대해 deny-list를 조용히 무력화하고 있던 entries. 안전한 read-only entries로 대체 (`git status`/`diff`/`show`/`log`, `grep -n`/`-E`/`-rn`, `aws ec2 describe-instances`, `aws ecs describe-tasks`/`list-services`, `aws secretsmanager get-secret-value`/`list-secrets`).
+- **i18n 우회로 영문 하드코딩**된 문자열들 — `ClaudeCode.tsx` (4 KPI 라벨 + hint, 3 ChartCard 제목/부제, Bar legend `name="Lines of Code"`)와 `Adoption.tsx` (3 ChartCard 제목/부제, 5 테이블 헤더, 4 Bar legend, stale 콜아웃의 "never" 폴백). 모든 키는 이미 `en`과 `ko` 사전 양쪽에 정의되어 있었음 — JSX가 사용하지 않고 있던 것뿐. 한국어 locale에서 두 페이지가 완전히 한글로 렌더됨.
+- **`secret-scan.sh` PEM private-key true-positive fixture #20이 silent fail이었음**: `grep -E`가 PEM begin-marker의 앞쪽 dash들을 옵션 플래그로 파싱 → hook이 차단 대신 exit 0 반환. `--` 구분자 추가 (`grep -qE -- "$pat"`). 테스트: 53/54 → 54/54 pass.
+- **Python `FutureWarning: Possible nested set`** — SessionStart 가드 정규식이 char class 안에 POSIX `[[:space:]]`를 사용해 발생. AWS secret-key 패턴을 `\s`로 전환 (grep -E와 Python re 모두 깔끔하게 수용).
 
 ## [0.5.1] - 2026-05-09
 
