@@ -32,8 +32,11 @@ export function Layout() {
   const { t, locale, setLocale } = useI18n()
 
   return (
-    <div className="grain min-h-full flex">
-      <aside className="w-64 shrink-0 border-r border-ink-100 bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col">
+    // h-screen pins the layout to the viewport so the sidebar stays put
+    // while the main pane scrolls independently. Without this, scrolling
+    // the page moved the whole flex container — sidebar included.
+    <div className="grain h-screen flex">
+      <aside className="w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col">
         <div className="flex items-center gap-3 mb-8">
           <ClaudeIcon size={36} animate />
           <div className="leading-tight flex-1 min-w-0">
@@ -164,7 +167,7 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 h-full overflow-y-auto">
         <Outlet />
       </main>
     </div>
