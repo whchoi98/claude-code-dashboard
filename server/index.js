@@ -137,6 +137,18 @@ function todayUtc(offsetDays = 0) {
   return d.toISOString().slice(0, 10)
 }
 
+// Analytics API rejects dates inside the 3-day finalization buffer with
+// HTTP 400 ("Data is not yet available …"). The DateRangeControl picker
+// allows today as the end date by design (the footnote spells out the
+// partial-count caveat), so the proxy clamps any incoming ending_date
+// to today-3 here. Callers passing `undefined` get `today-3` as the
+// default (preserves prior behavior).
+function clampAnalyticsEnd(raw) {
+  const max = todayUtc(-3)
+  if (!raw) return max
+  return raw > max ? max : raw
+}
+
 function rangeDates(startingDate, endingDate) {
   const out = []
   const start = new Date(`${startingDate}T00:00:00Z`)
@@ -168,8 +180,8 @@ app.get('/api/health', (_req, res) => {
 // ─── Analytics API ──────────────────────────────────────────────────────────
 
 app.get('/api/analytics/summaries', async (req, res) => {
-  const endingDate = req.query.ending_date || todayUtc(-3)
-  const startingDate = req.query.starting_date || todayUtc(-33)
+  const endingDate = clampAnalyticsEnd(req.query.ending_date)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-33))
 
   if (!ANALYTICS_KEY) {
     return res.json({ source: 'mock', ...generateMock.summaries(startingDate, endingDate) })
@@ -191,7 +203,7 @@ app.get('/api/analytics/summaries', async (req, res) => {
 })
 
 app.get('/api/analytics/users', async (req, res) => {
-  const date = req.query.date || todayUtc(-3)
+  const date = clampAnalyticsEnd(req.query.date)
   const limit = Number(req.query.limit || 1000)
 
   if (!ANALYTICS_KEY) {
@@ -223,7 +235,7 @@ app.get('/api/analytics/users', async (req, res) => {
 })
 
 app.get('/api/analytics/skills', async (req, res) => {
-  const date = req.query.date || todayUtc(-3)
+  const date = clampAnalyticsEnd(req.query.date)
   if (!ANALYTICS_KEY) {
     return res.json({ source: 'mock', date, ...generateMock.skills(date) })
   }
@@ -244,7 +256,7 @@ app.get('/api/analytics/skills', async (req, res) => {
 })
 
 app.get('/api/analytics/connectors', async (req, res) => {
-  const date = req.query.date || todayUtc(-3)
+  const date = clampAnalyticsEnd(req.query.date)
   if (!ANALYTICS_KEY) {
     return res.json({ source: 'mock', date, ...generateMock.connectors(date) })
   }
@@ -265,7 +277,7 @@ app.get('/api/analytics/connectors', async (req, res) => {
 })
 
 app.get('/api/analytics/projects', async (req, res) => {
-  const date = req.query.date || todayUtc(-3)
+  const date = clampAnalyticsEnd(req.query.date)
   if (!ANALYTICS_KEY) {
     return res.json({ source: 'mock', date, ...generateMock.projects(date) })
   }
@@ -290,8 +302,8 @@ app.get('/api/analytics/projects', async (req, res) => {
 // to the Analytics API only when the partition is missing. All days run in
 // parallel. Fully-archived windows return in <500ms total.
 app.get('/api/analytics/users/range', async (req, res) => {
-  const endingDate = req.query.ending_date || todayUtc(-3)
-  const startingDate = req.query.starting_date || todayUtc(-16)
+  const endingDate = clampAnalyticsEnd(req.query.ending_date)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
   const dates = rangeDates(startingDate, endingDate).slice(-31)
 
   const results = await Promise.all(dates.map(async (date) => {
@@ -337,8 +349,8 @@ app.get('/api/analytics/users/range', async (req, res) => {
 // for distinct_user_count which can't be deduped across days without IDs).
 function makeDailyRangeRoute(upstreamPath, mockKey) {
   return async (req, res) => {
-    const endingDate = req.query.ending_date || todayUtc(-3)
-    const startingDate = req.query.starting_date || todayUtc(-16)
+    const endingDate = clampAnalyticsEnd(req.query.ending_date)
+    const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
     const dates = rangeDates(startingDate, endingDate).slice(-31)
 
     const results = await Promise.all(dates.map(async (date) => {
@@ -396,8 +408,8 @@ app.get('/api/admin/claude-code', async (req, res) => {
 // Fan-out: Claude Code usage across a date range
 app.get('/api/admin/claude-code/range', async (req, res) => {
   if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
-  const endingDate   = req.query.ending_date   || todayUtc(-3)
-  const startingDate = req.query.starting_date || todayUtc(-16)
+  const endingDate   = clampAnalyticsEnd(req.query.ending_date)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
   const dates = rangeDates(startingDate, endingDate).slice(-31)
 
   const results = []
@@ -429,7 +441,7 @@ app.get('/api/admin/claude-code/range', async (req, res) => {
 app.get('/api/admin/usage', async (req, res) => {
   if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
-  const startingDate = req.query.starting_date || todayUtc(-15)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-15))
   const params = {
     starting_at:  `${startingDate}T00:00:00Z`,
     ending_at:    `${endingDate}T00:00:00Z`,
@@ -519,7 +531,7 @@ app.get('/api/compliance/activities', async (req, res) => {
 app.get('/api/admin/cost', async (req, res) => {
   if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
-  const startingDate = req.query.starting_date || todayUtc(-31)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-31))
   const params = {
     starting_at:  `${startingDate}T00:00:00Z`,
     ending_at:    `${endingDate}T00:00:00Z`,
