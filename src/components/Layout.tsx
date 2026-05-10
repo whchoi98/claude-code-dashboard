@@ -12,19 +12,19 @@ import pkg from '../../package.json'
 const APP_VERSION = pkg.version
 
 const NAV = [
-  { to: '/',                  key: 'overview' },
-  { to: '/exec',              key: 'exec', badge: 'Exec' },
-  { to: '/users',             key: 'users' },
-  { to: '/user-productivity', key: 'user_productivity' },
-  { to: '/user-search',       key: 'user_search', badge: '🔍' },
-  { to: '/trends',            key: 'trends' },
-  { to: '/claude-code',       key: 'claude_code' },
-  { to: '/productivity',      key: 'productivity' },
-  { to: '/adoption',          key: 'adoption' },
-  { to: '/cost',              key: 'cost', badge: '$' },
-  { to: '/compliance',        key: 'compliance', badge: '🔒' },
-  { to: '/analyze',           key: 'analyze', badge: 'AI' },
-  { to: '/archive',           key: 'archive' },
+  { to: '/',                  key: 'overview',          badge: '📊' },
+  { to: '/exec',              key: 'exec',              badge: 'Exec' },
+  { to: '/users',             key: 'users',             badge: '👥' },
+  { to: '/user-productivity', key: 'user_productivity', badge: '⚡' },
+  { to: '/user-search',       key: 'user_search',       badge: '🔍' },
+  { to: '/trends',            key: 'trends',            badge: '📈' },
+  { to: '/claude-code',       key: 'claude_code',       badge: '💻' },
+  { to: '/productivity',      key: 'productivity',      badge: '🎯' },
+  { to: '/adoption',          key: 'adoption',          badge: '🌱' },
+  { to: '/cost',              key: 'cost',              badge: '$' },
+  { to: '/compliance',        key: 'compliance',        badge: '🔒' },
+  { to: '/analyze',           key: 'analyze',           badge: 'AI' },
+  { to: '/archive',           key: 'archive',           badge: '📦' },
 ] as const
 
 export function Layout() {
