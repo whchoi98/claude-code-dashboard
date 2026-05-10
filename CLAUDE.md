@@ -24,9 +24,9 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 ```
 claude-code-dashboard/
 ├── src/                    React SPA (Vite)
-│   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, PageHeader, LoadingState, UserDetailPanel, DateRangeControl, CsvUploader, Markdown). Layout also renders the sidebar version badge (links to /changelog) and the static AWS run-rate label.
-│   ├── pages/              14 routes (Overview, Executive, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive, Changelog). Default date range across every range-aware page is 7d (was 14d/30d before v0.4.0).
-│   ├── lib/                i18n (ko/en), useDateRange, useFetch, useHealth, format (masking, number, date)
+│   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, PageHeader, LoadingState, UserDetailPanel, DateRangeControl, CsvUploader, Markdown, SortableTh). Layout pins the sidebar to the viewport via h-screen + per-pane overflow-y-auto so scrolling moves only the main pane; it also renders the version badge (links to /changelog) and the static AWS run-rate label.
+│   ├── pages/              14 routes (Overview, Executive, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Productivity, Adoption, Cost, Compliance, Analyze, Archive, Changelog). Default date range is 7d. The DateRangeControl now allows today as the end date (Analytics 3-day buffer surfaces partial counts; the popover footnote calls this out).
+│   ├── lib/                i18n (ko/en), useDateRange, useFetch, useHealth, useSortable, format (masking, number, date)
 │   ├── types.ts            Analytics API schema types
 │   ├── App.tsx             Router
 │   ├── index.css           Tailwind entry + the generic `@media print` block keyed off `body.app-print` that powers Save-as-PDF on Analyze, Cost, and Executive (visibility-isolated `.print-export` subtree, auto-expanded `<details>`, Claude palette preserved on paper)

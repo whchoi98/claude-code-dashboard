@@ -43,7 +43,7 @@
 
 | Component | Purpose |
 |-----------|---------|
-| React SPA | 14 pages, i18n (en/ko), date range control (7d default), user drill-down panel, markdown rendering, single-page Executive snapshot at `/exec` and an in-app Changelog page at `/changelog` (renders bundled `CHANGELOG.md` via Vite `?raw`) |
+| React SPA | 14 pages, i18n (en/ko), date range control (7d default; allows today as end date with a UTC/daily-refresh footnote), user drill-down panel, markdown rendering, single-page Executive snapshot at `/exec`, in-app Changelog page at `/changelog` (renders bundled `CHANGELOG.md` via Vite `?raw`). Sidebar pinned to viewport via `h-screen` + per-pane `overflow-y-auto`. Per-row statistics tables use a shared `useSortable` hook + `<SortableTh>` for bidirectional column sort with null-tail-pinning. |
 | Recharts | Line / area / bar / stacked bar / pie / scatter / radial charts |
 | react-markdown + remark-gfm | Streamed markdown rendering for AI analysis output |
 
@@ -202,7 +202,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| React SPA | 14개 페이지, i18n(영/한), 날짜 범위 컨트롤(7d 기본), 사용자 drill-down 패널, 마크다운 렌더링, `/exec` 단일 화면 경영 요약, `/changelog`에서 Vite `?raw`로 번들된 `CHANGELOG.md` 렌더링 |
+| React SPA | 14개 페이지, i18n(영/한), 날짜 범위 컨트롤(7d 기본, today를 최대 종료일로 허용 + UTC/일별 업데이트 안내), 사용자 drill-down 패널, 마크다운 렌더링, `/exec` 단일 화면 경영 요약, `/changelog`에서 Vite `?raw`로 번들된 `CHANGELOG.md` 렌더링. 사이드바는 `h-screen` + per-pane `overflow-y-auto`로 viewport 고정. 행별 통계 테이블은 공유 `useSortable` 훅 + `<SortableTh>`로 양방향 컬럼 정렬(`null`은 방향 무관 하단 고정). |
 | Recharts | 라인/영역/막대/스택/파이/산점도/방사형 차트 |
 | react-markdown + remark-gfm | AI 분석 결과 스트리밍 마크다운 렌더링 |
 
