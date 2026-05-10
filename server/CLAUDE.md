@@ -44,6 +44,16 @@ fallback.
   - Compliance `/v1/compliance/activities`: **`?after_id=<last_event_id>`**
     derived from `data[-1].id`. The endpoint does NOT return `next_page`;
     relying on it silently breaks pagination after page 1.
+- **Analytics dates must be clamped to today-3 before hitting upstream**.
+  The Analytics + Admin APIs return HTTP 400 ("Data is not yet available")
+  for any date inside the 3-day finalization buffer. The DateRangeControl
+  picker allows today as the end date by design (the UTC/daily-refresh
+  footnote spells out the partial-count caveat), so the proxy clamps
+  every `ending_date` and `starting_date` it forwards via
+  `clampAnalyticsEnd(raw)`. Use this helper on every new Analytics-family
+  endpoint — bypassing it surfaces the upstream 400 to the user as a
+  `mock` source-badge with the full error message in `reason`.
+  Compliance endpoints stay un-clamped (they're real-time).
 - **Self-call URL params must be `encodeURIComponent`'d** before
   interpolation — `req.query`-derived dates flow into upstream URLs and
   unencoded values can inject extra params.
