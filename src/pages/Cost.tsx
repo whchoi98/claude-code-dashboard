@@ -13,6 +13,8 @@ import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtPct, maskEmail, fmtNum } from '../lib/format'
+import { useSortable } from '../lib/useSortable'
+import { SortableTh } from '../components/SortableTh'
 
 type CsvRow = {
   user_email: string
@@ -718,42 +720,7 @@ function EconomicProductivitySection({ data, t, range }: {
         </div>
 
         <ChartCard title={t('econ.full_table')} subtitle={t('econ.full_table.sub')} className="mt-6">
-          <div className="rounded-lg border border-ink-100 overflow-auto mx-3 max-h-[500px]">
-            <table className="w-full text-xs">
-              <thead className="bg-paper-muted/60 text-ink-500 sticky top-0">
-                <tr>
-                  <th className="text-left px-3 py-2 uppercase tracking-wider">User</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Score</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Spend</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">LOC</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Commits</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">PRs</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">$/LOC</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">$/Commit</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Out/$</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Tok/LOC</th>
-                  <th className="text-right px-3 py-2 uppercase tracking-wider">Accept</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.users.map((u) => (
-                  <tr key={u.email} className="border-t border-ink-100">
-                    <td className="px-3 py-1.5 font-medium text-ink-700">{maskEmail(u.email)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-claude-600 font-semibold">{u.economic_productivity_score}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtUsd(u.spend_usd)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{fmtCompact(u.loc_added)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.commits}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.prs}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.cost_per_loc != null ? `$${u.cost_per_loc.toFixed(4)}` : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.cost_per_commit != null ? fmtUsd(u.cost_per_commit) : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.output_per_dollar != null ? u.output_per_dollar.toFixed(1) : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.tokens_per_loc != null ? fmtCompact(u.tokens_per_loc) : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{fmtPct(u.tool_acceptance_rate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <FullEfficiencyTable users={data.users} />
         </ChartCard>
 
         <div className="mt-4 rounded-xl border border-ink-100 bg-paper-muted/40 px-5 py-3 text-[11px] text-ink-500 leading-relaxed">
@@ -763,6 +730,80 @@ function EconomicProductivitySection({ data, t, range }: {
           Output score = LOC + 100·commits + 1000·PRs + 0.5·tool_accepted.
         </div>
       </div>
+  )
+}
+
+// Sortable per-user efficiency table. Every column is clickable; the User
+// column sorts as a string, every other column sorts numerically with
+// nulls (cost_per_loc / output_per_dollar / tokens_per_loc / accept) pinned
+// to the bottom regardless of direction.
+function FullEfficiencyTable({ users }: { users: EfficiencyUser[] }) {
+  type K = 'user' | 'score' | 'spend' | 'loc' | 'commits' | 'prs'
+        | 'cost_per_loc' | 'cost_per_commit' | 'output_per_dollar'
+        | 'tokens_per_loc' | 'accept'
+  const accessors: Record<K, (u: EfficiencyUser) => string | number | null | undefined> = {
+    user:    (u) => u.email,
+    score:   (u) => u.economic_productivity_score,
+    spend:   (u) => u.spend_usd,
+    loc:     (u) => u.loc_added,
+    commits: (u) => u.commits,
+    prs:     (u) => u.prs,
+    cost_per_loc:    (u) => u.cost_per_loc,
+    cost_per_commit: (u) => u.cost_per_commit,
+    output_per_dollar: (u) => u.output_per_dollar,
+    tokens_per_loc:  (u) => u.tokens_per_loc,
+    accept:  (u) => u.tool_acceptance_rate,
+  }
+  const { rows, sortKey, sortDir, toggle } = useSortable<EfficiencyUser, K>(users, accessors, {
+    initialKey: 'score', initialDir: 'desc',
+  })
+  const Th = (props: { label: string; k: K; align?: 'left' | 'right' }) => (
+    <SortableTh<K>
+      label={props.label}
+      k={props.k}
+      sortKey={sortKey}
+      sortDir={sortDir}
+      onClick={toggle}
+      align={props.align}
+    />
+  )
+  return (
+    <div className="rounded-lg border border-ink-100 overflow-auto mx-3 max-h-[500px]">
+      <table className="w-full text-xs">
+        <thead className="bg-paper-muted/60 sticky top-0">
+          <tr>
+            <Th label="User" k="user" align="left" />
+            <Th label="Score" k="score" />
+            <Th label="Spend" k="spend" />
+            <Th label="LOC" k="loc" />
+            <Th label="Commits" k="commits" />
+            <Th label="PRs" k="prs" />
+            <Th label="$/LOC" k="cost_per_loc" />
+            <Th label="$/Commit" k="cost_per_commit" />
+            <Th label="Out/$" k="output_per_dollar" />
+            <Th label="Tok/LOC" k="tokens_per_loc" />
+            <Th label="Accept" k="accept" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((u) => (
+            <tr key={u.email} className="border-t border-ink-100">
+              <td className="px-3 py-1.5 font-medium text-ink-700">{maskEmail(u.email)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-claude-600 font-semibold">{u.economic_productivity_score}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{fmtUsd(u.spend_usd)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{fmtCompact(u.loc_added)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.commits}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.prs}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.cost_per_loc != null ? `$${u.cost_per_loc.toFixed(4)}` : '—'}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.cost_per_commit != null ? fmtUsd(u.cost_per_commit) : '—'}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.output_per_dollar != null ? u.output_per_dollar.toFixed(1) : '—'}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{u.tokens_per_loc != null ? fmtCompact(u.tokens_per_loc) : '—'}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{fmtPct(u.tool_acceptance_rate)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

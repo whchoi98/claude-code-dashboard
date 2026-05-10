@@ -13,6 +13,8 @@ import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtDate, maskEmail } from '../lib/format'
+import { useSortable } from '../lib/useSortable'
+import { SortableTh } from '../components/SortableTh'
 
 type Actor = {
   type: 'user_actor' | 'api_actor'
@@ -309,19 +311,42 @@ export function Compliance() {
           {filtered.length === 0 ? (
             <EmptyState title={t('audit.empty')} />
           ) : (
-            <div className="rounded-lg border border-ink-100 overflow-auto max-h-[600px] mx-3">
-              <table className="w-full text-xs">
-                <thead className="bg-paper-muted/60 text-ink-500 sticky top-0">
-                  <tr>
-                    <th className="text-left px-3 py-2 uppercase tracking-wider">Time</th>
-                    <th className="text-left px-3 py-2 uppercase tracking-wider">Actor</th>
-                    <th className="text-left px-3 py-2 uppercase tracking-wider">Event</th>
-                    <th className="text-left px-3 py-2 uppercase tracking-wider">Detail</th>
-                    <th className="text-left px-3 py-2 uppercase tracking-wider">IP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((e) => {
+            <AuditFeedTable events={filtered} />
+          )}
+        </ChartCard>
+      </div>
+    </div>
+  )
+}
+
+function AuditFeedTable({ events }: { events: ActivityEvent[] }) {
+  type K = 'time' | 'actor' | 'event' | 'ip'
+  const accessors: Record<K, (e: ActivityEvent) => string | number | null | undefined> = {
+    time:  (e) => e.created_at,
+    actor: (e) => e.actor.email_address || e.actor.api_key_id || e.actor.user_id,
+    event: (e) => e.type,
+    ip:    (e) => e.actor.ip_address,
+  }
+  const { rows, sortKey, sortDir, toggle } = useSortable<ActivityEvent, K>(events, accessors, {
+    initialKey: 'time', initialDir: 'desc',
+  })
+  const Th = (props: { label: string; k: K }) => (
+    <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align="left" />
+  )
+  return (
+    <div className="rounded-lg border border-ink-100 overflow-auto max-h-[600px] mx-3">
+      <table className="w-full text-xs">
+        <thead className="bg-paper-muted/60 sticky top-0">
+          <tr>
+            <Th label="Time"   k="time" />
+            <Th label="Actor"  k="actor" />
+            <Th label="Event"  k="event" />
+            <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Detail</th>
+            <Th label="IP"     k="ip" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e) => {
                     const r = riskLabel(e.type)
                     return (
                       <tr key={e.id} className={clsx(
@@ -347,12 +372,8 @@ export function Compliance() {
                       </tr>
                     )
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ChartCard>
-      </div>
+        </tbody>
+      </table>
     </div>
   )
 }

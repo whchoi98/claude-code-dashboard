@@ -8,8 +8,10 @@ import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
 import { DateRangeControl } from '../components/DateRangeControl'
+import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
@@ -25,19 +27,18 @@ const TARGETS = {
   activityDays:   0.4, // share of days active in the window
 }
 
-type SortKey = 'score' | 'loc' | 'sessions' | 'commits' | 'accept' | 'activeDays'
+type K = 'user' | 'score' | 'loc' | 'sessions' | 'commits' | 'accept' | 'activeDays'
 
 export function UserProductivity() {
   const t = useT()
   const { range } = useDateRange('7d')
-  const [sort, setSort] = useState<SortKey>('score')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
   const url = `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const rangeResp = useFetch<RangeResp>(url)
 
-  const rows = useMemo(() => {
+  const enrichedRows = useMemo(() => {
     const days = rangeResp.data?.days ?? []
     const windowSize = Math.max(1, days.length)
 
@@ -111,14 +112,25 @@ export function UserProductivity() {
     })
 
     const f = q.trim().toLowerCase()
-    return enriched
-      .filter((r) => !f || r.masked.toLowerCase().includes(f) || r.email.toLowerCase().includes(f))
-      .sort((a, b) => {
-        const ka = (a[sort] as number | null) ?? -1
-        const kb = (b[sort] as number | null) ?? -1
-        return (kb as number) - (ka as number)
-      })
-  }, [rangeResp.data, sort, q])
+    return enriched.filter((r) => !f || r.masked.toLowerCase().includes(f) || r.email.toLowerCase().includes(f))
+  }, [rangeResp.data, q])
+
+  type R = (typeof enrichedRows)[number]
+  const accessors: Record<K, (r: R) => string | number | null | undefined> = {
+    user:       (r) => r.email,
+    score:      (r) => r.score,
+    loc:        (r) => r.loc,
+    sessions:   (r) => r.sessions,
+    commits:    (r) => r.commits,
+    accept:     (r) => r.accept,
+    activeDays: (r) => r.activeDays,
+  }
+  const { rows, sortKey, sortDir, toggle } = useSortable<R, K>(enrichedRows, accessors, {
+    initialKey: 'score', initialDir: 'desc',
+  })
+  const Th = (props: { label: string; k: K; align?: 'left' | 'right' }) => (
+    <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
+  )
 
   if (rangeResp.loading) return <LoadingState />
   if (rangeResp.error) return <ErrorState error={rangeResp.error} />
@@ -167,15 +179,15 @@ export function UserProductivity() {
         ) : (
           <div className="rounded-xl border border-ink-100 bg-white shadow-card overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-paper-muted/60 text-ink-500">
+              <thead className="bg-paper-muted/60">
                 <tr>
-                  <Th label={t('user_prod.col.user')} />
-                  <Th label={t('user_prod.col.score')}      k="score"      sort={sort} setSort={setSort} />
-                  <Th label={t('user_prod.col.loc')}        k="loc"        sort={sort} setSort={setSort} />
-                  <Th label={t('user_prod.col.sessions')}   k="sessions"   sort={sort} setSort={setSort} />
-                  <Th label={t('user_prod.col.commits')}    k="commits"    sort={sort} setSort={setSort} />
-                  <Th label={t('user_prod.col.accept')}     k="accept"     sort={sort} setSort={setSort} />
-                  <Th label={t('user_prod.col.active_days')} k="activeDays" sort={sort} setSort={setSort} />
+                  <Th label={t('user_prod.col.user')}       k="user"       align="left" />
+                  <Th label={t('user_prod.col.score')}      k="score"      align="left" />
+                  <Th label={t('user_prod.col.loc')}        k="loc"        align="left" />
+                  <Th label={t('user_prod.col.sessions')}   k="sessions"   align="left" />
+                  <Th label={t('user_prod.col.commits')}    k="commits"    align="left" />
+                  <Th label={t('user_prod.col.accept')}     k="accept"     align="left" />
+                  <Th label={t('user_prod.col.active_days')} k="activeDays" align="left" />
                 </tr>
               </thead>
               <tbody>
@@ -223,24 +235,6 @@ export function UserProductivity() {
 
       <UserDetailPanel email={selected} onClose={() => setSelected(null)} />
     </div>
-  )
-}
-
-function Th({ label, k, sort, setSort }: {
-  label: string; k?: SortKey; sort?: SortKey; setSort?: (k: SortKey) => void
-}) {
-  const active = k && sort === k
-  return (
-    <th
-      onClick={k && setSort ? () => setSort(k) : undefined}
-      className={clsx(
-        'px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider',
-        k && 'cursor-pointer select-none hover:text-ink-800',
-        active && 'text-claude-600',
-      )}
-    >
-      {label}{active ? ' ↓' : ''}
-    </th>
   )
 }
 

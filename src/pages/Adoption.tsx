@@ -10,6 +10,8 @@ import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtNum, maskEmail } from '../lib/format'
+import { useSortable } from '../lib/useSortable'
+import { SortableTh } from '../components/SortableTh'
 import type { Skill, Connector, ChatProject } from '../types'
 
 type DayEntry<T> = { date: string; source: string; data: T[] }
@@ -170,32 +172,52 @@ export function Adoption() {
         </ChartCard>
 
         <ChartCard title={t('adopt.projects')} subtitle={t('adopt.projects.sub')}>
-          <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
-            <table className="w-full text-sm">
-              <thead className="bg-paper-muted/60 text-ink-500">
-                <tr>
-                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.project')}</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.users')}</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.convos')}</th>
-                  <th className="text-right px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.messages')}</th>
-                  <th className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('adopt.col.created')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projectRows.map((p) => (
-                  <tr key={p.project_id} className="border-t border-ink-100 hover:bg-paper-muted/40">
-                    <td className="px-4 py-2 font-medium text-ink-700">{p.project_name}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtNum(p.distinct_user_count)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtNum(p.distinct_conversation_count)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-claude-600 font-medium">{fmtNum(p.message_count)}</td>
-                    <td className="px-4 py-2 text-ink-500">{maskEmail(p.created_by?.email_address)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ProjectTable rows={projectRows} t={t} />
         </ChartCard>
       </div>
+    </div>
+  )
+}
+
+function ProjectTable({ rows, t }: { rows: ProjectRow[]; t: (k: any, p?: any) => string }) {
+  type K = 'project' | 'users' | 'convos' | 'messages' | 'created'
+  const accessors: Record<K, (p: ProjectRow) => string | number | null | undefined> = {
+    project:  (p) => p.project_name,
+    users:    (p) => p.distinct_user_count,
+    convos:   (p) => p.distinct_conversation_count,
+    messages: (p) => p.message_count,
+    created:  (p) => p.created_by?.email_address,
+  }
+  const { rows: sorted, sortKey, sortDir, toggle } = useSortable<ProjectRow, K>(rows, accessors, {
+    initialKey: 'messages', initialDir: 'desc',
+  })
+  const Th = (props: { label: string; k: K; align?: 'left' | 'right' }) => (
+    <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
+  )
+  return (
+    <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+      <table className="w-full text-sm">
+        <thead className="bg-paper-muted/60">
+          <tr>
+            <Th label={t('adopt.col.project')} k="project"  align="left" />
+            <Th label={t('adopt.col.users')}   k="users" />
+            <Th label={t('adopt.col.convos')}  k="convos" />
+            <Th label={t('adopt.col.messages')} k="messages" />
+            <Th label={t('adopt.col.created')} k="created"  align="left" />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((p) => (
+            <tr key={p.project_id} className="border-t border-ink-100 hover:bg-paper-muted/40">
+              <td className="px-4 py-2 font-medium text-ink-700">{p.project_name}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{fmtNum(p.distinct_user_count)}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{fmtNum(p.distinct_conversation_count)}</td>
+              <td className="px-4 py-2 text-right tabular-nums text-claude-600 font-medium">{fmtNum(p.message_count)}</td>
+              <td className="px-4 py-2 text-ink-500">{maskEmail(p.created_by?.email_address)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

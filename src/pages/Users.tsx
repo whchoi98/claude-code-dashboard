@@ -3,8 +3,10 @@ import { PageHeader } from '../components/PageHeader'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
 import { DateRangeControl } from '../components/DateRangeControl'
+import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useSortable } from '../lib/useSortable'
 import { fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import { useT } from '../lib/i18n'
 import type { UserRecord } from '../types'
@@ -12,7 +14,12 @@ import clsx from 'clsx'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
 type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
-type SortKey = 'messages' | 'loc' | 'sessions' | 'commits' | 'accept'
+type Row = {
+  email: string; messages: number; convos: number; sessions: number;
+  loc: number; locRemoved: number; commits: number; prs: number;
+  accepted: number; rejected: number; accept: number | null;
+}
+type K = 'user' | 'messages' | 'sessions' | 'loc' | 'commits' | 'prs' | 'accept'
 
 export function Users() {
   const t = useT()
@@ -21,19 +28,14 @@ export function Users() {
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
   const source = data?.days?.[0]?.source as 'live' | 'mock' | undefined
-  const [sort, setSort] = useState<SortKey>('loc')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
-  const rows = useMemo(() => {
+  const aggregated = useMemo<Row[]>(() => {
     // Aggregate per-user across the selected window. acceptRate is recomputed
     // from summed numerator/denominator so a single high-volume day can't get
     // diluted by averaging daily ratios.
-    const byEmail = new Map<string, {
-      email: string; messages: number; convos: number; sessions: number;
-      loc: number; locRemoved: number; commits: number; prs: number;
-      accepted: number; rejected: number;
-    }>()
+    const byEmail = new Map<string, Row>()
     for (const d of data?.days ?? []) {
       for (const r of d.data) {
         const cc = r.claude_code_metrics
@@ -41,7 +43,7 @@ export function Users() {
         const email = r.user.email_address
         let cur = byEmail.get(email)
         if (!cur) {
-          cur = { email, messages: 0, convos: 0, sessions: 0, loc: 0, locRemoved: 0, commits: 0, prs: 0, accepted: 0, rejected: 0 }
+          cur = { email, messages: 0, convos: 0, sessions: 0, loc: 0, locRemoved: 0, commits: 0, prs: 0, accepted: 0, rejected: 0, accept: null }
           byEmail.set(email, cur)
         }
         cur.messages   += r.chat_metrics.message_count
@@ -57,19 +59,29 @@ export function Users() {
                           ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count
       }
     }
-    const mapped = Array.from(byEmail.values()).map((u) => ({
-      ...u,
-      accept: acceptRate(u.accepted, u.rejected),
-    }))
+    return Array.from(byEmail.values()).map((u) => ({ ...u, accept: acceptRate(u.accepted, u.rejected) }))
+  }, [data])
+
+  const filtered = useMemo(() => {
     const f = q.trim().toLowerCase()
-    return mapped
-      .filter((r) => !f || r.email.toLowerCase().includes(f))
-      .sort((a, b) => {
-        const ka = (a[sort] as number | null) ?? -1
-        const kb = (b[sort] as number | null) ?? -1
-        return (kb as number) - (ka as number)
-      })
-  }, [data, sort, q])
+    return f ? aggregated.filter((r) => r.email.toLowerCase().includes(f)) : aggregated
+  }, [aggregated, q])
+
+  const accessors: Record<K, (r: Row) => string | number | null | undefined> = {
+    user:     (r) => r.email,
+    messages: (r) => r.messages,
+    sessions: (r) => r.sessions,
+    loc:      (r) => r.loc,
+    commits:  (r) => r.commits,
+    prs:      (r) => r.prs,
+    accept:   (r) => r.accept,
+  }
+  const { rows, sortKey, sortDir, toggle } = useSortable<Row, K>(filtered, accessors, {
+    initialKey: 'loc', initialDir: 'desc',
+  })
+  const Th = (props: { label: string; k: K; align?: 'left' | 'right' }) => (
+    <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
+  )
 
   if (loading) return <LoadingState />
   if (error) return <ErrorState error={error} />
@@ -98,15 +110,15 @@ export function Users() {
         ) : (
           <div className="rounded-xl border border-ink-100 bg-white shadow-card overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-paper-muted/60 text-ink-500">
+              <thead className="bg-paper-muted/60">
                 <tr>
-                  <Th label={t('users.col.user')} />
-                  <Th label={t('users.col.messages')} k="messages" sort={sort} setSort={setSort} />
-                  <Th label={t('users.col.sessions')} k="sessions" sort={sort} setSort={setSort} />
-                  <Th label={t('users.col.loc')}      k="loc"      sort={sort} setSort={setSort} />
-                  <Th label={t('users.col.commits')}  k="commits"  sort={sort} setSort={setSort} />
-                  <Th label={t('users.col.prs')} />
-                  <Th label={t('users.col.accept')}   k="accept"   sort={sort} setSort={setSort} />
+                  <Th label={t('users.col.user')}     k="user"     align="left" />
+                  <Th label={t('users.col.messages')} k="messages" align="left" />
+                  <Th label={t('users.col.sessions')} k="sessions" align="left" />
+                  <Th label={t('users.col.loc')}      k="loc"      align="left" />
+                  <Th label={t('users.col.commits')}  k="commits"  align="left" />
+                  <Th label={t('users.col.prs')}      k="prs"      align="left" />
+                  <Th label={t('users.col.accept')}   k="accept"   align="left" />
                 </tr>
               </thead>
               <tbody>
@@ -139,23 +151,5 @@ export function Users() {
 
       <UserDetailPanel email={selected} onClose={() => setSelected(null)} />
     </div>
-  )
-}
-
-function Th({ label, k, sort, setSort }: {
-  label: string; k?: SortKey; sort?: SortKey; setSort?: (k: SortKey) => void
-}) {
-  const active = k && sort === k
-  return (
-    <th
-      onClick={k && setSort ? () => setSort(k) : undefined}
-      className={clsx(
-        'px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider',
-        k && 'cursor-pointer select-none hover:text-ink-800',
-        active && 'text-claude-600',
-      )}
-    >
-      {label}{active ? ' ↓' : ''}
-    </th>
   )
 }
