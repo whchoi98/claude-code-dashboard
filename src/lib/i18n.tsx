@@ -47,7 +47,7 @@ const DICT = {
     'range.apply':          'Apply',
     'range.footnote':       'Data is UTC · refreshed daily · last ~3 days may show partial counts (Analytics buffer)',
     'status.aws_cost.label': 'AWS run-rate',
-    'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 4.6 (light /api/analyze use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
+    'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 4.6 (light /api/chat/stream use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
 
     // Common
     'common.loading': 'Loading…',
@@ -343,27 +343,6 @@ const DICT = {
     // Analyze
     'analyze.title':    'Analyze',
     'analyze.subtitle': 'Chat with Claude about your org. Sonnet 4.6 on Amazon Bedrock autonomously queries live analytics, the S3 archive, and cost reports to answer.',
-    'analyze.placeholder':'Ask a question about your analytics…',
-    'analyze.run':       'Analyze',
-    'analyze.thinking':  'Thinking…',
-    'analyze.prompts': JSON.stringify([
-      // Adoption / engagement
-      'Show DAU / WAU / MAU trends and flag any week-over-week drop > 10% with a likely cause.',
-      'Which Skills and Connectors have the highest adoption relative to seat count? Which look stalled (created but rarely used)?',
-      'What is the seat utilization rate, and which provisioned users have shown zero activity in the last 14 days?',
-      // Productivity
-      'Top 10 Claude Code contributors by combined LOC + commits + PRs, with each user\'s tool acceptance rate.',
-      'Identify users whose tool acceptance is below 60% — which specific tools are they rejecting most, and what might be wrong?',
-      'Compare this period\'s productivity outputs to the prior period of equal length — who improved and who declined?',
-      // Cost / efficiency
-      'Break down spend in USD by product (Claude Code / Chat / other) and by model. Where is the money actually going?',
-      'Top 5 users by spend in the last 30 days — does their productivity output justify the cost?',
-      'Highlight any user whose weekly spend grew > 50%, or whose tokens-per-LOC ratio doubled, this period.',
-      'Forecast next month\'s total spend if current usage continues. Call out the biggest cost drivers.',
-      // Risk / executive
-      'Any role changes, SSO toggles, or data-export events in the last 14 days an admin should review?',
-      'Write a 3-sentence executive brief on Claude Code ROI: adoption health, productivity gains, and spend efficiency.',
-    ]),
     'chat.placeholder':  'Ask anything about your org analytics…',
     'chat.send':         'Send',
     'chat.stop':         'Stop',
@@ -484,7 +463,7 @@ const DICT = {
     'range.apply':          '적용',
     'range.footnote':       '데이터 시간대 UTC · 매일 업데이트 · 최근 3일은 부분 집계일 수 있음 (Analytics 버퍼)',
     'status.aws_cost.label': 'AWS 월 예상',
-    'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 4.6 (/api/analyze 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
+    'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 4.6 (/api/chat/stream 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
 
     'common.loading': '불러오는 중…',
     'common.error':   '데이터 로드 실패',
@@ -771,27 +750,6 @@ const DICT = {
 
     'analyze.title':    '분석',
     'analyze.subtitle': 'Claude와 조직 데이터에 대해 대화하세요. Amazon Bedrock의 Sonnet 4.6이 실시간 애널리틱스·S3 아카이브·비용 리포트를 스스로 조회해 답변합니다.',
-    'analyze.placeholder':'분석하고 싶은 질문을 입력하세요…',
-    'analyze.run':       '분석 시작',
-    'analyze.thinking':  '생각하는 중…',
-    'analyze.prompts': JSON.stringify([
-      // 도입 / 참여
-      'DAU / WAU / MAU 추세에서 주간 10% 이상 하락 구간을 찾아 원인을 추정해줘.',
-      '좌석 수 대비 도입률이 높은 스킬/커넥터 vs 생성됐지만 거의 안 쓰이는 정체 항목은?',
-      '좌석 활용률은 얼마이며, 최근 14일 활동이 0인 좌석 보유자는 누구인가?',
-      // 생산성
-      'Claude Code 기여 Top 10 — LOC + 커밋 + PR 합계 기준, 각자의 도구 수락률 포함.',
-      '도구 수락률 60% 미만 사용자 — 어떤 도구를 가장 많이 거부하며 원인은 무엇으로 추정되는가?',
-      '직전 동일 기간과 비교해 생산성이 개선된 사용자와 하락한 사용자를 구분해줘.',
-      // 비용 / 효율
-      '지출 분포를 USD로 분해해줘 — 제품별(Claude Code / Chat / 기타)과 모델별 비중. 돈이 어디로 가는가?',
-      '최근 30일 지출 Top 5 사용자 — 그 비용을 정당화할 만한 생산성 산출이 있는가?',
-      '주간 지출 50% 이상 증가 또는 LOC당 토큰비용이 2배가 된 사용자가 있는가?',
-      '현재 추세 유지 시 다음 달 총 지출을 예측해줘. 가장 큰 비용 동인은?',
-      // 리스크 / 경영
-      '최근 14일 내 권한 변경 / SSO 토글 / 데이터 export 중 관리자가 검토해야 할 항목은?',
-      'Claude Code ROI 경영진 브리핑(3문장): 도입 건강도 · 생산성 향상 · 지출 효율.',
-    ]),
     'chat.placeholder':  '조직 애널리틱스에 대해 무엇이든 물어보세요…',
     'chat.send':         '전송',
     'chat.stop':         '중단',
