@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClaudeIcon } from './ClaudeIcon'
+import { FloatingChat } from './chat/FloatingChat'
 import { useHealth } from '../lib/useHealth'
 import { useI18n } from '../lib/i18n'
 // Single source of truth for the displayed version. Bumping this in
@@ -170,6 +171,7 @@ export function Layout() {
       <main className="flex-1 min-w-0 h-full overflow-y-auto">
         <Outlet />
       </main>
+      <FloatingChat />
     </div>
   )
 }
