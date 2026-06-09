@@ -316,166 +316,38 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     res.write(`data: ${JSON.stringify(data)}\n\n`)
   }
 
-  // Pull the SQL out of whatever Claude returned. Tries several common patterns.
-  function extractSql(text) {
-    const trimmed = (text || '').trim()
-
-    // 1) ```sql ... ``` or ``` ... ``` fenced block (most common)
-    const fenceMatch = trimmed.match(/```(?:sql)?\s*([\s\S]*?)```/i)
-    if (fenceMatch) {
-      const inner = fenceMatch[1].trim()
-      if (/^(SELECT|WITH)\b/i.test(inner)) return inner
-    }
-
-    // 2) Bare response, entire body is SQL
-    if (/^(SELECT|WITH)\b/i.test(trimmed)) return trimmed
-
-    // 3) SQL embedded somewhere — grab from first SELECT/WITH to end of statement
-    const bareMatch = trimmed.match(/\b(SELECT|WITH)\b[\s\S]*?(;|$)/i)
-    if (bareMatch) {
-      const extracted = bareMatch[0].replace(/;\s*$/, '').trim()
-      if (/^(SELECT|WITH)\b/i.test(extracted)) return extracted
-    }
-
-    const snippet = trimmed.slice(0, 400).replace(/\s+/g, ' ')
-    throw new Error(
-      `Generated query is not a SELECT/WITH statement. Model output was:\n---\n${snippet}\n---`,
-    )
-  }
-
-  async function generateSql(question, locale) {
-    const sys = [
-      'You are an Athena SQL generator. The user asks a question; you return ONE Athena SQL statement that answers it.',
-      '',
-      'Output format (STRICT):',
-      '- Emit ONLY a single fenced code block: ```sql ... ```',
-      '- Nothing before, nothing after the fenced block. No prose, no explanation, no headings.',
-      '- The SQL inside MUST start with SELECT or WITH. No DDL, no DML, no multi-statement output.',
-      '',
-      'SQL rules:',
-      '- Always include a partition filter on `date`. The partition is a STRING column in YYYY-MM-DD format.',
-      '  Correct form: WHERE date BETWEEN \'2026-04-01\' AND \'2026-04-18\'',
-      '  If the user did not specify a range, default to the last 14 days ending today - 3 (3-day API buffer).',
-      '- Use CAST(date AS DATE) ONLY when you need date arithmetic; for equality/BETWEEN comparisons, use string form.',
-      '- Do not invent columns. Use only columns listed in the schema below.',
-      '- Acceptance-rate expressions: SUM(x_accepted) / NULLIF(SUM(x_accepted + x_rejected), 0). Cast to DOUBLE when computing rates.',
-      '- Always add ORDER BY where it makes the answer deterministic. Always add LIMIT (default 50).',
-      '',
-      ATHENA_SCHEMA_HINT,
-      '',
-      `Today is ${new Date().toISOString().slice(0, 10)}. The Analytics API has a 3-day buffer so filters should end at date - 3 days at latest.`,
-    ].join('\n')
-
-    const out = await bedrock.send(new ConverseCommand({
-      modelId: MODEL_ID,
-      system: [{ text: sys }],
-      messages: [{ role: 'user', content: [{ text: question }] }],
-      inferenceConfig: { maxTokens: 800, temperature: 0 },
-    }))
-    const text = out.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') || ''
-    try {
-      return { sql: extractSql(text), raw: text }
-    } catch (e) {
-      // Re-raise with the raw model output attached so the UI can show it.
-      const err = new Error(e.message)
-      err.raw = text
-      throw err
-    }
-  }
-
   // Execute an Athena SQL that has already passed sanitizeAthenaQuery.
   async function runAthenaSafe(rawQuery) {
     const safe = sanitizeAthenaQuery(rawQuery)
     return runAthena(safe)
   }
 
-  // ── /api/analyze — SSE streaming ─────────────────────────────────────────
-  router.post('/analyze', async (req, res) => {
-    const { question, locale = 'en', mode = 'direct' } = req.body || {}
-    if (!question || typeof question !== 'string') {
-      return res.status(400).json({ error: 'question is required' })
+  // Fetch + reshape org cost (used by GET /cost/live and the chat cost tool).
+  async function fetchCostSummary({ starting_date, ending_date } = {}) {
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    if (!ANALYTICS_KEY) throw new Error('ANTHROPIC_ANALYTICS_KEY is required for cost data.')
+    const today = new Date()
+    const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
+    const startingDate = starting_date || minus(31)
+    const endingDate = ending_date || minus(0)
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+    const buildUrl = (p) => {
+      const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${endingDate}T00:00:00Z`, bucket_width: '1d' })
+      params.append('group_by[]', 'product'); params.append('group_by[]', 'model')
+      return `${apiUrl}${p}?${params.toString()}`
     }
-
-    sseInit(res)
-    try {
-      let context
-      let sqlEcho = null
-      let rowsEcho = null
-
-      if (mode === 'sql') {
-        sseSend(res, 'status', { message: locale === 'ko' ? 'SQL 생성 중…' : 'Generating SQL…' })
-        const { sql } = await generateSql(question, locale)
-        sqlEcho = sql
-        sseSend(res, 'sql', { sql })
-
-        sseSend(res, 'status', { message: locale === 'ko' ? 'Athena 실행 중…' : 'Running Athena query…' })
-        // Run through the same sanitizer as the direct /archive/query endpoint —
-        // the LLM is untrusted output and must not bypass our table allowlist.
-        const { columns, rows } = await runAthenaSafe(sql)
-        rowsEcho = rows.slice(0, 200)
-        sseSend(res, 'rows', { columns, rows: rowsEcho })
-
-        context = {
-          mode: 'sql',
-          sql,
-          columns,
-          rows: rowsEcho,
-          row_count: rows.length,
-        }
-      } else {
-        sseSend(res, 'status', { message: locale === 'ko' ? '실시간 데이터 로드 중…' : 'Loading live snapshot…' })
-        const snapshot = await fetchAnalytics()
-        context = { mode: 'direct', snapshot }
-      }
-
-      const languageNote = locale === 'ko'
-        ? '답변은 반드시 한국어로 작성하세요. 한국어 마크다운 리포트 형식으로 3~5개 섹션(## 헤더)과 구체 수치, 계산 근거를 포함하세요.'
-        : 'Write in clear English. The output MUST be valid Markdown: 3–5 "## " headings, "-" bullet lists, and GFM pipe tables where numeric comparisons help. Include specific numbers and explicit rate/growth calculations.'
-
-      const sys = [
-        'You are an enterprise analytics analyst for Claude Code Enterprise.',
-        'You receive an analytics context (either a live snapshot or Athena query rows) and answer the question with specific numbers.',
-        'Rules:',
-        '- Cite exact numbers and compute rates/growth explicitly.',
-        '- Call out data caveats: 3-day buffer, 90-day max lookback, no Bedrock usage.',
-        '- PRIVACY: When citing any user email, keep only the first 2 characters of the local part, mask the rest with literal asterisks, and keep the @domain visible. Example: alice.kim@acme.com → al*******@acme.com. Never emit raw full emails.',
-        '- FORMATTING: Write plain Markdown that a standard Markdown renderer (GitHub/CommonMark) can parse. Do NOT escape asterisks with backslashes — write ab*****@domain.com, never ab\\*\\*\\*\\*\\*@domain.com. The asterisks inside masked emails are literal characters, not bold syntax, so a surrounding renderer will display them correctly.',
-        languageNote,
-      ].join('\n')
-
-      const userMsg = [
-        `QUESTION: ${question}`,
-        '',
-        context.mode === 'sql'
-          ? `You autonomously generated this Athena SQL:\n\`\`\`sql\n${sqlEcho}\n\`\`\`\n\nRESULT (${context.row_count} rows, first 200 shown):\n\`\`\`json\n${JSON.stringify(rowsEcho, null, 2).slice(0, 40000)}\n\`\`\``
-          : `ANALYTICS SNAPSHOT (JSON):\n\`\`\`json\n${JSON.stringify(context.snapshot, null, 2).slice(0, 60_000)}\n\`\`\``,
-      ].join('\n')
-
-      sseSend(res, 'status', { message: locale === 'ko' ? '분석 작성 중…' : 'Drafting analysis…' })
-
-      const stream = await bedrock.send(new ConverseStreamCommand({
-        modelId: MODEL_ID,
-        system: [{ text: sys }],
-        messages: [{ role: 'user', content: [{ text: userMsg }] }],
-        inferenceConfig: { maxTokens: 2000, temperature: 0.2 },
-      }))
-
-      for await (const ev of stream.stream) {
-        const delta = ev.contentBlockDelta?.delta?.text
-        if (delta) sseSend(res, 'text', { text: delta })
-        if (ev.messageStop) sseSend(res, 'stop', { reason: ev.messageStop.stopReason })
-      }
-
-      sseSend(res, 'done', { ok: true, modelId: MODEL_ID })
-      res.end()
-    } catch (err) {
-      sseSend(res, 'error', {
-        message: err?.message || String(err),
-        hint: 'Ensure the ECS task role has bedrock:InvokeModelWithResponseStream + (if SQL mode) athena & s3 permissions.',
-      })
-      res.end()
-    }
-  })
+    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
+    const [costRes, usageRes] = await Promise.all([
+      fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
+      fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
+    ])
+    const costBody = await costRes.json().catch(() => ({}))
+    const usageBody = await usageRes.json().catch(() => ({}))
+    if (!costRes.ok) throw new Error(`cost_report ${costRes.status}`)
+    if (!usageRes.ok) throw new Error(`usage_report ${usageRes.status}`)
+    return analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
+  }
 
   // ── /api/archive/query — sanitized synchronous Athena SELECT ────────────
   // Defence in depth against SQL injection: sanitizer rejects multi-statement,
@@ -571,84 +443,21 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // GET /api/cost/live?starting_date=YYYY-MM-DD&ending_date=YYYY-MM-DD
   //
-  // Calls Anthropic's Analytics API endpoints with the analytics key
-  // (read:analytics scope, not the admin key):
-  //   /v1/organizations/analytics/cost_report   — USD spend + request counts
-  //   /v1/organizations/analytics/usage_report  — token counts (input/output/cache)
-  //
-  // Both are queried with bucket_width=1d and group_by[]=product&group_by[]=model,
-  // then joined on (product, model) and reshaped into a CsvResp-shaped payload
-  // so the frontend's row-driven aggregations work unchanged. Per-user
-  // attribution is not exposed by these endpoints — the UI hides per-user
-  // widgets in live mode and surfaces them only when source === 'csv'.
-  //
+  // Delegates to fetchCostSummary() which calls the Analytics API endpoints
+  // (cost_report + usage_report) and reshapes them into CsvResp shape.
   // Errors:
   //   400 analytics_key_required    → ANTHROPIC_ANALYTICS_KEY missing
   //   502 upstream_error            → either upstream endpoint returned non-2xx
   //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
   router.get('/cost/live', async (req, res) => {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
-    if (!ANALYTICS_KEY) {
-      return res.status(400).json({
-        error: 'analytics_key_required',
-        message: 'ANTHROPIC_ANALYTICS_KEY (sk-ant-api01-...) is required for live cost data.',
-      })
-    }
-
-    // Default range: last 31 days inclusive, ending today ([today-31, today]).
-    // Analytics cost_report accepts up-to-now timestamps and tolerates partial
-    // recent days; trailing days simply return small numbers.
-    const today = new Date()
-    const todayMinus = (n) => {
-      const d = new Date(today); d.setUTCDate(d.getUTCDate() - n)
-      return d.toISOString().slice(0, 10)
-    }
-    const startingDate = req.query.starting_date || todayMinus(31)
-    const endingDate   = req.query.ending_date   || todayMinus(0)
-
-    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
-    const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-
-    // Both endpoints accept RFC 3339 timestamps. Use day boundaries (00:00 UTC).
-    const startingAt = `${startingDate}T00:00:00Z`
-    const endingAt   = `${endingDate}T00:00:00Z`
-
-    const buildUrl = (path) => {
-      const params = new URLSearchParams({
-        starting_at: startingAt,
-        ending_at: endingAt,
-        bucket_width: '1d',
-      })
-      params.append('group_by[]', 'product')
-      params.append('group_by[]', 'model')
-      return `${apiUrl}${path}?${params.toString()}`
-    }
-
-    const headers = {
-      'x-api-key': ANALYTICS_KEY,
-      'anthropic-version': apiVersion,
-    }
-
-    let costBody, usageBody
     try {
-      const [costRes, usageRes] = await Promise.all([
-        fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
-        fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
-      ])
-      costBody  = await costRes.json().catch(() => ({}))
-      usageBody = await usageRes.json().catch(() => ({}))
-      if (!costRes.ok) {
-        return res.status(502).json({ error: 'upstream_error', message: `cost_report ${costRes.status}`, upstream: costBody })
-      }
-      if (!usageRes.ok) {
-        return res.status(502).json({ error: 'upstream_error', message: `usage_report ${usageRes.status}`, upstream: usageBody })
-      }
+      const out = await fetchCostSummary({ starting_date: req.query.starting_date, ending_date: req.query.ending_date })
+      res.json(out)
     } catch (err) {
-      return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
+      const msg = err?.message || String(err)
+      const code = /is required/.test(msg) ? 400 : 502
+      res.status(code).json({ error: code === 400 ? 'analytics_key_required' : 'upstream_error', message: msg })
     }
-
-    const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
-    res.json(out)
   })
 
   // ── CSV Spend Report Uploads (management) ───────────────────────────────
