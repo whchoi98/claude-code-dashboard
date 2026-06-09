@@ -94,5 +94,24 @@ ok('compactOverview drops raw user list', ov.users_today === undefined && ov.act
 ok('compactOverview keeps summaries + seats', ov.summaries.length === 1)
 ok('compactOverview top skills sorted', ov.top_skills[0].skill_name === 'pdf')
 
+import { TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner } from '../../server/chat-tools.js'
+
+ok('TOOL_SPECS has 4 tools', TOOL_SPECS.length === 4)
+ok('TOOL_SPECS names', eq(
+  TOOL_SPECS.map((t) => t.toolSpec.name).sort(),
+  ['get_analytics_overview', 'get_cost_summary', 'run_athena_sql', 'search_users'],
+))
+ok('system prompt localized ko', CHAT_SYSTEM_PROMPT('ko', '2026-06-09').includes('한국어'))
+
+// makeToolRunner with stubbed deps
+const runner = makeToolRunner({
+  fetchAnalytics: async () => snap,
+  runAthenaSafe: async (sql) => ({ columns: ['user_email'], rows: [{ user_email: 'xyz@y.com' }] }),
+  fetchCostSummary: async () => ({ totals: { net_spend_usd: 5 } }),
+})
+ok('runner overview ok', (await runner('get_analytics_overview', {})).data.active_user_count === 2)
+ok('runner athena masks emails', (await runner('run_athena_sql', { sql: 'SELECT 1' })).data.rows[0].user_email.includes('*'))
+ok('runner unknown tool → error', (await runner('nope', {})).ok === false)
+
 console.log(`\n1..${testNum}`)
 process.exit(failed === 0 ? 0 : 1)

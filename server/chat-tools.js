@@ -89,6 +89,13 @@ export function rankUsers(users, { query, limit = 10 } = {}) {
   })
 }
 
+const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. Tables (partitioned by string \`date\` YYYY-MM-DD):
+• claude_code_analytics (per-user-per-day): user_id, user_email, cc_sessions, lines_of_code_added, lines_of_code_removed, commits_by_claude_code, prs_by_claude_code, edit_tool_accepted, edit_tool_rejected, multi_edit_tool_accepted, multi_edit_tool_rejected, write_tool_accepted, write_tool_rejected, notebook_edit_tool_accepted, notebook_edit_tool_rejected, web_search_count
+• summaries_daily (org/day): date, daily_active_user_count, weekly_active_user_count, monthly_active_user_count, assigned_seat_count, pending_invite_count
+• skills_daily: skill_name, distinct_users, chat_uses, claude_code_uses
+• connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses
+Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
+
 // Strip the heavy per-user array from the snapshot to keep tokens low; keep the
 // org summaries, seat counts, and top skills/connectors by reach.
 export function compactOverview(snapshot) {
@@ -102,5 +109,104 @@ export function compactOverview(snapshot) {
     active_user_count: (s.users_today || []).length,
     top_skills: topBy(s.skills, 'skill_name'),
     top_connectors: topBy(s.connectors, 'connector_name'),
+  }
+}
+
+export const TOOL_SPECS = [
+  {
+    toolSpec: {
+      name: 'get_analytics_overview',
+      description: 'Org-wide Claude Code adoption & productivity snapshot for the recent ~14-day window: daily/weekly/monthly active users, assigned seats, and the most-adopted skills and connectors. Use for "how are we doing overall" questions. Returns no per-user rows (use search_users or run_athena_sql for those) and no USD cost (use get_cost_summary).',
+      inputSchema: { json: { type: 'object', properties: {}, additionalProperties: false } },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'run_athena_sql',
+      description: `Run ONE read-only Athena SQL SELECT over the S3 archive for historical, time-series, or per-user questions beyond the live snapshot. Returns { columns, rows }. Emails in results are masked automatically.\n\n${ATHENA_SCHEMA_HINT_FOR_TOOL}`,
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: { sql: { type: 'string', description: 'A single SELECT/WITH statement. Always filter the string `date` partition: WHERE date BETWEEN \'YYYY-MM-DD\' AND \'YYYY-MM-DD\'. Add ORDER BY + LIMIT.' } },
+          required: ['sql'], additionalProperties: false,
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_cost_summary',
+      description: 'Org-wide spend in USD plus token totals, grouped by product and model, over a date range (defaults to the last ~31 days). There is NO per-user cost dimension in the live API (ADR-0003). Use for "where is the money going / spend by model" questions.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            starting_date: { type: 'string', description: 'YYYY-MM-DD (optional)' },
+            ending_date: { type: 'string', description: 'YYYY-MM-DD (optional)' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'search_users',
+      description: 'Top Claude Code contributors (or a lookup by email substring) for the recent snapshot day, ranked by lines of code + commits + PRs. Emails are masked. Use for "who are the most active users" questions.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Optional case-insensitive email substring filter.' },
+            limit: { type: 'integer', description: 'Max rows (1-50, default 10).' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+  },
+]
+
+export function CHAT_SYSTEM_PROMPT(locale, today) {
+  const lang = locale === 'ko'
+    ? '답변은 반드시 한국어로, 간결한 마크다운(필요 시 ## 헤더·`-` 목록·표)으로 작성하세요.'
+    : 'Answer in clear English as concise Markdown (use ## headings, "-" lists, and GFM tables where they help).'
+  return [
+    'You are an enterprise analytics assistant for Claude Code Enterprise. This is a multi-turn conversation — use the prior turns for context.',
+    'Use the provided tools to fetch real data before answering; never invent numbers. Cite exact figures and compute rates/growth explicitly.',
+    'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend.',
+    'Data caveats to respect: a 3-day finalization buffer, a 90-day live lookback, and no Bedrock usage in cost.',
+    'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
+    `Today is ${today} (UTC). When writing Athena date filters, end ranges no later than 3 days ago.`,
+    lang,
+  ].join('\n')
+}
+
+// Build a tool dispatcher from injected async deps. Memoizes the analytics
+// snapshot so overview + search_users in one turn share a single fetch.
+export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary }) {
+  let snapPromise = null
+  const snap = () => (snapPromise ||= fetchAnalytics())
+  return async function runTool(name, input = {}) {
+    try {
+      if (name === 'get_analytics_overview') {
+        return { ok: true, data: compactOverview(await snap()) }
+      }
+      if (name === 'search_users') {
+        const rows = rankUsers((await snap()).users_today, input)
+        return { ok: true, data: { users: rows }, rowCount: rows.length }
+      }
+      if (name === 'run_athena_sql') {
+        const { columns, rows } = await runAthenaSafe(String(input.sql || ''))
+        const capped = rows.slice(0, 200)
+        return { ok: true, data: maskEmailsDeep({ columns, rows: capped, row_count: rows.length }), rowCount: rows.length }
+      }
+      if (name === 'get_cost_summary') {
+        return { ok: true, data: maskEmailsDeep(await fetchCostSummary(input)) }
+      }
+      return { ok: false, data: { error: `Unknown tool: ${name}` } }
+    } catch (err) {
+      return { ok: false, data: { error: err?.message || String(err) } }
+    }
   }
 }
