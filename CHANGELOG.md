@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.7.1] - 2026-06-09
+
+Polish for the floating chat widget.
+
+### Added
+
+- **Draggable chat window** — grab the widget's title bar to reposition the floating chat anywhere on screen. Header-only drag (the conversation body, buttons, and text selection stay interactive), clamped to the viewport, and the position is kept for the session. Uses pointer events with `pointercancel` cleanup and direct-transform updates (one React commit per gesture) for smooth dragging.
+- **🤖 launcher icon** — the bottom-right chat button (and the widget title bar) now lead with a robot emoji so the control reads clearly as a chatbot.
+
 ## [0.7.0] - 2026-06-09
 
 Converts the `/analyze` page into a multi-turn tool-use chatbot and adds a
