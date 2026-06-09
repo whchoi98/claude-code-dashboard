@@ -21,13 +21,24 @@ fallback.
     reshaped into `CsvResp` shape via `analyticsReportsToCostResp`),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (CSV × Analytics activity-weighted join).
-  - AI: `POST /analyze` (Bedrock `ConverseStream` SSE), Bedrock SQL
-    generation with robust parsing, Athena execution (`runAthena` polls
-    for up to 60s and throws an explicit timeout error rather than
-    falling through to `GetQueryResultsCommand` on a still-RUNNING
-    query), S3 CSV reading.
+  - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
+    `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
+    `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,
+    `get_cost_summary`, `search_users`; emails masked in tool results
+    before reaching the model; dynamic follow-ups generated after each
+    answer). Pure tool helpers + specs live in `server/chat-tools.js`.
+    `fetchCostSummary()` is shared by `GET /cost/live` and the cost tool.
+    Athena execution (`runAthena` polls for up to 60 s and throws an
+    explicit timeout error rather than falling through to
+    `GetQueryResultsCommand` on a still-RUNNING query), S3 CSV reading.
   - The `analyticsReportsToCostResp` reshape function — pure, exported,
     unit-tested in `tests/server/test-cost-live-reshape.mjs`.
+- **`chat-tools.js`** — Pure, dependency-free helpers + tool registry for
+  `/api/chat/stream`. Exports: `maskEmail`, `maskEmailsDeep`,
+  `historyToBedrockMessages`, `parseFollowups`, `rankUsers`,
+  `compactOverview`, `TOOL_SPECS`, `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
+  No AWS client instantiation — fully unit-testable in isolation
+  (`tests/server/test-chat-tools.mjs`).
 - **`mock.js`** — Deterministic mock generators for local dev when no
   Analytics key is configured. Schema must track `src/types.ts`; the fake
   data is only valid when it matches the real shape.

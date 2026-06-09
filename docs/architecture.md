@@ -35,8 +35,8 @@
 
 | Component | Purpose |
 |-----------|---------|
-| Amazon Bedrock (Claude Sonnet 4.6) | Natural-language analysis via `ConverseStream` — SSE to the browser |
-| Athena workgroup | Ad-hoc SQL over archived partitions; powers the Archive page and the AI autonomous-SQL mode |
+| Amazon Bedrock (Claude Sonnet 4.6) | Multi-turn tool-use chatbot (`POST /api/chat/stream`) via `ConverseStreamCommand` + `toolConfig` — SSE to the browser. The model autonomously calls four tools (`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`). See [ADR-0008](decisions/0008-tool-use-chatbot.md). |
+| Athena workgroup | Ad-hoc SQL over archived partitions; powers the Archive page and the chatbot's `run_athena_sql` tool |
 | Server-side aggregation | `/api/cost/efficiency` joins Spend CSV + `users/range` and applies activity-weighted scaling so per-user spend responds to the selected date range. `/api/cost/live` joins Analytics `cost_report` + `usage_report` on `(product, model)` and reshapes into the `CsvResp` shape consumed by the Cost page. `/api/cost/csv` keeps the manual Spend Report path for finance reconciliation. See [ADR-0003](decisions/0003-hybrid-live-cost.md). |
 
 ### Query / Presentation
@@ -116,7 +116,7 @@
 
 ## Data flow summary
 
-Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archive or live Anthropic API) → JSON → browser. AI mode extends: browser → Express → Bedrock `ConverseStream` → SSE chunks → browser.
+Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archive or live Anthropic API) → JSON → browser. AI chatbot mode (`/api/chat/stream`) extends: browser → Express → Bedrock `ConverseStreamCommand` tool-use loop (max 4 hops, tools call live APIs + Athena) → SSE chunks → browser.
 
 ## Infrastructure (CDK stacks)
 
@@ -138,8 +138,9 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **Hybrid live + CSV cost** — main Cost page widgets are sourced from the live Analytics API (org-wide, no per-user dimension) while per-user Top-N tables are sourced from the uploaded CSV. CSV totals are activity-weighted (sessions ratio) so they respond to the selected date range. The Cost page also surfaces a per-developer KPI (`spend / active devs in range`) and a 30-day projection (`avg of last 7 days × 30`) sourced from the live API's `daily` array. See [ADR-0003](decisions/0003-hybrid-live-cost.md).
 - **Compliance after_id pagination + prewarm** — the Compliance API has no timestamp filter and only paginates via `after_id`. ECS task startup self-fetches the 7d / 14d / 30d windows in the background and refreshes every 5 minutes; the upstream cache (TTL 10 min) absorbs subsequent user requests so the audit feed renders in <1 s instead of paginating 30+ s of API calls. The daily chart adds a `mean+1·stdev` reference line so risk spikes are obvious. See [ADR-0004](decisions/0004-compliance-pagination-prewarm.md).
 - **7d default range** — every range-aware page boots on `range=7d` (was 14d / 30d in v0.3.0). Trade-off: tighter signal, but at 7 days the half-window bisection used by Adoption's stale-skill detector and the Compliance spike threshold both still produce useful values. See [ADR-0005](decisions/0005-default-7d-window.md).
-- **Athena varchar partitions** — Glue tables partition `date` as `varchar`, not `DATE`, because the collector writes ISO strings. Queries must compare to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); wrapping in `DATE '…'` raises `TYPE_MISMATCH` on Engine v3. The `/api/analyze` SQL-mode prompt and the Archive page's pre-filled query both follow this convention. See [ADR-0007](decisions/0007-athena-varchar-partitions.md).
+- **Athena varchar partitions** — Glue tables partition `date` as `varchar`, not `DATE`, because the collector writes ISO strings. Queries must compare to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); wrapping in `DATE '…'` raises `TYPE_MISMATCH` on Engine v3. The `run_athena_sql` chatbot tool spec and the Archive page's pre-filled query both follow this convention. See [ADR-0007](decisions/0007-athena-varchar-partitions.md).
 - **Print-driven PDF export** — Save-as-PDF on Analyze, Cost, and Executive uses browser `window.print()` against a body-class-toggled `@media print` block (`body.app-print`). Zero new infra (no Puppeteer, no Lambda) and the printout matches what the user sees on screen because the styles are the same. See [ADR-0006](decisions/0006-print-driven-pdf-export.md).
+- **Tool-use chatbot replaces fixed-mode Analyze** — `/api/analyze` (single-turn, user-selected `direct`/`sql` mode) replaced by `POST /api/chat/stream`: a Bedrock Converse tool-use loop that lets the model autonomously pick among four tools per turn. Client-side history (last 12 turns) gives multi-turn memory with no new infra. Pure helpers in `server/chat-tools.js` keep the Bedrock loop unit-testable. A global `FloatingChat` widget and the `/analyze` page both share one `ChatPanel` component. See [ADR-0008](decisions/0008-tool-use-chatbot.md).
 
 ## Cost breakdown
 
@@ -194,8 +195,8 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| Amazon Bedrock (Claude Sonnet 4.6) | `ConverseStream`으로 자연어 분석 → 브라우저 SSE |
-| Athena 워크그룹 | 아카이브 파티션에 ad-hoc SQL, Archive 페이지와 AI autonomous-SQL 모드 구동 |
+| Amazon Bedrock (Claude Sonnet 4.6) | 멀티턴 tool-use 챗봇 (`POST /api/chat/stream`) — `ConverseStreamCommand` + `toolConfig` + SSE. 모델이 4개 도구(`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`)를 자율적으로 호출. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조. |
+| Athena 워크그룹 | 아카이브 파티션에 ad-hoc SQL, Archive 페이지와 챗봇의 `run_athena_sql` 도구 구동 |
 | 서버 사이드 집계 | `/api/cost/efficiency`가 Spend CSV + `users/range`를 조인하고 활동량 가중 비례로 사용자별 spend를 선택 기간에 분배. `/api/cost/live`는 Analytics `cost_report` + `usage_report`를 `(product, model)` 단위로 조인해 Cost 페이지의 `CsvResp` 형태로 reshape. `/api/cost/csv`는 수동 Spend Report를 재무 정산용으로 잔존. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조. |
 
 ### Query / Presentation (조회 / 표현)
@@ -275,7 +276,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 ## 데이터 흐름 요약
 
-브라우저 요청 → CloudFront → WAF → ALB → Fargate Express → (S3 아카이브 또는 실시간 Anthropic API) → JSON → 브라우저. AI 모드 확장: 브라우저 → Express → Bedrock `ConverseStream` → SSE 청크 → 브라우저.
+브라우저 요청 → CloudFront → WAF → ALB → Fargate Express → (S3 아카이브 또는 실시간 Anthropic API) → JSON → 브라우저. AI 챗봇 모드(`/api/chat/stream`): 브라우저 → Express → Bedrock `ConverseStreamCommand` tool-use 루프(최대 4 hop, 도구가 실시간 API + Athena 호출) → SSE 청크 → 브라우저.
 
 ## 인프라 (CDK 스택)
 
@@ -297,8 +298,9 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 - **하이브리드 라이브 + CSV 비용** — Cost 페이지 메인 위젯은 라이브 Analytics API(조직 단위, 사용자 차원 없음), per-user Top-N은 업로드된 CSV. CSV 합계는 활동량 가중 분배(세션 비율)로 선택 기간에 반응. Cost 페이지에는 라이브 API의 `daily` 배열 기반 *개발자당 비용*(`총 지출 / 활동 개발자 수`)과 *30일 예상*(`최근 7일 평균 × 30`) KPI도 함께 노출. [ADR-0003](decisions/0003-hybrid-live-cost.md) 참조.
 - **Compliance after_id 페이지네이션 + prewarm** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. ECS task 부팅 시 7d / 14d / 30d 백그라운드 fetch + 5분마다 재실행. upstream 캐시(TTL 10분)가 사용자 요청을 흡수해 audit 페이지가 30+ 초 페이지네이션 대신 1초 미만 응답. 일별 차트에는 `평균+1σ` reference line이 추가돼 위험 spike를 즉시 인지. [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) 참조.
 - **7d 기본 기간** — 모든 기간 인지 페이지가 `range=7d`로 부팅 (v0.3.0까지는 14d / 30d). 더 좁은 신호와 트레이드오프이지만, Adoption stale-skill 감지의 윈도우 이등분과 Compliance spike 임계값 계산이 7d에서도 의미 있는 값을 산출. [ADR-0005](decisions/0005-default-7d-window.md) 참조.
-- **Athena varchar 파티션** — Glue 테이블의 `date` 파티션은 `varchar`이지 `DATE`가 아님 (collector가 ISO 문자열로 적재). 쿼리는 단순 문자열 리터럴(`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 비교해야 하며, `DATE '…'`로 감싸면 Engine v3가 `TYPE_MISMATCH`로 거부. `/api/analyze` SQL 모드 프롬프트와 Archive 페이지의 기본 쿼리 모두 이 규칙을 따름. [ADR-0007](decisions/0007-athena-varchar-partitions.md) 참조.
+- **Athena varchar 파티션** — Glue 테이블의 `date` 파티션은 `varchar`이지 `DATE`가 아님 (collector가 ISO 문자열로 적재). 쿼리는 단순 문자열 리터럴(`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 비교해야 하며, `DATE '…'`로 감싸면 Engine v3가 `TYPE_MISMATCH`로 거부. `run_athena_sql` 챗봇 도구 스펙과 Archive 페이지의 기본 쿼리 모두 이 규칙을 따름. [ADR-0007](decisions/0007-athena-varchar-partitions.md) 참조.
 - **인쇄 기반 PDF 내보내기** — Analyze · Cost · Executive 의 Save-as-PDF는 `body.app-print` 클래스로 토글되는 `@media print` 블록 + 브라우저 `window.print()`만 사용. 신규 인프라 0(Puppeteer · Lambda 불필요)이며, 화면과 동일한 스타일을 그대로 인쇄. [ADR-0006](decisions/0006-print-driven-pdf-export.md) 참조.
+- **고정 모드 Analyze를 tool-use 챗봇으로 대체** — `/api/analyze` (단일 턴, `direct`/`sql` 모드 수동 선택)를 `POST /api/chat/stream`으로 교체. Bedrock Converse tool-use 루프로 모델이 턴마다 4개 도구를 자율 선택. 클라이언트 사이드 히스토리(최근 12턴)로 멀티턴 메모리를 신규 인프라 없이 구현. 순수 헬퍼는 `server/chat-tools.js`에 분리해 Bedrock 루프를 단위 테스트 가능. 전역 `FloatingChat` 위젯과 `/analyze` 페이지 모두 하나의 `ChatPanel` 컴포넌트를 공유. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조.
 
 ## 비용 내역
 
