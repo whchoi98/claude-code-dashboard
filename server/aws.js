@@ -255,6 +255,8 @@ Athena will throw TYPE_MISMATCH because Trino won't auto-cast varchar to date.
 All values are integers; rates are computed, not stored.
 `.trim()
 
+// maskEmailSrv duplicates the helper in chat-tools.js intentionally — keeps this
+// client-echo path free of a chat-tools.js import and avoids a circular concern.
 // Trim + mask tool-call inputs echoed to the client (SQL truncated, emails masked).
 function redactToolInput(input) {
   const out = {}
@@ -342,7 +344,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Fetch + reshape org cost (used by GET /cost/live and the chat cost tool).
   async function fetchCostSummary({ starting_date, ending_date } = {}) {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
-    if (!ANALYTICS_KEY) throw new Error('ANTHROPIC_ANALYTICS_KEY is required for cost data.')
+    if (!ANALYTICS_KEY) {
+      const e = new Error('ANTHROPIC_ANALYTICS_KEY (sk-ant-api01-...) is required for live cost data.')
+      e.code = 'analytics_key_required'
+      throw e
+    }
     const today = new Date()
     const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
     const startingDate = starting_date || minus(31)
@@ -361,8 +367,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     ])
     const costBody = await costRes.json().catch(() => ({}))
     const usageBody = await usageRes.json().catch(() => ({}))
-    if (!costRes.ok) throw new Error(`cost_report ${costRes.status}`)
-    if (!usageRes.ok) throw new Error(`usage_report ${usageRes.status}`)
+    if (!costRes.ok) {
+      const e = new Error(`cost_report ${costRes.status}`)
+      e.code = 'upstream_error'; e.upstream = costBody
+      throw e
+    }
+    if (!usageRes.ok) {
+      const e = new Error(`usage_report ${usageRes.status}`)
+      e.code = 'upstream_error'; e.upstream = usageBody
+      throw e
+    }
     return analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
   }
 
@@ -438,6 +452,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         messages.push({ role: 'assistant', content: assistantContent })
 
         if (stopReason !== 'tool_use') break
+        // At the hop limit we stop without dispatching the pending toolUse. The
+        // assistant turn with unresolved toolUse stays in this request's local
+        // `messages` array, which is then discarded — client history only ever
+        // resends {role,text} pairs, so this is never replayed to Bedrock.
         if (hop === MAX_TOOL_HOPS) {
           sseSend(res, 'status', { message: locale === 'ko' ? '도구 호출 한도에 도달해 현재까지의 답변으로 마무리합니다.' : 'Tool-call limit reached; finishing with the answer so far.' })
           break
@@ -577,9 +595,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       const out = await fetchCostSummary({ starting_date: req.query.starting_date, ending_date: req.query.ending_date })
       res.json(out)
     } catch (err) {
-      const msg = err?.message || String(err)
-      const code = /is required/.test(msg) ? 400 : 502
-      res.status(code).json({ error: code === 400 ? 'analytics_key_required' : 'upstream_error', message: msg })
+      if (err?.code === 'analytics_key_required') {
+        return res.status(400).json({ error: 'analytics_key_required', message: err.message })
+      }
+      return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }
   })
 
