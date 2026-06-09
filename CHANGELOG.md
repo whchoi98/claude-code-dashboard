@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.7.0] - 2026-06-09
+
+Converts the `/analyze` page into a multi-turn tool-use chatbot and adds a
+global floating widget on every page. The model autonomously selects among
+four data tools per turn, mixing live analytics, the S3 archive, and cost
+reports to answer. Client-side history keeps the last 12 turns for
+multi-turn context — no new infra.
+
+### Changed
+
+- **`/analyze` is now a multi-turn tool-use chatbot** — replaces the previous `direct`/`sql` mode selector and `POST /api/analyze`. The model calls the right tool(s) per turn rather than the user pre-selecting a mode. MD/PDF export toolbar retained. See [ADR-0008](docs/decisions/0008-tool-use-chatbot.md).
+
+### Added
+
+- **Global floating chat widget** (`FloatingChat`) mounted in `Layout` — accessible from every page without navigating to `/analyze`. Shares the same `ChatPanel` component as the Analyze page.
+- **Dynamic follow-up questions** — after each answer the chatbot proposes up to 3 contextual follow-ups, rendered as clickable pills.
+- **Tool-call badges** in message bubbles — show which tools the model invoked (`Overview`, `Athena SQL`, `Cost`, `Users`) with running/done/error states and row counts.
+- **Conversation reset** — "New chat" button clears history and suggested prompts.
+- **`POST /api/chat/stream`** (Bedrock `ConverseStreamCommand` tool-use loop, `MAX_TOOL_HOPS=4`, SSE events: `status | tool_call | tool_result | text | followups | error | done`).
+- **`server/chat-tools.js`** — pure, unit-tested helpers: email masking, history serialisation, follow-up parsing, user ranking, overview compaction, `TOOL_SPECS`, `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
+
+### Removed
+
+- **`POST /api/analyze`**, `generateSql`, `extractSql`, and the `direct`/`sql` mode selector — superseded by `POST /api/chat/stream`.
+
 ## [0.6.0] - 2026-05-10
 
 UX + security pass on top of the v0.5.x line. Sortable statistics
@@ -251,6 +276,31 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.7.0] - 2026-06-09
+
+`/analyze` 페이지를 멀티턴 tool-use 챗봇으로 전환하고, 모든 페이지에
+플로팅 위젯을 추가. 모델이 턴마다 4개 데이터 도구 중 적절한 것을
+자율적으로 선택해 실시간 애널리틱스·S3 아카이브·비용 리포트를 혼합해
+답변. 클라이언트 사이드 히스토리(최근 12턴)로 멀티턴 컨텍스트 유지 —
+신규 인프라 없음.
+
+### Changed
+
+- **`/analyze`를 멀티턴 tool-use 챗봇으로 전환** — 기존 `direct`/`sql` 모드 선택 + `POST /api/analyze`를 제거. 모드를 직접 고르지 않아도 모델이 도구를 자율 선택. MD/PDF 내보내기 툴바는 유지. [ADR-0008](docs/decisions/0008-tool-use-chatbot.md) 참조.
+
+### Added
+
+- **전 페이지 플로팅 챗 위젯** (`FloatingChat`) — `Layout`에 전역 마운트. `/analyze`로 이동하지 않아도 어느 페이지에서나 챗봇 사용 가능. Analyze 페이지와 동일한 `ChatPanel` 컴포넌트 공유.
+- **동적 팔로업 질문** — 답변 후 최대 3개의 문맥 맞춤 후속 질문을 클릭 가능한 pill로 표시.
+- **도구 호출 배지** — 메시지 버블 안에 모델이 호출한 도구(`개요`, `Athena SQL`, `비용`, `사용자`)를 실행 중/완료/오류 상태와 행 수와 함께 표시.
+- **대화 리셋** — "새 대화" 버튼으로 히스토리와 추천 프롬프트를 초기화.
+- **`POST /api/chat/stream`** (Bedrock `ConverseStreamCommand` tool-use 루프, `MAX_TOOL_HOPS=4`, SSE 이벤트: `status | tool_call | tool_result | text | followups | error | done`).
+- **`server/chat-tools.js`** — 순수 함수·단위 테스트 가능 헬퍼: 이메일 마스킹, 히스토리 직렬화, 팔로업 파싱, 사용자 랭킹, 개요 압축, `TOOL_SPECS`, `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
+
+### Removed
+
+- **`POST /api/analyze`**, `generateSql`, `extractSql`, `direct`/`sql` 모드 선택기 — `POST /api/chat/stream`으로 대체.
 
 ## [0.6.0] - 2026-05-10
 
