@@ -2,6 +2,10 @@ import express from 'express'
 import multer from 'multer'
 import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import {
+  MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
+  historyToBedrockMessages, parseFollowups,
+} from './chat-tools.js'
+import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
 } from '@aws-sdk/client-athena'
 import {
@@ -251,6 +255,19 @@ Athena will throw TYPE_MISMATCH because Trino won't auto-cast varchar to date.
 All values are integers; rates are computed, not stored.
 `.trim()
 
+// Trim + mask tool-call inputs echoed to the client (SQL truncated, emails masked).
+function redactToolInput(input) {
+  const out = {}
+  for (const [k, v] of Object.entries(input || {})) {
+    if (typeof v === 'string') {
+      out[k] = v.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, (m) => maskEmailSrv(m))
+      if (out[k].length > 280) out[k] = out[k].slice(0, 280) + '…'
+    } else out[k] = v
+  }
+  return out
+}
+function maskEmailSrv(e) { const at = e.lastIndexOf('@'); if (at < 1) return e; const l = e.slice(0, at); return l.length <= 2 ? e : l.slice(0, 2) + '*'.repeat(Math.max(3, l.length - 2)) + e.slice(at) }
+
 export function registerAwsRoutes(app, { fetchAnalytics }) {
   const REGION = process.env.AWS_REGION || 'us-east-1'
   const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-sonnet-4-6'
@@ -348,6 +365,112 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     if (!usageRes.ok) throw new Error(`usage_report ${usageRes.status}`)
     return analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
   }
+
+  async function generateFollowups(userMsg, answer, locale) {
+    const langName = locale === 'ko' ? 'Korean' : 'English'
+    const prompt = [
+      'Given this analytics Q&A, propose exactly 3 short, specific follow-up questions a user would naturally ask next.',
+      `Write them in ${langName}. Reference concrete entities (model names, metrics, time windows) where possible.`,
+      'Return ONLY a JSON array of 3 strings, nothing else.',
+      '', `QUESTION: ${userMsg}`, '', `ANSWER: ${answer.slice(0, 2000)}`,
+    ].join('\n')
+    try {
+      const out = await bedrock.send(new ConverseCommand({
+        modelId: MODEL_ID,
+        messages: [{ role: 'user', content: [{ text: prompt }] }],
+        inferenceConfig: { maxTokens: 300, temperature: 0.4 },
+      }))
+      const text = out.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') || ''
+      return parseFollowups(text)
+    } catch { return [] }
+  }
+
+  // ── /api/chat/stream — multi-turn tool-use chatbot (SSE) ──────────────────
+  router.post('/chat/stream', async (req, res) => {
+    const { message, history = [], locale = 'en' } = req.body || {}
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'message is required' })
+    }
+    sseInit(res)
+    const runTool = makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary })
+    const today = new Date().toISOString().slice(0, 10)
+    const messages = historyToBedrockMessages(history)
+    messages.push({ role: 'user', content: [{ text: message }] })
+
+    let finalText = ''
+    try {
+      let stopReason = null
+      let hop = 0
+      for (; hop <= MAX_TOOL_HOPS; hop++) {
+        const stream = await bedrock.send(new ConverseStreamCommand({
+          modelId: MODEL_ID,
+          system: [{ text: CHAT_SYSTEM_PROMPT(locale, today) }],
+          messages,
+          toolConfig: { tools: TOOL_SPECS },
+          inferenceConfig: { maxTokens: 2000, temperature: 0.2 },
+        }))
+
+        // Reconstruct assistant content blocks (text + toolUse) from the stream.
+        const blocks = []          // index → { type, text } | { type:'tool', toolUseId, name, json }
+        for await (const ev of stream.stream) {
+          const i = ev.contentBlockStart?.contentBlockIndex ?? ev.contentBlockDelta?.contentBlockIndex
+          if (ev.contentBlockStart?.start?.toolUse) {
+            const { toolUseId, name } = ev.contentBlockStart.start.toolUse
+            blocks[i] = { type: 'tool', toolUseId, name, json: '' }
+          }
+          if (ev.contentBlockDelta?.delta?.text) {
+            const t = ev.contentBlockDelta.delta.text
+            if (!blocks[i]) blocks[i] = { type: 'text', text: '' }
+            blocks[i].text += t
+            finalText += t
+            sseSend(res, 'text', { text: t })
+          }
+          if (ev.contentBlockDelta?.delta?.toolUse?.input != null) {
+            blocks[i].json += ev.contentBlockDelta.delta.toolUse.input
+          }
+          if (ev.messageStop) stopReason = ev.messageStop.stopReason
+        }
+
+        const assistantContent = blocks.filter(Boolean).map((b) =>
+          b.type === 'text'
+            ? { text: b.text }
+            : { toolUse: { toolUseId: b.toolUseId, name: b.name, input: b.json ? JSON.parse(b.json) : {} } })
+        messages.push({ role: 'assistant', content: assistantContent })
+
+        if (stopReason !== 'tool_use') break
+        if (hop === MAX_TOOL_HOPS) {
+          sseSend(res, 'status', { message: locale === 'ko' ? '도구 호출 한도에 도달해 현재까지의 답변으로 마무리합니다.' : 'Tool-call limit reached; finishing with the answer so far.' })
+          break
+        }
+
+        const toolUses = blocks.filter((b) => b && b.type === 'tool')
+        const toolResults = []
+        for (const tu of toolUses) {
+          const input = tu.json ? JSON.parse(tu.json) : {}
+          sseSend(res, 'tool_call', { id: tu.toolUseId, name: tu.name, input: redactToolInput(input) })
+          const out = await runTool(tu.name, input)
+          sseSend(res, 'tool_result', { id: tu.toolUseId, name: tu.name, ok: out.ok, rowCount: out.rowCount ?? null })
+          toolResults.push({ toolResult: {
+            toolUseId: tu.toolUseId,
+            content: [{ json: out.data }],
+            status: out.ok ? 'success' : 'error',
+          } })
+        }
+        messages.push({ role: 'user', content: toolResults })
+      }
+
+      const followups = await generateFollowups(message, finalText, locale)
+      sseSend(res, 'followups', { suggestions: followups })
+      sseSend(res, 'done', { ok: true, modelId: MODEL_ID, hops: hop })
+    } catch (err) {
+      sseSend(res, 'error', {
+        message: err?.message || String(err),
+        hint: 'Ensure the ECS task role has bedrock:InvokeModelWithResponseStream + athena/s3 for run_athena_sql.',
+      })
+    } finally {
+      res.end()
+    }
+  })
 
   // ── /api/archive/query — sanitized synchronous Athena SELECT ────────────
   // Defence in depth against SQL injection: sanitizer rejects multi-statement,
