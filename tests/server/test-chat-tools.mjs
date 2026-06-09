@@ -48,5 +48,51 @@ ok('history caps to last 12 turns', historyToBedrockMessages(
   Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` })),
 ).length <= 12)
 
+// parseFollowups
+ok('parseFollowups reads JSON array', eq(
+  parseFollowups('["Q1?","Q2?","Q3?","Q4?"]'),
+  ['Q1?', 'Q2?', 'Q3?'],
+))
+ok('parseFollowups fenced json', eq(
+  parseFollowups('```json\n["A?","B?"]\n```'),
+  ['A?', 'B?'],
+))
+ok('parseFollowups line fallback', eq(
+  parseFollowups('1. First question?\n2. Second question?'),
+  ['First question?', 'Second question?'],
+))
+ok('parseFollowups garbage → []', eq(parseFollowups('no questions here'), []))
+
+// rankUsers (UserRecord shape from src/types.ts)
+const U = (email, loc, commits) => ({
+  user: { id: email, email_address: email },
+  claude_code_metrics: {
+    core_metrics: { distinct_session_count: 1, commit_count: commits, pull_request_count: 0,
+      lines_of_code: { added_count: loc, removed_count: 0 } },
+    tool_actions: { edit_tool: { accepted_count: 8, rejected_count: 2 },
+      multi_edit_tool: { accepted_count: 0, rejected_count: 0 },
+      write_tool: { accepted_count: 0, rejected_count: 0 },
+      notebook_edit_tool: { accepted_count: 0, rejected_count: 0 } },
+  },
+})
+const ranked = rankUsers([U('a@x.com', 10, 1), U('bob@x.com', 500, 9)], { limit: 5 })
+ok('rankUsers sorts by activity desc', ranked[0].email === 'bo*@x.com' || ranked[0].email.startsWith('bo'))
+ok('rankUsers masks email', !ranked.some((r) => r.email.includes('bob@')))
+ok('rankUsers honors limit', rankUsers([U('a@x.com', 1, 0), U('b@x.com', 2, 0), U('c@x.com', 3, 0)], { limit: 2 }).length === 2)
+ok('rankUsers query filter', rankUsers([U('alice@x.com', 1, 0), U('bob@x.com', 2, 0)], { query: 'alice' }).length === 1)
+
+// compactOverview
+const snap = {
+  window: { starting_date: '2026-05-20', ending_date: '2026-06-03' },
+  summaries: [{ daily_active_user_count: 40, weekly_active_user_count: 90, assigned_seat_count: 120 }],
+  users_today: [U('a@x.com', 1, 0), U('b@x.com', 2, 0)],
+  skills: [{ skill_name: 'pdf', distinct_user_count: 12 }, { skill_name: 'sql', distinct_user_count: 3 }],
+  connectors: [{ connector_name: 'github', distinct_user_count: 30 }],
+}
+const ov = compactOverview(snap)
+ok('compactOverview drops raw user list', ov.users_today === undefined && ov.active_user_count === 2)
+ok('compactOverview keeps summaries + seats', ov.summaries.length === 1)
+ok('compactOverview top skills sorted', ov.top_skills[0].skill_name === 'pdf')
+
 console.log(`\n1..${testNum}`)
 process.exit(failed === 0 ? 0 : 1)

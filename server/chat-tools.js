@@ -40,3 +40,67 @@ export function historyToBedrockMessages(history) {
   while (turns.length && turns[0].role === 'assistant') turns.shift()
   return turns.map((t) => ({ role: t.role, content: [{ text: t.text }] }))
 }
+
+// Extract up to 3 follow-up questions. Prefer a JSON array (optionally fenced);
+// fall back to numbered/bulleted question lines. Returns [] on anything unusable.
+export function parseFollowups(text) {
+  const raw = String(text || '')
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidate = fence ? fence[1] : raw
+  const arrMatch = candidate.match(/\[[\s\S]*\]/)
+  if (arrMatch) {
+    try {
+      const arr = JSON.parse(arrMatch[0])
+      if (Array.isArray(arr)) {
+        const out = arr.map((s) => String(s).trim()).filter(Boolean)
+        if (out.length) return out.slice(0, 3)
+      }
+    } catch { /* fall through to line parsing */ }
+  }
+  const lines = raw.split('\n')
+    .map((l) => l.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+    .filter((l) => l.endsWith('?'))
+  return lines.slice(0, 3)
+}
+
+const cc = (u) => u?.claude_code_metrics?.core_metrics || {}
+const locTotal = (u) => (cc(u).lines_of_code?.added_count || 0) + (cc(u).lines_of_code?.removed_count || 0)
+const userScore = (u) => locTotal(u) + (cc(u).commit_count || 0) * 20 + (cc(u).pull_request_count || 0) * 50
+
+// Rank UserRecord[] by Claude Code activity, mask emails, return compact rows.
+export function rankUsers(users, { query, limit = 10 } = {}) {
+  const q = (query || '').toLowerCase().trim()
+  const list = (Array.isArray(users) ? users : [])
+    .filter((u) => !q || (u?.user?.email_address || '').toLowerCase().includes(q))
+    .sort((a, b) => userScore(b) - userScore(a))
+    .slice(0, Math.max(1, Math.min(50, limit)))
+  return list.map((u) => {
+    const ta = u?.claude_code_metrics?.tool_actions || {}
+    const acc = Object.values(ta).reduce((s, t) => s + (t?.accepted_count || 0), 0)
+    const rej = Object.values(ta).reduce((s, t) => s + (t?.rejected_count || 0), 0)
+    return {
+      email: maskEmail(u?.user?.email_address || ''),
+      lines_of_code: locTotal(u),
+      commits: cc(u).commit_count || 0,
+      prs: cc(u).pull_request_count || 0,
+      sessions: cc(u).distinct_session_count || 0,
+      tool_acceptance_rate: acc + rej === 0 ? null : Number((acc / (acc + rej)).toFixed(3)),
+    }
+  })
+}
+
+// Strip the heavy per-user array from the snapshot to keep tokens low; keep the
+// org summaries, seat counts, and top skills/connectors by reach.
+export function compactOverview(snapshot) {
+  const s = snapshot || {}
+  const topBy = (arr, key) => (Array.isArray(arr) ? arr : [])
+    .slice().sort((a, b) => (b.distinct_user_count || 0) - (a.distinct_user_count || 0))
+    .slice(0, 10).map((x) => ({ [key]: x[key], distinct_user_count: x.distinct_user_count || 0 }))
+  return {
+    window: s.window,
+    summaries: s.summaries || [],
+    active_user_count: (s.users_today || []).length,
+    top_skills: topBy(s.skills, 'skill_name'),
+    top_connectors: topBy(s.connectors, 'connector_name'),
+  }
+}
