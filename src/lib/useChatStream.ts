@@ -31,6 +31,7 @@ export function useChatStream() {
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
+    abortRef.current = null
     setIsStreaming(false)
   }, [])
 
@@ -98,8 +99,13 @@ export function useChatStream() {
       const err = e as { name?: string; message?: string }
       if (err?.name !== 'AbortError') patch((m) => ({ ...m, error: String(err?.message || e), status: undefined }))
     } finally {
-      setIsStreaming(false)
-      abortRef.current = null
+      // Only clear if this send still owns the ref — a Stop-then-resend can
+      // start a new request whose controller must not be clobbered by this
+      // (now-superseded) send's late cleanup.
+      if (abortRef.current === controller) {
+        setIsStreaming(false)
+        abortRef.current = null
+      }
     }
   }, [locale])
 

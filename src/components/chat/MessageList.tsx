@@ -6,8 +6,9 @@ import { useI18n } from '../../lib/i18n'
 import type { ChatMessage, ToolCall } from '../../lib/useChatStream'
 
 function TypingDots() {
+  const { t } = useI18n()
   return (
-    <span className="inline-flex gap-1 py-1" aria-label="thinking">
+    <span className="inline-flex gap-1 py-1" aria-label={t('chat.thinking')}>
       {[0, 1, 2].map((i) => (
         <span key={i} className="w-1.5 h-1.5 rounded-full bg-claude-400 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
       ))}
