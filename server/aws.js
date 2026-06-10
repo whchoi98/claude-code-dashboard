@@ -861,7 +861,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       starting = live.period.starting_date
       ending = live.period.ending_date
       csvPeriod = { starting_date: starting, ending_date: ending }
-    } catch {
+    } catch (err) {
+      console.warn(`[cost/efficiency] user_cost_report unavailable, falling back to CSV: ${err?.message || err}`)
       liveUsers = []   // fall through to CSV
     }
 
@@ -911,7 +912,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
     // Productivity over the selected range (same self-call as before).
     const rangeResp = await fetch(
-      `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${starting}&ending_date=${ending}`,
+      `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(starting)}&ending_date=${encodeURIComponent(ending)}`,
     ).then((r) => r.json()).catch(() => ({ days: [] }))
 
     // Activity-weighted scaling applies ONLY to the CSV path (a fixed-period
@@ -923,7 +924,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const sameRange = isLive ? true : (csvPeriodStart === starting && csvPeriodEnd === ending)
     if (!isLive && !sameRange && csvPeriodStart && csvPeriodEnd) {
       const csvAnalyticsResp = await fetch(
-        `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${csvPeriodStart}&ending_date=${csvPeriodEnd}`,
+        `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(csvPeriodStart)}&ending_date=${encodeURIComponent(csvPeriodEnd)}`,
       ).then((r) => r.json()).catch(() => ({ days: [] }))
       for (const d of csvAnalyticsResp.days || []) {
         if (d.source === 'mock') continue
@@ -1021,7 +1022,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         cost_per_pr:       p.prs       > 0 ? Number((s.spend / p.prs).toFixed(2))       : null,
         cost_per_session:  p.sessions  > 0 ? Number((s.spend / p.sessions).toFixed(2))  : null,
         output_per_dollar: s.spend > 0 ? Number((output_score / s.spend).toFixed(2))    : null,
-        tokens_per_loc:    p.loc_added > 0 ? Math.round(total_tokens / p.loc_added)     : null,
+        // null (not 0) when tokens are unavailable — e.g. the live path has no
+        // per-user token counts — so the UI shows "—" rather than a false 0.
+        tokens_per_loc:    (p.loc_added > 0 && total_tokens > 0) ? Math.round(total_tokens / p.loc_added) : null,
         // Activity-weighted, range-aware values:
         range_spend_usd,
         range_prompt_tokens,
