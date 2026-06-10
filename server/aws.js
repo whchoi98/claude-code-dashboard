@@ -402,6 +402,42 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     return analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
   }
 
+  // Paginate user_cost_report for [starting, ending] and return RAW merged
+  // data[] (emails unmasked — needed for the email-keyed efficiency join;
+  // the frontend masks on render). Caps pages to stay within the 60/min budget.
+  async function fetchUserCostReport({ starting_date, ending_date } = {}) {
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    if (!ANALYTICS_KEY) { const e = new Error('ANTHROPIC_ANALYTICS_KEY is required for per-user cost.'); e.code = 'analytics_key_required'; throw e }
+    // Clamp ending to today-3 (Analytics 3-day buffer); default to a 31-day window.
+    const today = new Date()
+    const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
+    const maxEnd = minus(3)
+    let ending = ending_date || maxEnd
+    if (ending > maxEnd) ending = maxEnd
+    const starting = starting_date || minus(34)
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
+
+    const all = []
+    let page = null
+    let refreshedAt = null
+    const MAX_PAGES = 50
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${ending}T00:00:00Z`, limit: '1000' })
+      if (page) params.set('page', page)
+      const res = await fetch(`${apiUrl}/v1/organizations/analytics/user_cost_report?${params.toString()}`, { headers })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { const e = new Error(`user_cost_report ${res.status}`); e.code = 'upstream_error'; e.upstream = body; throw e }
+      if (Array.isArray(body.data)) all.push(...body.data)
+      refreshedAt = body.data_refreshed_at ?? refreshedAt
+      if (!body.has_more || !body.next_page) break
+      page = body.next_page
+      if (i === MAX_PAGES - 1) console.warn(`[cost/users] hit ${MAX_PAGES}-page cap; results truncated`)
+    }
+    return { data: all, period: { starting_date: starting, ending_date: ending }, data_refreshed_at: refreshedAt }
+  }
+
   async function generateFollowups(userMsg, answer, locale) {
     const langName = locale === 'ko' ? 'Korean' : 'English'
     const prompt = [
@@ -616,6 +652,24 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     try {
       const out = await fetchCostSummary({ starting_date: req.query.starting_date, ending_date: req.query.ending_date })
       res.json(out)
+    } catch (err) {
+      if (err?.code === 'analytics_key_required') {
+        return res.status(400).json({ error: 'analytics_key_required', message: err.message })
+      }
+      return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
+    }
+  })
+
+  // GET /api/cost/users — per-user USD spend (user_cost_report), sorted by spend.
+  // Raw emails; the frontend masks via maskEmail. No per-user token counts exist
+  // in this endpoint (cost + requests only).
+  router.get('/cost/users', async (req, res) => {
+    try {
+      const { data, period, data_refreshed_at } = await fetchUserCostReport({
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+      })
+      const users = userCostToUsers(data).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
+      res.json({ source: 'live', period, data_refreshed_at, users })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
