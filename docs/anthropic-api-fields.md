@@ -196,7 +196,40 @@ Response: same envelope shape as `cost_report` but `results[]` carries token bre
 | `cache_creation.ephemeral_5m_input_tokens` | number | |
 | `output_tokens` | number | |
 
-> The reshape in `server/aws.js:analyticsReportsToCostResp` joins the two on `(product, model)` and emits a `daily[]` array of `{ date, model, spend, input, output, requests }` for the trend chart. **No per-user dimension** — that's the load-bearing reason the dashboard still keeps a CSV reconciliation path (ADR-0003).
+> The reshape in `server/aws.js:analyticsReportsToCostResp` joins the two on `(product, model)` and emits a `daily[]` array of `{ date, model, spend, input, output, requests }` for the trend chart.
+
+### `GET /v1/organizations/analytics/user_cost_report`
+
+Per-user USD spend for the requested period. Paginated via `?page=` token (same convention as other Analytics endpoints). Returns `{ data: [], has_more, next_page, data_refreshed_at }`.
+
+#### Query parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `starting_at` | string (RFC 3339) | Start of the window, e.g. `2026-05-08T00:00:00Z` |
+| `ending_at` | string (RFC 3339) | End of the window (must be `≤ today − 3`). |
+| `limit` | number | Max results per page (up to 1000). |
+| `page` | string | Pagination cursor returned in `body.next_page`. |
+
+#### Per-result fields (`data[]`)
+
+| Field | Type | Notes |
+|---|---|---|
+| `actor.type` | string | `"user_actor"` for named users; `"api_actor"` for API-key rows (no email — excluded from per-user join). |
+| `actor.user_id` | string? | Anthropic user UUID (present on `user_actor`). |
+| `actor.name` | string? | Display name (present on `user_actor`). |
+| `actor.email` | string? | Raw email address (present on `user_actor`). Mask via `maskEmail()` before display. |
+| `actor.deleted` | boolean? | Whether the user has been deleted from the org. |
+| `currency` | string | Always `"USD"`. |
+| `amount` | string | **Fractional cents (decimal string)** — divide by 100 for USD. Same convention as `cost_report`. |
+| `list_amount` | string? | Gross (list-price) amount in fractional cents; may be absent — fall back to `amount`. |
+| `requests` | number | Request count for the actor in the period. |
+
+> **No per-user token counts** — this endpoint is cost + requests only. Per-user `prompt_tokens` / `completion_tokens` are not available from any live endpoint; they require a manually exported Spend Report CSV.
+
+> **Confirmed negative**: `GET /v1/organizations/analytics/cost_report?group_by[]=actor` → HTTP 400. Use `user_cost_report` instead (ADR-0009).
+
+> **Per-user dimension now live** — ADR-0003's "No per-user dimension" constraint is resolved by `user_cost_report`. The CSV reconciliation path is retained as optional (per-user token granularity + billing-grade reconciliation older than the live correction window). See [ADR-0009](decisions/0009-live-user-cost.md).
 
 ---
 

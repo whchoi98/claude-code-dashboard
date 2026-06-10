@@ -19,8 +19,23 @@ fallback.
   `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
   - Cost routes: `GET /cost/live` (Analytics `cost_report` + `usage_report`,
     reshaped into `CsvResp` shape via `analyticsReportsToCostResp`),
+    `/cost/users` (live per-user USD spend via `user_cost_report`, paginated,
+    raw emails; response `{ source: "live", period, data_refreshed_at, users[] }`
+    sorted by `net_spend_usd` desc; no per-user token counts),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
-    `/cost/efficiency` (CSV × Analytics activity-weighted join).
+    `/cost/efficiency` (live-first: queries `user_cost_report` for the exact
+    range via `fetchUserCostReport`, joins on `email` with `users/range`
+    productivity — no activity-weighted scaling on the live path; falls back
+    to the CSV path when live data is empty/unavailable; response `source` is
+    `"live+analytics"` or `"csv+analytics"`).
+  - Pure exported helpers: `analyticsReportsToCostResp` (unit-tested in
+    `tests/server/test-cost-live-reshape.mjs`), `userCostToUsers(data)` (maps
+    `user_cost_report data[]` → `{ email, user_id, name, deleted, net_spend_usd,
+    gross_spend_usd, requests }`; excludes `api_actor` rows; unit-tested in
+    `tests/server/test-user-cost.mjs`).
+  - Closure helper inside `registerAwsRoutes`: `fetchUserCostReport({
+    starting_date, ending_date })` — paginates `user_cost_report` (up to 50
+    pages), clamps ending to `today − 3`, returns `{ data, period, data_refreshed_at }`.
   - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
     `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
     `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,

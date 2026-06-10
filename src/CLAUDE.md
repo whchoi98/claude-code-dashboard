@@ -34,7 +34,11 @@ src/
 │
 │ Page-local hooks (not in lib/ — kept colocated with the consumer page):
 │   - useCostData(range)  # composite: tries /api/cost/live first, falls back to /api/cost/csv;
-│                         # exposes csvData separately so per-user widgets can use CSV in live mode
+│                         # exposes csvData separately so per-user token tables can use CSV in live mode.
+│                         # Since v0.8.0 the per-user "Top by Cost" table + distinct_users KPI are live
+│                         # (sourced from /api/cost/efficiency source=live+analytics); the 3 token-ranked
+│                         # Top tables render only when per-user tokens exist (CSV path, source=csv+analytics).
+│                         # A cost.top.live_caveat note shows in live-only mode explaining the token gap.
 ├── types.ts              # Analytics API schema types
 ├── App.tsx / main.tsx
 └── index.css             # Tailwind entry + custom utilities + the generic `@media print` block (visibility-based isolation of `.print-export`, `.print-hide` opt-out, auto-expanded `<details>`) used by Analyze/Cost/Executive
