@@ -15,6 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.0] - 2026-06-10
+
+Live per-user cost from the Analytics API. The Cost page's per-user "Top by
+Cost" table and `distinct_users` KPI now work without a CSV upload. CSV is
+retained as optional for per-user token breakdowns and billing-grade
+reconciliation. See [ADR-0009](docs/decisions/0009-live-user-cost.md).
+
+### Added
+
+- **`GET /api/cost/users`** — live per-user USD spend via Analytics `user_cost_report`. Paginated (up to 50 pages), clamped to `today − 3`, sorted by `net_spend_usd` descending. Response: `{ source: "live", period, data_refreshed_at, users: [{ email, user_id, name, deleted, net_spend_usd, gross_spend_usd, requests }] }`. Raw emails masked at the frontend via `maskEmail`. No per-user token counts (cost + requests only).
+
+### Changed
+
+- **`GET /api/cost/efficiency`** now defaults to live per-user spend from `user_cost_report` for the exact selected range (no CSV-period activity-weighted scaling on the live path); falls back to the Spend Report CSV path when live data is empty or unavailable. Response `source` is `"live+analytics"` (live path) or `"csv+analytics"` (CSV fallback). In live mode, per-user token fields are 0 and `tokens_per_loc` is `null`.
+- **Cost page**: per-user "Top by Cost" table and `distinct_users` KPI are now live (no CSV upload required). The 3 token-ranked per-user tables (`top_total`, `top_input`, `top_output`) render only when per-user tokens are available (CSV path). A `cost.top.live_caveat` note is shown in live-only mode explaining the token gap.
+
+### Note
+
+Per-user token breakdowns (`prompt_tokens`, `completion_tokens`) still require a manually exported Spend Report CSV — the live `user_cost_report` endpoint is cost + requests only. CSV upload is retained as optional reconciliation.
+
 ## [0.7.1] - 2026-06-09
 
 Polish for the floating chat widget.
@@ -285,6 +305,26 @@ the three architectural decisions captured in this release.
 ## [Unreleased]
 
 _아직 변경 사항 없음 — 새 항목은 여기로._
+
+## [0.8.0] - 2026-06-10
+
+Analytics API에서 사용자별 비용을 라이브로 제공. CSV 업로드 없이도
+Cost 페이지의 per-user "Top by Cost" 테이블과 `distinct_users` KPI가
+작동. CSV는 사용자별 토큰 상세 + 재무 정산용으로 선택 사항으로 잔존.
+[ADR-0009](docs/decisions/0009-live-user-cost.md) 참조.
+
+### Added
+
+- **`GET /api/cost/users`** — Analytics `user_cost_report`를 통한 라이브 사용자별 USD spend. 최대 50 페이지 페이지네이션, `today − 3` 클램프, `net_spend_usd` 내림차순 정렬. 응답: `{ source: "live", period, data_refreshed_at, users: [{ email, user_id, name, deleted, net_spend_usd, gross_spend_usd, requests }] }`. 이메일은 raw 반환 — 프론트엔드에서 `maskEmail`로 마스킹. 사용자별 토큰 카운트 없음 (비용 + 요청 수만).
+
+### Changed
+
+- **`GET /api/cost/efficiency`**가 이제 선택 기간 그대로 `user_cost_report`에서 라이브 per-user spend를 기본 조회(CSV 기간 활동량 가중 분배 불필요). 라이브 데이터가 없거나 비어있으면 Spend Report CSV 경로로 폴백. 응답 `source`는 `"live+analytics"` (라이브 경로) 또는 `"csv+analytics"` (CSV 폴백). 라이브 모드에서 사용자별 토큰 필드는 0, `tokens_per_loc`은 `null`.
+- **Cost 페이지**: per-user "Top by Cost" 테이블과 `distinct_users` KPI가 이제 라이브 (CSV 업로드 불필요). 3개 토큰 기준 per-user 테이블 (`top_total`, `top_input`, `top_output`)은 사용자별 토큰이 있는 경우(CSV 경로)에만 렌더링. 라이브 전용 모드에서는 `cost.top.live_caveat` 안내문이 토큰 한계를 설명.
+
+### Note
+
+사용자별 토큰 상세 (`prompt_tokens`, `completion_tokens`)는 여전히 수동 Spend Report CSV 필요 — 라이브 `user_cost_report` 엔드포인트는 비용 + 요청 수만 제공. CSV 업로드는 선택적 정산 수단으로 잔존.
 
 ## [0.7.0] - 2026-06-09
 
