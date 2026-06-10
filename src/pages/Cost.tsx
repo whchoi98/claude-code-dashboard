@@ -128,10 +128,10 @@ type CostSource = 'live' | 'csv'
  * back to /api/cost/csv. Both queries fire in parallel (cheap due to S3+cache
  * on the CSV path); the active one is selected here.
  *
- * `csvData` is exposed separately so the page can render per-user widgets
- * from CSV even when live API is the active main source. The Anthropic
- * Analytics endpoints don't expose per-user attribution, but the uploaded
- * Spend Report CSV does — so we use it as a complementary data layer.
+ * `csvData` is exposed separately so the page can still render per-user TOKEN
+ * widgets from CSV. Per-user USD spend is now live via `user_cost_report` (see
+ * /cost/efficiency + ADR-0009); the CSV is a complementary layer for per-user
+ * token counts (not exposed live) and old-date reconciliation.
  */
 export function useCostData(range: { startingDate: string; endingDate: string }) {
   const liveUrl = `/api/cost/live?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
@@ -560,10 +560,10 @@ export function Cost() {
         )}
 
         {/* Top-N per-user tables. Sourced (in priority order) from
-            eff.data.users (activity-weighted, range-aware), csvUserRows
-            (CSV-period totals), or agg.userRows. The Anthropic Analytics
-            cost_report/usage_report endpoints don't expose user attribution,
-            so all three paths trace back to the uploaded CSV. */}
+            eff.data.users (live user_cost_report spend in live mode, or
+            CSV-derived spend+tokens in CSV mode), csvUserRows, or agg.userRows.
+            The "by Cost" table works live; token-ranked tables need per-user
+            tokens (CSV only) — see hasPerUserTokens gating below. */}
         {userRowsForTop && userRowsForTop.length > 0 && userRowsForTop[0].email !== '' && (
           <div>
             {effUserRows && csvData?.period && (
