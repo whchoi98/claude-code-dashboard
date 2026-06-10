@@ -140,6 +140,28 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
   }
 }
 
+// Map a user_cost_report `data[]` array to the dashboard's per-user shape.
+// amount/list_amount are decimal strings in fractional CENTS (same convention
+// as cost_report) → /100 for USD. Emails are returned RAW for the email-keyed
+// efficiency join; the frontend masks via maskEmail on render. api_actor rows
+// (no email) are excluded — this endpoint is user-centric and emails are the
+// join key.
+export function userCostToUsers(data) {
+  return (Array.isArray(data) ? data : [])
+    .map((r) => {
+      const a = r.actor || {}
+      return {
+        email: a.email || '',
+        user_id: a.user_id || null,
+        name: a.name || null,
+        deleted: !!a.deleted,
+        net_spend_usd: parseFloat(r.amount || '0') / 100,
+        gross_spend_usd: parseFloat(r.list_amount || r.amount || '0') / 100,
+        requests: Number(r.requests || 0),
+      }
+    })
+    .filter((u) => u.email)
+}
 
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
 // Athena's IAM policy already restricts this task to the ccd workgroup, and
