@@ -34,6 +34,7 @@ type CsvResp = {
   source: 'csv' | 'live'
   file: string | null
   last_modified: string
+  data_refreshed_at?: string | null
   period: { starting_date: string; ending_date: string } | null
   rows: CsvRow[]
   daily?: DailyPoint[]
@@ -57,14 +58,33 @@ const MODEL_COLORS: Record<string, string> = {
   claude_haiku_4_5_20251001:  '#EEBFAA',
   claude_haiku_4_5:           '#F5DCCF',
 }
+// Keys match the snake_case `product` values cost_report returns. The API moved
+// from Title Case to snake_case, so the old Title-Case keys silently fell back
+// to FALLBACK for EVERY product (and the legend showed raw "claude_in_chrome").
+// Add new surfaces here as Anthropic ships them.
 const PRODUCT_COLORS: Record<string, string> = {
-  'Claude Code':       '#D97757',
-  'Chat':              '#1F1E1D',
-  'Cowork':            '#B75E40',
-  'Browser Extension': '#8A8474',
-  'Excel':             '#4CA371',
-  'PowerPoint':        '#CC7722',
+  claude_code:      '#D97757',
+  chat:             '#1F1E1D',
+  cowork:           '#B75E40',
+  claude_design:    '#4CA371',
+  claude_in_chrome: '#8A8474',
+  code_review:      '#CC7722',
+  research:         '#6A8EAE',
+  other:            '#D7D3C7',
 }
+const PRODUCT_LABELS: Record<string, string> = {
+  claude_code: 'Claude Code',
+  chat: 'Chat',
+  cowork: 'Cowork',
+  claude_design: 'Claude Design',
+  claude_in_chrome: 'Claude in Chrome',
+  code_review: 'Code Review',
+  research: 'Research',
+  other: 'Other',
+}
+// snake_case product id → display label; Title-Cases any unknown/new id.
+const productLabel = (p: string) =>
+  PRODUCT_LABELS[p] || String(p).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 const FALLBACK = ['#D97757', '#1F1E1D', '#8A8474', '#B75E40', '#D7D3C7', '#E69F7F', '#4CA371', '#CC7722']
 
 const shortModel = (m: string) =>
@@ -397,7 +417,17 @@ export function Cost() {
         }
       />
       <div className="p-8 space-y-6 print-export">
-        <div className="flex items-center justify-end gap-2 print-hide">
+        <div className="flex items-center justify-between gap-2 print-hide">
+          {/* Real data-freshness from the API (cost_report data_refreshed_at),
+              not the request time — sets expectations vs the 3-day buffer. */}
+          <div className="text-[11px] text-ink-400">
+            {dataSource === 'live' && data.data_refreshed_at && (
+              <span title={t('cost.data_as_of.hint')}>
+                {t('cost.data_as_of')}: <b className="text-ink-600 tabular-nums">{data.data_refreshed_at.replace('T', ' ').slice(0, 16)} UTC</b>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
           {/* Single page-level range control — drives ALL cost content
               (useCostData + efficiency share this URL-synced range). Default
               '1d' = the most recent finalized day (daily live). */}
@@ -410,6 +440,7 @@ export function Cost() {
             <span aria-hidden>🖨</span>
             {t('cost.export.pdf')}
           </button>
+          </div>
         </div>
         {dataSource === 'live' && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
@@ -470,7 +501,7 @@ export function Cost() {
               <PieChart>
                 <Pie data={agg.productRows} dataKey="spend" nameKey="product"
                      innerRadius={50} outerRadius={90}
-                     label={(e: any) => `${e.product} ${(e.share * 100).toFixed(0)}%`}>
+                     label={(e: any) => `${productLabel(e.product)} ${(e.share * 100).toFixed(0)}%`}>
                   {agg.productRows.map((p, i) => (
                     <Cell key={p.product} fill={PRODUCT_COLORS[p.product] || FALLBACK[i % FALLBACK.length]} />
                   ))}
@@ -500,7 +531,7 @@ export function Cost() {
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={agg.productModelStack} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
-              <XAxis dataKey="product" />
+              <XAxis dataKey="product" tickFormatter={productLabel} />
               <YAxis tickFormatter={(v: number) => fmtUsd(v)} />
               <Tooltip formatter={(v: number) => fmtUsd(v)} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />

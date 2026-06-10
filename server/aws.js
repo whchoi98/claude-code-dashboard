@@ -121,6 +121,9 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
     source: 'live',
     file: null,
     last_modified: new Date().toISOString(),
+    // Real upstream finalization timestamp (cost_report top-level), so the UI can
+    // show "data as of …" instead of the request time. Null on the CSV path.
+    data_refreshed_at: costBody?.data_refreshed_at ?? null,
     period,
     rows,
     daily,

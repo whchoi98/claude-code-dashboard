@@ -58,6 +58,12 @@ const cases = [
     if (r.period.ending_date !== '2026-05-02') throw new Error(`period.end: ${r.period.ending_date}`)
     if (r.file !== null) throw new Error(`file: ${r.file}`)
   }],
+  ['data_refreshed_at: passes through cost_report value, null when absent', () => {
+    const absent = analyticsReportsToCostResp(COST, USAGE, period)
+    if (absent.data_refreshed_at !== null) throw new Error(`absent should be null, got: ${absent.data_refreshed_at}`)
+    const present = analyticsReportsToCostResp({ ...COST, data_refreshed_at: '2026-06-07T07:56:43Z' }, USAGE, period)
+    if (present.data_refreshed_at !== '2026-06-07T07:56:43Z') throw new Error(`passthrough failed: ${present.data_refreshed_at}`)
+  }],
   ['rows: 3 (product,model) tuples — opus, sonnet, haiku', () => {
     const r = analyticsReportsToCostResp(COST, USAGE, period)
     if (r.rows.length !== 3) throw new Error(`rows.length: ${r.rows.length}`)
