@@ -840,88 +840,99 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // then computes cost-efficiency metrics per user.
   router.get('/cost/efficiency', async (req, res) => {
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
-    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    const today = new Date(); today.setUTCDate(today.getUTCDate() - 3)
+    const maxEnd = today.toISOString().slice(0, 10)
 
-    // 1) Pull the latest spend CSV
-    let csvRows = []
+    // ── Spend source: prefer LIVE user_cost_report for the exact selected
+    //    range; fall back to the uploaded Spend Report CSV (per-user tokens +
+    //    old-date reconciliation). The productivity join below keys on email
+    //    either way. ───────────────────────────────────────────────────────
+    const bySpendUser = new Map()
     let csvPeriod = null
+    let source = 'live+analytics'
+    let starting = req.query.starting_date
+    let ending = req.query.ending_date
+    if (ending && ending > maxEnd) ending = maxEnd
+
+    let liveUsers = []
     try {
-      const list = await s3.send(new ListObjectsV2Command({
-        Bucket: BUCKET, Prefix: 'spend-reports/',
-      }))
-      const objs = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
-      if (objs.length === 0) {
-        return res.status(404).json({
-          error: 'no_spend_report',
-          message: 'Upload a Claude Console Spend Report CSV first.',
+      const live = await fetchUserCostReport({ starting_date: starting, ending_date: ending })
+      liveUsers = userCostToUsers(live.data)
+      starting = live.period.starting_date
+      ending = live.period.ending_date
+      csvPeriod = { starting_date: starting, ending_date: ending }
+    } catch {
+      liveUsers = []   // fall through to CSV
+    }
+
+    if (liveUsers.length > 0) {
+      for (const u of liveUsers) {
+        bySpendUser.set(u.email, {
+          spend: u.net_spend_usd, prompt_tokens: 0, completion_tokens: 0,
+          requests: u.requests, models: new Set(), products: new Set(),
         })
       }
-      const latest = objs.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))[0]
-      const name = latest.Key.split('/').pop() || ''
-      const m = name.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
-      csvPeriod = m ? { starting_date: m[1], ending_date: m[2] } : null
-      const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: latest.Key }))
-      const body = await obj.Body.transformToString()
-      csvRows = parseCsv(body).rows
-    } catch (err) {
-      return res.status(500).json({ error: 's3_read_failed', message: err?.message || String(err) })
-    }
-
-    // 2) Aggregate CSV by user
-    const bySpendUser = new Map()
-    for (const r of csvRows) {
-      const u = bySpendUser.get(r.user_email) ?? {
-        spend: 0, prompt_tokens: 0, completion_tokens: 0, requests: 0,
-        models: new Set(), products: new Set(),
+    } else {
+      // ── CSV fallback (prior behaviour) ─────────────────────────────────
+      source = 'csv+analytics'
+      if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+      let csvRows = []
+      try {
+        const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'spend-reports/' }))
+        const objs = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
+        if (objs.length === 0) {
+          return res.status(404).json({ error: 'no_spend_report', message: 'No live per-user cost available and no Spend Report CSV uploaded.' })
+        }
+        const latest = objs.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))[0]
+        const name = latest.Key.split('/').pop() || ''
+        const m = name.match(/(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
+        csvPeriod = m ? { starting_date: m[1], ending_date: m[2] } : null
+        const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: latest.Key }))
+        csvRows = parseCsv(await obj.Body.transformToString()).rows
+      } catch (err) {
+        return res.status(500).json({ error: 's3_read_failed', message: err?.message || String(err) })
       }
-      u.spend            += Number(r.total_net_spend_usd || 0)
-      u.prompt_tokens    += Number(r.total_prompt_tokens || 0)
-      u.completion_tokens+= Number(r.total_completion_tokens || 0)
-      u.requests         += Number(r.total_requests || 0)
-      u.models.add(r.model)
-      u.products.add(r.product)
-      bySpendUser.set(r.user_email, u)
+      for (const r of csvRows) {
+        const u = bySpendUser.get(r.user_email) ?? { spend: 0, prompt_tokens: 0, completion_tokens: 0, requests: 0, models: new Set(), products: new Set() }
+        u.spend += Number(r.total_net_spend_usd || 0)
+        u.prompt_tokens += Number(r.total_prompt_tokens || 0)
+        u.completion_tokens += Number(r.total_completion_tokens || 0)
+        u.requests += Number(r.total_requests || 0)
+        u.models.add(r.model); u.products.add(r.product)
+        bySpendUser.set(r.user_email, u)
+      }
+      starting = starting || csvPeriod?.starting_date
+      ending = ending || csvPeriod?.ending_date
+      if (ending && ending > maxEnd) ending = maxEnd
     }
 
-    // 3) Pull matching Analytics productivity via server self-call.
-    //    Clamp ending date to today - 3 (Analytics API buffer) so we don't
-    //    trigger mock fallbacks on very recent days that aren't yet aggregated.
-    const today = new Date()
-    today.setUTCDate(today.getUTCDate() - 3)
-    const maxEnd = today.toISOString().slice(0, 10)
-    const starting = req.query.starting_date || csvPeriod?.starting_date
-    let   ending   = req.query.ending_date   || csvPeriod?.ending_date
-    if (ending && ending > maxEnd) ending = maxEnd
+    const isLive = source === 'live+analytics'
     const PORT = Number(process.env.PORT) || 5174
+
+    // Productivity over the selected range (same self-call as before).
     const rangeResp = await fetch(
       `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${starting}&ending_date=${ending}`,
     ).then((r) => r.json()).catch(() => ({ days: [] }))
 
-    // 3a) Activity-weighted scaling support: also fetch analytics over the
-    //     CSV's full period to compute each user's total activity in CSV
-    //     scope. The CSV gives us TOTAL spend per user across the CSV
-    //     period — to derive per-user spend within the requested sub-range
-    //     we need a denominator. Sessions per user is the activity proxy.
-    //     Fetch only if (a) CSV period exists and (b) it differs from the
-    //     selected range (otherwise the ratio is trivially 1.0 and we skip
-    //     the round trip).
+    // Activity-weighted scaling applies ONLY to the CSV path (a fixed-period
+    // total). The live path is already range-exact → sameRange=true → ratio 1.
     const sessionsByUserInCsvPeriod = new Map()
     const csvPeriodStart = csvPeriod?.starting_date
     let   csvPeriodEnd   = csvPeriod?.ending_date
     if (csvPeriodEnd && csvPeriodEnd > maxEnd) csvPeriodEnd = maxEnd
-    const sameRange = csvPeriodStart === starting && csvPeriodEnd === ending
-    const csvAnalyticsResp = (csvPeriodStart && csvPeriodEnd && !sameRange)
-      ? await fetch(
-          `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${csvPeriodStart}&ending_date=${csvPeriodEnd}`,
-        ).then((r) => r.json()).catch(() => ({ days: [] }))
-      : { days: rangeResp.days || [] }
-    for (const d of csvAnalyticsResp.days || []) {
-      if (d.source === 'mock') continue
-      for (const rec of d.data || []) {
-        const sess = rec.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0
-        const email = rec.user?.email_address
-        if (!email) continue
-        sessionsByUserInCsvPeriod.set(email, (sessionsByUserInCsvPeriod.get(email) ?? 0) + sess)
+    const sameRange = isLive ? true : (csvPeriodStart === starting && csvPeriodEnd === ending)
+    if (!isLive && !sameRange && csvPeriodStart && csvPeriodEnd) {
+      const csvAnalyticsResp = await fetch(
+        `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${csvPeriodStart}&ending_date=${csvPeriodEnd}`,
+      ).then((r) => r.json()).catch(() => ({ days: [] }))
+      for (const d of csvAnalyticsResp.days || []) {
+        if (d.source === 'mock') continue
+        for (const rec of d.data || []) {
+          const sess = rec.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0
+          const email = rec.user?.email_address
+          if (!email) continue
+          sessionsByUserInCsvPeriod.set(email, (sessionsByUserInCsvPeriod.get(email) ?? 0) + sess)
+        }
       }
     }
 
@@ -1058,7 +1069,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }), { spend_usd: 0, loc_added: 0, commits: 0, prs: 0, prompt_tokens: 0, completion_tokens: 0 })
 
     res.json({
-      source: 'csv+analytics',
+      source,
       period: csvPeriod,
       user_count: scored.length,
       totals: {
