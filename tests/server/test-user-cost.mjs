@@ -23,6 +23,8 @@ ok('passes raw email (no masking here)', users[0].email === 'alice@acme.com')
 ok('passes user_id + name', users[0].user_id === 'u1' && users[0].name === 'Alice')
 ok('requests numeric', users[1].requests === 3)
 ok('empty / non-array → []', userCostToUsers(null).length === 0 && userCostToUsers(undefined).length === 0)
+ok('non-numeric amount → 0 (no NaN)', userCostToUsers([{ actor: { email: 'x@y.com' }, amount: 'abc' }])[0].net_spend_usd === 0)
+ok('deleted actor with email is kept', userCostToUsers([{ actor: { email: 'gone@y.com', deleted: true }, amount: '500' }]).length === 1)
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

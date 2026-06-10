@@ -147,6 +147,9 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
 // (no email) are excluded — this endpoint is user-centric and emails are the
 // join key.
 export function userCostToUsers(data) {
+  // Cents (decimal string) → USD; non-numeric/malformed amounts coerce to 0 so a
+  // bad upstream value can never inject NaN (which would corrupt the spend sort).
+  const usd = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n / 100 : 0 }
   return (Array.isArray(data) ? data : [])
     .map((r) => {
       const a = r.actor || {}
@@ -155,8 +158,8 @@ export function userCostToUsers(data) {
         user_id: a.user_id || null,
         name: a.name || null,
         deleted: !!a.deleted,
-        net_spend_usd: parseFloat(r.amount || '0') / 100,
-        gross_spend_usd: parseFloat(r.list_amount || r.amount || '0') / 100,
+        net_spend_usd: usd(r.amount),
+        gross_spend_usd: usd(r.list_amount || r.amount),
         requests: Number(r.requests || 0),
       }
     })
