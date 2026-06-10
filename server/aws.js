@@ -166,6 +166,18 @@ export function userCostToUsers(data) {
     .filter((u) => u.email)
 }
 
+// Inclusive end date (YYYY-MM-DD) → the EXCLUSIVE `ending_at` for the Analytics
+// cost endpoints. The picker treats ranges as inclusive ([d, d] = that one day),
+// but cost_report/user_cost_report use an exclusive ending_at — so a single-day
+// range would otherwise send starting_at == ending_at (a zero-width window that
+// returns zero rows). Mapping the inclusive end to the next day's 00:00 makes
+// [d, d] cover the full day d, and fixes the multi-day off-by-one too.
+export function utcNextDay(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
 // Athena's IAM policy already restricts this task to the ccd workgroup, and
 // CDK grants glue:GetTable only on the ccd database. Even so, a naive regex
@@ -381,7 +393,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
     const buildUrl = (p) => {
-      const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${endingDate}T00:00:00Z`, bucket_width: '1d' })
+      const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${utcNextDay(endingDate)}T00:00:00Z`, bucket_width: '1d' })
       params.append('group_by[]', 'product'); params.append('group_by[]', 'model')
       return `${apiUrl}${p}?${params.toString()}`
     }
@@ -427,7 +439,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     let refreshedAt = null
     const MAX_PAGES = 50
     for (let i = 0; i < MAX_PAGES; i++) {
-      const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${ending}T00:00:00Z`, limit: '1000' })
+      const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, limit: '1000' })
       if (page) params.set('page', page)
       const res = await fetch(`${apiUrl}/v1/organizations/analytics/user_cost_report?${params.toString()}`, { headers })
       const body = await res.json().catch(() => ({}))

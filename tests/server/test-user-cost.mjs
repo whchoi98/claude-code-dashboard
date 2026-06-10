@@ -1,6 +1,6 @@
 // Standalone ESM test for userCostToUsers (server/aws.js).
 // Runs with: node tests/server/test-user-cost.mjs — exit 0 on success, 1 on failure.
-import { userCostToUsers } from '../../server/aws.js'
+import { userCostToUsers, utcNextDay } from '../../server/aws.js'
 
 let n = 0, failed = 0
 const ok = (name, cond) => { n++; console.log(`${cond ? 'ok' : 'not ok'} ${n} - ${name}`); if (!cond) failed++ }
@@ -25,6 +25,13 @@ ok('requests numeric', users[1].requests === 3)
 ok('empty / non-array → []', userCostToUsers(null).length === 0 && userCostToUsers(undefined).length === 0)
 ok('non-numeric amount → 0 (no NaN)', userCostToUsers([{ actor: { email: 'x@y.com' }, amount: 'abc' }])[0].net_spend_usd === 0)
 ok('deleted actor with email is kept', userCostToUsers([{ actor: { email: 'gone@y.com', deleted: true }, amount: '500' }]).length === 1)
+
+// utcNextDay — inclusive end → exclusive next-day bound (fixes zero-width 1d window)
+ok('utcNextDay advances one day', utcNextDay('2026-06-07') === '2026-06-08')
+ok('utcNextDay crosses month boundary', utcNextDay('2026-06-30') === '2026-07-01')
+ok('utcNextDay crosses year boundary', utcNextDay('2026-12-31') === '2027-01-01')
+ok('single inclusive day → 2-day half-open window (not zero-width)',
+   utcNextDay('2026-06-07') !== '2026-06-07')
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)
