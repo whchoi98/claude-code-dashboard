@@ -268,6 +268,7 @@ const DICT = {
     'cost.recon.expander':        'Reconciliation CSV (≥ 30 days)',
     'cost.top.csv_caveat':        'Per-user breakdown sourced from uploaded CSV ({start} → {end}); the live API does not expose user attribution.',
     'cost.top.range_caveat':      'Per-user values scaled to the selected date range by session-activity weighting. CSV period: {start} → {end}.',
+    'cost.top.live_caveat':       'Per-user spend is live from the Analytics API for the selected range. Per-user token breakdowns require a Spend Report CSV.',
     'cost.export.pdf':            'PDF',
     'cost.export.pdf.hint':       'Open the print dialog — pick "Save as PDF"',
 
@@ -676,6 +677,7 @@ const DICT = {
     'cost.recon.expander':        '정산 CSV (30일 이전)',
     'cost.top.csv_caveat':        '사용자별 분해는 업로드된 CSV ({start} → {end}) 기준입니다. 라이브 API는 사용자 단위 데이터를 제공하지 않습니다.',
     'cost.top.range_caveat':      '사용자별 값은 세션 활동량 가중치로 선택 기간에 분배됩니다. CSV 기간: {start} → {end}.',
+    'cost.top.live_caveat':       '사용자별 지출은 선택 범위에 대해 Analytics API에서 라이브로 가져옵니다. 사용자별 토큰 분해는 Spend Report CSV가 필요합니다.',
     'cost.export.pdf':            'PDF',
     'cost.export.pdf.hint':       '인쇄 대화상자 열기 — "PDF로 저장" 선택',
 

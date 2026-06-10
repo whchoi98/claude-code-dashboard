@@ -370,6 +370,8 @@ export function Cost() {
   // The eff path requires both a CSV upload AND analytics activity data;
   // csvUserRows is the safe baseline when eff is loading or returns no users.
   const userRowsForTop = effUserRows ?? csvUserRows ?? agg.userRows
+  // Per-user TOKEN counts exist only from CSV — user_cost_report is cost-only.
+  const hasPerUserTokens = (eff.data?.source?.includes('csv') ?? false) || !!csvUserRows
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
   const topInput  = [...userRowsForTop].sort((a, b) => b.input - a.input).slice(0, 10)
   const topOutput = [...userRowsForTop].sort((a, b) => b.output - a.output).slice(0, 10)
@@ -414,11 +416,10 @@ export function Cost() {
             label={t('cost.kpi.total')}
             value={fmtUsd(data.totals.net_spend_usd)}
             hint={
-              // Prefer CSV's per-user count when available (it's the only
-              // source that has user attribution today). Fall back to
-              // models·products in live-only mode.
-              csvData?.totals?.distinct_users
-                ? `${fmtNum(csvData.totals.distinct_users)} users · ${data.totals.distinct_models} models`
+              // Per-user attribution now comes from live user_cost_report
+              // (eff.user_count); CSV's distinct_users is the fallback.
+              (eff.data?.user_count || csvData?.totals?.distinct_users)
+                ? `${fmtNum(eff.data?.user_count || csvData?.totals?.distinct_users)} users · ${data.totals.distinct_models} models`
                 : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
             }
           />
@@ -581,11 +582,18 @@ export function Cost() {
                 })}
               </p>
             )}
-            <div className="grid grid-cols-2 gap-6">
-              <TopTable title={t('cost.top_cost')}   rows={topSpend}  metric="spend"        formatter={fmtUsd}     accent t={t} />
-              <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
-              <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
-              <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
+            {!hasPerUserTokens && (
+              <p className="text-[11px] text-ink-400 mb-2 px-1">{t('cost.top.live_caveat')}</p>
+            )}
+            <div className={hasPerUserTokens ? 'grid grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6 max-w-md'}>
+              <TopTable title={t('cost.top_cost')} rows={topSpend} metric="spend" formatter={fmtUsd} accent t={t} />
+              {hasPerUserTokens && (
+                <>
+                  <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
+                  <TopTable title={t('cost.top_input')}  rows={topInput}  metric="input"        formatter={fmtCompact} t={t} />
+                  <TopTable title={t('cost.top_output')} rows={topOutput} metric="output"       formatter={fmtCompact} t={t} />
+                </>
+              )}
             </div>
           </div>
         )}
