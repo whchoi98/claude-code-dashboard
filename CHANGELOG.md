@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.2] - 2026-06-10
+
+### Fixed
+
+- **Cost page: single-day ranges (incl. the `1d` default) returned no live data.** The Analytics cost endpoints treat `ending_at` as exclusive, so an inclusive `[d, d]` range was sent as a zero-width window (`starting_at == ending_at`) → 0 rows → silent fallback to the range-agnostic CSV (so "cost didn't change with the date picker"). The inclusive end date is now mapped to a half-open `[d, d+1)` window (`utcNextDay`), fixing `1d` and the multi-day off-by-one in `cost_report` + `user_cost_report`.
+
+### Added
+
+- `scripts/rotate-analytics-key.sh` / `scripts/diagnose-analytics-key.sh` — operational helpers to rotate/diagnose the Analytics API key via a hidden prompt (validate → `.env` → Secrets Manager → ECS redeploy), never exposing the key in shell history or tool input.
+
+### 수정
+
+- **비용 페이지: 단일일 범위(`1d` 기본 포함)가 라이브 데이터를 못 가져오던 문제.** Analytics 비용 엔드포인트의 `ending_at`이 배타적이라 inclusive `[d, d]`가 폭 0 윈도우(`starting_at == ending_at`)로 전송 → 0행 → range-agnostic CSV로 조용히 폴백(그래서 "기간 선택해도 비용이 안 바뀜"). 이제 inclusive 종료일을 half-open `[d, d+1)`로 매핑(`utcNextDay`)해 `1d`와 멀티데이 off-by-one을 함께 해결.
+
 ## [0.8.1] - 2026-06-10
 
 ### Changed
