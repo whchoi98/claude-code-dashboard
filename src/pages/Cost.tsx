@@ -187,8 +187,8 @@ export function Cost() {
     if (!data) return null
     const totalSpend = data.totals.net_spend_usd
     const activeDevs =
-      eff.data?.user_count ??
-      csvData?.totals?.distinct_users ??
+      eff.data?.user_count ||
+      csvData?.totals?.distinct_users ||
       data.totals.distinct_users
     const costPerDev = activeDevs > 0 ? totalSpend / activeDevs : 0
 
@@ -363,19 +363,22 @@ export function Cost() {
     )
   }
 
-  // Per-user Top-N tables. Preference order:
-  //   1. eff.data.users (activity-weighted, range-aware)  ← most accurate
-  //   2. csvUserRows (raw CSV totals, range-agnostic)
-  //   3. agg.userRows (live data; in live mode user_email is empty so unused)
-  // The eff path requires both a CSV upload AND analytics activity data;
-  // csvUserRows is the safe baseline when eff is loading or returns no users.
+  // Per-user SPEND table preference order:
+  //   1. eff.data.users — live user_cost_report spend (live mode) or CSV-derived
+  //      spend+productivity (CSV mode), range-aware
+  //   2. csvUserRows (raw CSV totals) when eff is loading / returns no users
+  //   3. agg.userRows (live cost rows; user_email empty in live mode → unused)
   const userRowsForTop = effUserRows ?? csvUserRows ?? agg.userRows
-  // Per-user TOKEN counts exist only from CSV — user_cost_report is cost-only.
-  const hasPerUserTokens = (eff.data?.source?.includes('csv') ?? false) || !!csvUserRows
+  // Per-user TOKEN counts exist ONLY from a CSV (user_cost_report is cost-only).
+  // The token-ranked tables must come from a token-bearing set — NOT from the
+  // live spend rows (whose token fields are 0), otherwise uploading a CSV for
+  // token detail while spend is live would show all-zero token tables.
+  const tokenRows = csvUserRows ?? (eff.data?.source?.includes('csv') ? effUserRows : null)
+  const hasPerUserTokens = !!(tokenRows && tokenRows.length > 0 && tokenRows[0].email !== '')
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
-  const topInput  = [...userRowsForTop].sort((a, b) => b.input - a.input).slice(0, 10)
-  const topOutput = [...userRowsForTop].sort((a, b) => b.output - a.output).slice(0, 10)
-  const topTotal  = [...userRowsForTop].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 10)
+  const topInput  = [...(tokenRows ?? [])].sort((a, b) => b.input - a.input).slice(0, 10)
+  const topOutput = [...(tokenRows ?? [])].sort((a, b) => b.output - a.output).slice(0, 10)
+  const topTotal  = [...(tokenRows ?? [])].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 10)
 
   return (
     <div>
