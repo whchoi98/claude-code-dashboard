@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.1] - 2026-06-10
+
+### Changed
+
+- **Cost page date range** — a single range picker now sits at the top of the page and drives ALL cost content (org spend, trends, per-user tables, efficiency, KPIs); the duplicate picker in the Economic Productivity section is removed. The page now defaults to **daily** (`1d`) live data.
+- **New `1d` preset** on the shared date-range control — resolves to the most recent finalized day (`today−3`) so per-user cost + efficiency render populated, finalized data rather than partial/empty recent days. Available on every page; only the Cost page defaults to it.
+
+### 변경
+
+- **비용 페이지 기간 선택** — 단일 기간 피커를 페이지 상단으로 통합해 모든 비용 내용(조직 지출·트렌드·사용자별·효율·KPI)을 제어. 경제 생산성 섹션의 중복 피커 제거. 기본값을 **일일(`1d`) 라이브**로 변경.
+- **`1d` 프리셋 추가** — 최근 확정일(`today−3`)로 해석해 사용자별 비용·효율이 확정 데이터로 채워지도록. 전 페이지에서 선택 가능하나 기본값은 비용 페이지만.
+
 ## [0.8.0] - 2026-06-10
 
 Live per-user cost from the Analytics API. The Cost page's per-user "Top by

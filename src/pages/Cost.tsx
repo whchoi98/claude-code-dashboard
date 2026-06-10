@@ -158,7 +158,7 @@ export function useCostData(range: { startingDate: string; endingDate: string })
 
 export function Cost() {
   const t = useT()
-  const { range } = useDateRange('7d')
+  const { range } = useDateRange('1d')
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
   const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
@@ -398,7 +398,10 @@ export function Cost() {
       />
       <div className="p-8 space-y-6 print-export">
         <div className="flex items-center justify-end gap-2 print-hide">
-          {dataSource === 'live' && <DateRangeControl />}
+          {/* Single page-level range control — drives ALL cost content
+              (useCostData + efficiency share this URL-synced range). Default
+              '1d' = the most recent finalized day (daily live). */}
+          <DateRangeControl defaultPreset="1d" />
           <button
             onClick={exportPdf}
             title={t('cost.export.pdf.hint')}
@@ -646,10 +649,9 @@ function EconomicProductivitySection({ data, t, range }: {
 
   return (
     <div className="pt-4 border-t border-ink-100">
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <h2 className="text-lg font-semibold text-ink-800">{t('econ.title')}</h2>
-        <DateRangeControl />
-      </div>
+      {/* Range is controlled by the single page-level picker at the top —
+          this section just reflects the period the server joined on. */}
+      <h2 className="text-lg font-semibold text-ink-800 mb-1">{t('econ.title')}</h2>
       <p className="text-[11px] text-ink-400 mb-1">
         {t('econ.active_range', { start: effective.starting_date, end: effective.ending_date })}
       </p>

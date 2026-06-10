@@ -18,7 +18,7 @@ import { useSearchParams } from 'react-router-dom'
  *   - Summaries endpoint max 31-day range
  */
 
-export type Preset = '7d' | '14d' | '30d' | 'custom'
+export type Preset = '1d' | '7d' | '14d' | '30d' | 'custom'
 
 export interface DateRange {
   startingDate: string   // inclusive, YYYY-MM-DD
@@ -49,6 +49,7 @@ function daysBetween(a: string, b: string) {
 
 function presetToDays(p: Preset): number {
   switch (p) {
+    case '1d':  return 1
     case '7d':  return 7
     case '14d': return 14
     case '30d': return 30
@@ -78,9 +79,13 @@ export function useDateRange(defaultPreset: Preset = '7d') {
         days: daysBetween(startingDate, endingDate),
       }
     }
-    const preset: Preset = ['7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
+    const preset: Preset = ['1d', '7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
     const days = presetToDays(preset)
-    const endingDate = maxEnd
+    // '1d' = the most recent FINALIZED day (today-3), so per-user cost +
+    // efficiency (which only have data up to the 3-day buffer) are populated;
+    // the multi-day presets end at today and rely on the server's per-endpoint
+    // clamping + the "partial recent days" tolerance.
+    const endingDate = preset === '1d' ? todayMinusDaysUtc(3) : maxEnd
     const startingDate = clamp(todayMinusDaysUtc(days - 1), FIRST_AVAILABLE, endingDate)
     return { startingDate, endingDate, preset, days }
   }, [rawPreset, rawStart, rawEnd, maxEnd, defaultPreset])

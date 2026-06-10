@@ -5,15 +5,19 @@ import { fmtDate } from '../lib/format'
 import { useT } from '../lib/i18n'
 
 const PRESET_BUTTONS: { key: Preset; label: string }[] = [
+  { key: '1d',  label: '1d'  },
   { key: '7d',  label: '7d'  },
   { key: '14d', label: '14d' },
   { key: '30d', label: '30d' },
   { key: 'custom', label: '…' },
 ]
 
-export function DateRangeControl() {
+export function DateRangeControl({ defaultPreset }: { defaultPreset?: Preset } = {}) {
   const t = useT()
-  const { range, setPreset, setCustom, maxEnd, FIRST_AVAILABLE } = useDateRange()
+  // defaultPreset only takes effect when the URL carries no ?range= param;
+  // pages that want a non-7d default (e.g. Cost → '1d') pass it so the picker's
+  // highlighted preset matches the page's own useDateRange(defaultPreset).
+  const { range, setPreset, setCustom, maxEnd, FIRST_AVAILABLE } = useDateRange(defaultPreset)
   const [open, setOpen] = useState(false)
   const [draftStart, setDraftStart] = useState(range.startingDate)
   const [draftEnd,   setDraftEnd]   = useState(range.endingDate)
@@ -50,7 +54,7 @@ export function DateRangeControl() {
                   ? 'bg-claude-500 text-white shadow-sm'
                   : 'text-ink-500 hover:bg-paper-muted',
               )}
-              title={p.key === 'custom' ? 'Custom range' : `Last ${p.label}`}
+              title={p.key === 'custom' ? 'Custom range' : p.key === '1d' ? 'Most recent finalized day (today−3, Analytics buffer)' : `Last ${p.label}`}
             >
               {p.label}
             </button>
