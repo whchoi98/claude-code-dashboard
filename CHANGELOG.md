@@ -15,6 +15,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.3] - 2026-06-10
+
+UI quick wins from the Analytics-API capability review (step 1 of the roadmap).
+
+### Fixed
+
+- **Cost product chart showed fallback colors + raw `claude_in_chrome`-style labels.** `PRODUCT_COLORS` was keyed in Title Case but the cost_report API now returns snake_case product ids, so every product missed the map. Re-keyed to snake_case + added a `productLabel` display map; new surfaces (Claude Design, Claude in Chrome, Code Review, Research) now get distinct colors and readable labels in the product pie + product×model bar.
+
+### Added
+
+- **"Data as of …" freshness badge** on the Cost page — surfaces cost_report's real `data_refreshed_at` (UTC) instead of the request time, setting expectations against the 3-day Analytics buffer. (`analyticsReportsToCostResp` now passes the field through; CSV path → hidden.)
+- **Cowork DAU line** on the Trends active-users chart (the value was already computed into the series but never drawn).
+
+### 변경
+
+- **비용 제품 차트 색/라벨 정상화**: `PRODUCT_COLORS`가 Title Case 키였으나 API가 snake_case 제품 id를 반환해 전부 미매칭(FALLBACK + 원시 라벨)이던 것을 snake_case로 재키 + `productLabel` 표시 맵 추가. 신규 surface(Claude Design·Claude in Chrome·Code Review·Research)도 고유 색·가독 라벨.
+- **"데이터 기준" 신선도 배지** (cost_report `data_refreshed_at`, UTC) — 요청 시각 대신 실제 확정 시각 표시. **Cowork DAU 라인**을 Trends 차트에 추가.
+
 ## [0.8.2] - 2026-06-10
 
 ### Fixed
