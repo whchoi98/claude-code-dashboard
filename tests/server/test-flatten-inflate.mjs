@@ -64,6 +64,8 @@ ok('absent office_metrics → 0', empty.office_excel_sessions === 0 && empty.off
 
 // --- Task 3: cowork tool-edit (null-preserving) + design_metrics ---
 ok('flatten cowork file_edit_count', flat.cowork_file_edit_count === 3)
+ok('flatten cowork edit_tool_count', flat.cowork_edit_tool_count === 2)
+ok('flatten cowork sessions_with_file_edits_count', flat.cowork_sessions_with_file_edits_count === 1)
 ok('flatten cowork null preserved (not 0)', flat.cowork_multi_edit_tool_count === null && flat.cowork_notebook_edit_tool_count === null)
 ok('flatten cowork real 0 preserved (not null)', flat.cowork_write_tool_count === 0)
 ok('round-trip cowork tool-edit value', round.cowork_metrics.file_edit_count === 3)
