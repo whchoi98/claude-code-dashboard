@@ -14,6 +14,7 @@ export function flattenUser(r) {
   })
   const chat = r.chat_metrics || {}
   const cowork = r.cowork_metrics || {}
+  const office = r.office_metrics || {}
   return {
     user_id:                r.user?.id,
     user_email:             r.user?.email_address,
@@ -42,6 +43,30 @@ export function flattenUser(r) {
     cowork_messages:        cowork.message_count ?? 0,
     cowork_actions:         cowork.action_count ?? 0,
     cowork_dispatch_turns:  cowork.dispatch_turn_count ?? 0,
+    office_excel_sessions:              office.excel?.distinct_session_count ?? 0,
+    office_excel_messages:              office.excel?.message_count ?? 0,
+    office_excel_skills_used:           office.excel?.skills_used_count ?? 0,
+    office_excel_distinct_skills:       office.excel?.distinct_skills_used_count ?? 0,
+    office_excel_connectors_used:       office.excel?.connectors_used_count ?? 0,
+    office_excel_distinct_connectors:   office.excel?.distinct_connectors_used_count ?? 0,
+    office_powerpoint_sessions:            office.powerpoint?.distinct_session_count ?? 0,
+    office_powerpoint_messages:            office.powerpoint?.message_count ?? 0,
+    office_powerpoint_skills_used:         office.powerpoint?.skills_used_count ?? 0,
+    office_powerpoint_distinct_skills:     office.powerpoint?.distinct_skills_used_count ?? 0,
+    office_powerpoint_connectors_used:     office.powerpoint?.connectors_used_count ?? 0,
+    office_powerpoint_distinct_connectors: office.powerpoint?.distinct_connectors_used_count ?? 0,
+    office_word_sessions:              office.word?.distinct_session_count ?? 0,
+    office_word_messages:              office.word?.message_count ?? 0,
+    office_word_skills_used:           office.word?.skills_used_count ?? 0,
+    office_word_distinct_skills:       office.word?.distinct_skills_used_count ?? 0,
+    office_word_connectors_used:       office.word?.connectors_used_count ?? 0,
+    office_word_distinct_connectors:   office.word?.distinct_connectors_used_count ?? 0,
+    office_outlook_sessions:            office.outlook?.distinct_session_count ?? 0,
+    office_outlook_messages:            office.outlook?.message_count ?? 0,
+    office_outlook_skills_used:         office.outlook?.skills_used_count ?? 0,
+    office_outlook_distinct_skills:     office.outlook?.distinct_skills_used_count ?? 0,
+    office_outlook_connectors_used:     office.outlook?.connectors_used_count ?? 0,
+    office_outlook_distinct_connectors: office.outlook?.distinct_connectors_used_count ?? 0,
   }
 }
 

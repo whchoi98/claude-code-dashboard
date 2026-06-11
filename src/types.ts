@@ -61,7 +61,8 @@ export type UserRecord = {
   office_metrics: {
     excel: OfficeAppMetrics
     powerpoint: OfficeAppMetrics
-    word?: OfficeAppMetrics
+    word: OfficeAppMetrics
+    outlook: OfficeAppMetrics
   }
   cowork_metrics: CoworkMetrics
   web_search_count: number

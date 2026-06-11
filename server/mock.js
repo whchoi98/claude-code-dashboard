@@ -109,6 +109,7 @@ function mockUserRecord(user, date, rand, factor) {
       excel: emptyOffice(),
       powerpoint: emptyOffice(),
       word: emptyOffice(),
+      outlook: emptyOffice(),
     },
     cowork_metrics: {
       distinct_session_count: ccActive && rand() < 0.3 ? Math.floor(1 + rand() * 3) : 0,

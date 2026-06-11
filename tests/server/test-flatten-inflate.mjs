@@ -54,5 +54,13 @@ const conn = flattenConnector({ connector_name: 'github', distinct_user_count: 9
 ok('flattenConnector maps fields', conn.connector_name === 'github' && conn.distinct_users === 9 && conn.chat_uses === 4 && conn.claude_code_uses === 3 && conn.cowork_uses === 1)
 ok('flattenConnector zero-defaults sparse input', flattenConnector({ connector_name: 'y' }).chat_uses === 0)
 
+// --- Task 2: office_metrics (4 surfaces incl. outlook) ---
+ok('flatten office outlook messages', flat.office_outlook_messages === 20)
+ok('flatten office excel distinct_connectors', flat.office_excel_distinct_connectors === 6)
+ok('round-trip office word skills_used', round.office_metrics.word.skills_used_count === 15)
+ok('round-trip office outlook present (4th surface)', round.office_metrics.outlook.distinct_session_count === 19)
+ok('office surfaces = excel,outlook,powerpoint,word', Object.keys(round.office_metrics).sort().join(',') === 'excel,outlook,powerpoint,word')
+ok('absent office_metrics → 0', empty.office_excel_sessions === 0 && empty.office_outlook_messages === 0)
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

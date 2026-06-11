@@ -2,6 +2,19 @@
 // → nested Analytics-API shape. Dependency-free so the flatten↔inflate contract
 // is unit-testable in isolation. Field names MUST stay in lockstep with
 // collector/flatten.js — a mismatch silently writes zeros (collector/CLAUDE.md).
+
+// Reconstruct one office surface (excel/powerpoint/word/outlook) from flat columns.
+function officeSurface(f, s) {
+  return {
+    distinct_session_count:         f[`office_${s}_sessions`] ?? 0,
+    message_count:                  f[`office_${s}_messages`] ?? 0,
+    skills_used_count:              f[`office_${s}_skills_used`] ?? 0,
+    distinct_skills_used_count:     f[`office_${s}_distinct_skills`] ?? 0,
+    connectors_used_count:          f[`office_${s}_connectors_used`] ?? 0,
+    distinct_connectors_used_count: f[`office_${s}_distinct_connectors`] ?? 0,
+  }
+}
+
 export function inflateUser(f) {
   return {
     user: { id: f.user_id, email_address: f.user_email },
@@ -36,9 +49,10 @@ export function inflateUser(f) {
       },
     },
     office_metrics: {
-      excel:      { distinct_session_count: 0, message_count: 0, skills_used_count: 0, distinct_skills_used_count: 0, connectors_used_count: 0, distinct_connectors_used_count: 0 },
-      powerpoint: { distinct_session_count: 0, message_count: 0, skills_used_count: 0, distinct_skills_used_count: 0, connectors_used_count: 0, distinct_connectors_used_count: 0 },
-      word:       { distinct_session_count: 0, message_count: 0, skills_used_count: 0, distinct_skills_used_count: 0, connectors_used_count: 0, distinct_connectors_used_count: 0 },
+      excel:      officeSurface(f, 'excel'),
+      powerpoint: officeSurface(f, 'powerpoint'),
+      word:       officeSurface(f, 'word'),
+      outlook:    officeSurface(f, 'outlook'),
     },
     cowork_metrics: {
       distinct_session_count: f.cowork_sessions ?? 0,
