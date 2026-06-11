@@ -15,6 +15,7 @@ export function flattenUser(r) {
   const chat = r.chat_metrics || {}
   const cowork = r.cowork_metrics || {}
   const office = r.office_metrics || {}
+  const design = r.design_metrics || {}
   return {
     user_id:                r.user?.id,
     user_email:             r.user?.email_address,
@@ -67,6 +68,16 @@ export function flattenUser(r) {
     office_outlook_distinct_skills:     office.outlook?.distinct_skills_used_count ?? 0,
     office_outlook_connectors_used:     office.outlook?.connectors_used_count ?? 0,
     office_outlook_distinct_connectors: office.outlook?.distinct_connectors_used_count ?? 0,
+    cowork_file_edit_count:                cowork.file_edit_count ?? null,
+    cowork_edit_tool_count:                cowork.edit_tool_count ?? null,
+    cowork_multi_edit_tool_count:          cowork.multi_edit_tool_count ?? null,
+    cowork_write_tool_count:               cowork.write_tool_count ?? null,
+    cowork_notebook_edit_tool_count:       cowork.notebook_edit_tool_count ?? null,
+    cowork_sessions_with_file_edits_count: cowork.sessions_with_file_edits_count ?? null,
+    design_sessions:         design.distinct_session_count ?? 0,
+    design_projects_used:    design.distinct_projects_used_count ?? 0,
+    design_projects_created: design.distinct_projects_created_count ?? 0,
+    design_messages:         design.message_count ?? 0,
   }
 }
 

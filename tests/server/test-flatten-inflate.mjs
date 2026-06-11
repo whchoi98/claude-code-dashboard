@@ -62,5 +62,17 @@ ok('round-trip office outlook present (4th surface)', round.office_metrics.outlo
 ok('office surfaces = excel,outlook,powerpoint,word', Object.keys(round.office_metrics).sort().join(',') === 'excel,outlook,powerpoint,word')
 ok('absent office_metrics → 0', empty.office_excel_sessions === 0 && empty.office_outlook_messages === 0)
 
+// --- Task 3: cowork tool-edit (null-preserving) + design_metrics ---
+ok('flatten cowork file_edit_count', flat.cowork_file_edit_count === 3)
+ok('flatten cowork null preserved (not 0)', flat.cowork_multi_edit_tool_count === null && flat.cowork_notebook_edit_tool_count === null)
+ok('flatten cowork real 0 preserved (not null)', flat.cowork_write_tool_count === 0)
+ok('round-trip cowork tool-edit value', round.cowork_metrics.file_edit_count === 3)
+ok('round-trip cowork null stays null', round.cowork_metrics.multi_edit_tool_count === null)
+ok('round-trip cowork real 0 stays 0', round.cowork_metrics.write_tool_count === 0)
+ok('flatten design', flat.design_sessions === 30 && flat.design_projects_created === 32)
+ok('round-trip design_metrics', round.design_metrics.distinct_session_count === 30 && round.design_metrics.message_count === 33)
+ok('absent cowork tool-edit → null', empty.cowork_file_edit_count === null)
+ok('absent design → 0', empty.design_sessions === 0)
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

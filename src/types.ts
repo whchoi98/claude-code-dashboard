@@ -48,10 +48,23 @@ export type CoworkMetrics = {
   action_count: number
   dispatch_turn_count: number
   message_count: number
+  file_edit_count: number | null
+  edit_tool_count: number | null
+  multi_edit_tool_count: number | null
+  write_tool_count: number | null
+  notebook_edit_tool_count: number | null
+  sessions_with_file_edits_count: number | null
   skills_used_count: number
   distinct_skills_used_count: number
   connectors_used_count: number
   distinct_connectors_used_count: number
+}
+
+export type DesignMetrics = {
+  distinct_session_count: number
+  distinct_projects_used_count: number
+  distinct_projects_created_count: number
+  message_count: number
 }
 
 export type UserRecord = {
@@ -65,6 +78,7 @@ export type UserRecord = {
     outlook: OfficeAppMetrics
   }
   cowork_metrics: CoworkMetrics
+  design_metrics: DesignMetrics
   web_search_count: number
 }
 
