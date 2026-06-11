@@ -355,7 +355,13 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
   write_tool_accepted, write_tool_rejected,
   notebook_edit_tool_accepted, notebook_edit_tool_rejected,
   web_search_count,
-  cowork_sessions, cowork_messages, cowork_actions, cowork_dispatch_turns
+  cowork_sessions, cowork_messages, cowork_actions, cowork_dispatch_turns,
+  office_excel_*, office_powerpoint_*, office_word_*, office_outlook_*
+    (per surface: _sessions, _messages, _skills_used, _distinct_skills, _connectors_used, _distinct_connectors),
+  cowork_file_edit_count, cowork_edit_tool_count, cowork_multi_edit_tool_count,
+  cowork_write_tool_count, cowork_notebook_edit_tool_count, cowork_sessions_with_file_edits_count
+    (cowork tool-edit counts are NULL until the org enables cowork file-editing),
+  design_sessions, design_projects_used, design_projects_created, design_messages
 
 • summaries_daily (one row per day, org-wide):
   date, daily_active_user_count, weekly_active_user_count, monthly_active_user_count,

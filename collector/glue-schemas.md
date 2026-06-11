@@ -2,7 +2,7 @@
 
 All tables are **partitioned by `date` (string)**, stored as NDJSON under
 `s3://$BUCKET/<table>/date=YYYY-MM-DD/`, and registered by the CDK
-`StorageStack`. Schemas mirror the flattened output of `collector/handler.js`.
+`StorageStack`. Schemas mirror the flattened output of `collector/flatten.js`.
 
 ## `claude_code_analytics` (daily per-user)
 
@@ -35,6 +35,40 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 | cowork_messages              | bigint  |
 | cowork_actions               | bigint  |
 | cowork_dispatch_turns        | bigint  |
+| office_excel_sessions               | bigint  |
+| office_excel_messages               | bigint  |
+| office_excel_skills_used            | bigint  |
+| office_excel_distinct_skills        | bigint  |
+| office_excel_connectors_used        | bigint  |
+| office_excel_distinct_connectors    | bigint  |
+| office_powerpoint_sessions          | bigint  |
+| office_powerpoint_messages          | bigint  |
+| office_powerpoint_skills_used       | bigint  |
+| office_powerpoint_distinct_skills   | bigint  |
+| office_powerpoint_connectors_used   | bigint  |
+| office_powerpoint_distinct_connectors | bigint |
+| office_word_sessions                | bigint  |
+| office_word_messages                | bigint  |
+| office_word_skills_used             | bigint  |
+| office_word_distinct_skills         | bigint  |
+| office_word_connectors_used         | bigint  |
+| office_word_distinct_connectors     | bigint  |
+| office_outlook_sessions             | bigint  |
+| office_outlook_messages             | bigint  |
+| office_outlook_skills_used          | bigint  |
+| office_outlook_distinct_skills      | bigint  |
+| office_outlook_connectors_used      | bigint  |
+| office_outlook_distinct_connectors  | bigint  |
+| cowork_file_edit_count              | bigint  |
+| cowork_edit_tool_count              | bigint  |
+| cowork_multi_edit_tool_count        | bigint  |
+| cowork_write_tool_count             | bigint  |
+| cowork_notebook_edit_tool_count     | bigint  |
+| cowork_sessions_with_file_edits_count | bigint |
+| design_sessions                     | bigint  |
+| design_projects_used                | bigint  |
+| design_projects_created             | bigint  |
+| design_messages                     | bigint  |
 | snapshot_date                | string  |
 
 Partition: `date` (string, YYYY-MM-DD)

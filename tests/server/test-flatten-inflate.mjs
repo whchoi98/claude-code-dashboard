@@ -76,5 +76,17 @@ ok('round-trip design_metrics', round.design_metrics.distinct_session_count === 
 ok('absent cowork tool-edit → null', empty.cowork_file_edit_count === null)
 ok('absent design → 0', empty.design_sessions === 0)
 
+// --- Task 4: schema-drift guard (flatten must emit every documented new column) ---
+const NEW_COLUMNS = [
+  'office_excel_sessions','office_excel_messages','office_excel_skills_used','office_excel_distinct_skills','office_excel_connectors_used','office_excel_distinct_connectors',
+  'office_powerpoint_sessions','office_powerpoint_messages','office_powerpoint_skills_used','office_powerpoint_distinct_skills','office_powerpoint_connectors_used','office_powerpoint_distinct_connectors',
+  'office_word_sessions','office_word_messages','office_word_skills_used','office_word_distinct_skills','office_word_connectors_used','office_word_distinct_connectors',
+  'office_outlook_sessions','office_outlook_messages','office_outlook_skills_used','office_outlook_distinct_skills','office_outlook_connectors_used','office_outlook_distinct_connectors',
+  'cowork_file_edit_count','cowork_edit_tool_count','cowork_multi_edit_tool_count','cowork_write_tool_count','cowork_notebook_edit_tool_count','cowork_sessions_with_file_edits_count',
+  'design_sessions','design_projects_used','design_projects_created','design_messages',
+]
+const flatKeys = new Set(Object.keys(flat))
+ok('flatten emits all 34 documented new columns', NEW_COLUMNS.every((c) => flatKeys.has(c)) && NEW_COLUMNS.length === 34)
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)
