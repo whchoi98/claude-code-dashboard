@@ -1,6 +1,6 @@
 // Round-trip test for the collector flatten ↔ server inflate contract.
 // node tests/server/test-flatten-inflate.mjs — exit 0 on success, 1 on failure.
-import { flattenUser } from '../../collector/flatten.js'
+import { flattenUser, flattenSkill, flattenConnector } from '../../collector/flatten.js'
 import { inflateUser } from '../../server/inflate.js'
 
 let n = 0, failed = 0
@@ -45,6 +45,14 @@ ok('round-trip cc loc added', round.claude_code_metrics.core_metrics.lines_of_co
 ok('round-trip edit_tool accepted', round.claude_code_metrics.tool_actions.edit_tool.accepted_count === 10)
 ok('round-trip cowork existing', round.cowork_metrics.distinct_session_count === 2 && round.cowork_metrics.action_count === 11)
 ok('round-trip web_search_count', round.web_search_count === 8)
+
+// flattenSkill / flattenConnector smoke (extracted in Task 1; exercise field maps + zero-defaults)
+const skill = flattenSkill({ skill_name: 'pdf', distinct_user_count: 5, chat_metrics: { distinct_conversation_skill_used_count: 12 }, claude_code_metrics: { distinct_session_skill_used_count: 7 }, cowork_metrics: { distinct_session_skill_used_count: 2 } })
+ok('flattenSkill maps fields', skill.skill_name === 'pdf' && skill.distinct_users === 5 && skill.chat_uses === 12 && skill.claude_code_uses === 7 && skill.cowork_uses === 2)
+ok('flattenSkill zero-defaults sparse input', flattenSkill({ skill_name: 'x' }).chat_uses === 0 && flattenSkill({ skill_name: 'x' }).distinct_users === 0)
+const conn = flattenConnector({ connector_name: 'github', distinct_user_count: 9, chat_metrics: { distinct_conversation_connector_used_count: 4 }, claude_code_metrics: { distinct_session_connector_used_count: 3 }, cowork_metrics: { distinct_session_connector_used_count: 1 } })
+ok('flattenConnector maps fields', conn.connector_name === 'github' && conn.distinct_users === 9 && conn.chat_uses === 4 && conn.claude_code_uses === 3 && conn.cowork_uses === 1)
+ok('flattenConnector zero-defaults sparse input', flattenConnector({ connector_name: 'y' }).chat_uses === 0)
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

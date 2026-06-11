@@ -15,6 +15,10 @@ fallback.
   (`cache` Map, `TTL_MS = 600_000`). Schedules a **compliance prewarm** at
   task startup + every 5 minutes for the 7d / 14d / 30d windows so the
   audit page hits the cache instead of paginating the live API.
+- **`inflate.js`** — pure read-side helper `inflateUser()`: a flattened NDJSON
+  row (written by `collector/flatten.js`) → nested Analytics-API user shape.
+  Imported by `index.js` `readUsersFromS3`; unit-tested in
+  `tests/server/test-flatten-inflate.mjs`.
 - **`aws.js`** — AWS integrations registered via
   `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
   - Cost routes: `GET /cost/live` (Analytics `cost_report` + `usage_report`,

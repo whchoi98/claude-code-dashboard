@@ -6,13 +6,14 @@ Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJS
 
 ## Files
 
-- **`handler.js`** — `export const handler`; resolves the Analytics API key from Secrets Manager (or `ANTHROPIC_ANALYTICS_KEY` env), paginates each endpoint, and writes NDJSON per partition.
+- **`handler.js`** — `export const handler`; resolves the Analytics API key from Secrets Manager (or `ANTHROPIC_ANALYTICS_KEY` env), paginates each endpoint, imports the flatten helpers from `flatten.js`, and writes NDJSON per partition.
+- **`flatten.js`** — pure, dependency-free write-side helpers (`flattenUser`/`flattenSkill`/`flattenConnector`): nested Analytics API record → flat columnar NDJSON row. The read-side inverse is `server/inflate.js` `inflateUser()`; the two are unit-tested together in `tests/server/test-flatten-inflate.mjs`.
 - **`glue-schemas.md`** — the flattened column schemas the server uses via `inflateUser()` to reconstruct nested Analytics shapes on read.
 - **`package.json`** — `@aws-sdk/client-s3` + `@aws-sdk/client-secrets-manager` only; the Lambda runtime provides the rest.
 
 ## Conventions
 
-- **Field names must match `flattenUser` → `inflateUser` contract**. Whenever the Analytics API schema changes, update both `collector/handler.js` (write side) and `server/index.js` (read side). A mismatch silently writes zeros.
+- **Field names must match `flattenUser` → `inflateUser` contract**. Whenever the Analytics API schema changes, update both `collector/flatten.js` (write side) and `server/inflate.js` (read side) — plus the Glue columns in `infra/lib/storage-stack.ts`. A mismatch silently writes zeros.
 - **NDJSON** (one JSON object per line). Athena/Glue are configured via `JsonSerDe`.
 - **Partition dates** use the `date=YYYY-MM-DD` Hive convention. Glue projections cover 2026-01-01 → NOW.
 - **`summariesStart`/`summariesEnd` are exclusive upper bound** — the Analytics API rejects ranges where `starting_date == ending_date`. Default behavior pulls the last 14 days of summaries.
