@@ -143,22 +143,48 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
   }
 }
 
-// Aggregate a cost_report?group_by[]=cost_type body into per-cost-type USD spend
-// (tokens / web_search / code_execution), sorted descending. Null cost_type
-// (ungrouped totals) is skipped to avoid double-counting.
-export function aggregateCostType(costTypeBody) {
+// Aggregate a single-dimension cost_report body (group_by[]=<field>) into
+// per-value USD spend, sorted descending. Null key (ungrouped totals) is
+// skipped to avoid double-counting. `field` becomes the output key name.
+export function aggregateAmountBy(body, field) {
   const agg = new Map()
-  for (const day of costTypeBody?.data || []) {
+  for (const day of body?.data || []) {
     for (const r of day?.results || []) {
-      const ct = r?.cost_type
-      if (!ct) continue
-      const usd = (parseFloat(r?.amount ?? '0') || 0) / 100
-      agg.set(ct, (agg.get(ct) || 0) + usd)
+      const k = r?.[field]
+      if (!k) continue
+      agg.set(k, (agg.get(k) || 0) + (parseFloat(r?.amount ?? '0') || 0) / 100)
     }
   }
   return [...agg.entries()]
-    .map(([cost_type, spend_usd]) => ({ cost_type, spend_usd: Number(spend_usd.toFixed(4)) }))
+    .map(([k, spend_usd]) => ({ [field]: k, spend_usd: Number(spend_usd.toFixed(4)) }))
     .sort((a, b) => b.spend_usd - a.spend_usd)
+}
+// cost_report group_by=cost_type → [{cost_type, spend_usd}] (tokens/web_search/code_execution)
+export const aggregateCostType = (body) => aggregateAmountBy(body, 'cost_type')
+// cost_report group_by=token_type → [{token_type, spend_usd}] (uncached/cache_read/cache_creation.*/output)
+export const aggregateTokenTypeCost = (body) => aggregateAmountBy(body, 'token_type')
+
+// Aggregate usage_report token-subtype COUNTS into cache tiers + the cache-hit
+// ratio (cache_read / total input tokens). Reads the SAME usage body the cost
+// reshape already consumes — no extra fetch. Skips the ungrouped (null
+// product&model) row to avoid double-counting.
+export function aggregateTokenTiers(usageBody) {
+  let uncached = 0, cache_read = 0, cache_creation = 0, output = 0
+  for (const day of usageBody?.data || []) {
+    for (const r of day?.results || []) {
+      if (!r?.product && !r?.model) continue
+      uncached += r?.uncached_input_tokens ?? 0
+      cache_read += r?.cache_read_input_tokens ?? 0
+      const cc = r?.cache_creation || {}
+      cache_creation += (cc.ephemeral_1h_input_tokens ?? 0) + (cc.ephemeral_5m_input_tokens ?? 0)
+      output += r?.output_tokens ?? 0
+    }
+  }
+  const input_total = uncached + cache_read + cache_creation
+  return {
+    uncached, cache_read, cache_creation, output, input_total,
+    cache_hit_rate: input_total > 0 ? Number((cache_read / input_total).toFixed(4)) : null,
+  }
 }
 
 // Map a user_cost_report `data[]` array to the dashboard's per-user shape.
@@ -419,19 +445,23 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       return `${apiUrl}${p}?${params.toString()}`
     }
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-    const [costRes, usageRes, ctRes] = await Promise.all([
+    // Best-effort secondary rollups (cost_type, token_type). The .catch degrades a
+    // NETWORK rejection (DNS/ECONNREFUSED/timeout) to a fake non-ok response so it
+    // can never reject this Promise.all and break the primary cost view. (HTTP
+    // non-200 is handled below via the .ok checks.)
+    const bestEffort = (dims) =>
+      fetch(buildUrl('/v1/organizations/analytics/cost_report', dims), { headers })
+        .catch(() => ({ ok: false, json: async () => ({}) }))
+    const [costRes, usageRes, ctRes, ttRes] = await Promise.all([
       fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
       fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
-      // Separate cost_type rollup. Best-effort: the .catch degrades a NETWORK
-      // rejection (DNS/ECONNREFUSED/timeout) to a fake non-ok response so it
-      // can never reject this Promise.all and break the primary cost view.
-      // (HTTP non-200 is already handled below via ctRes.ok.)
-      fetch(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type']), { headers })
-        .catch(() => ({ ok: false, json: async () => ({}) })),
+      bestEffort(['cost_type']),
+      bestEffort(['token_type']),
     ])
     const costBody = await costRes.json().catch(() => ({}))
     const usageBody = await usageRes.json().catch(() => ({}))
     const ctBody = ctRes.ok ? await ctRes.json().catch(() => ({})) : {}
+    const ttBody = ttRes.ok ? await ttRes.json().catch(() => ({})) : {}
     if (!costRes.ok) {
       const e = new Error(`cost_report ${costRes.status}`)
       e.code = 'upstream_error'; e.upstream = costBody
@@ -444,6 +474,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
     const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
     out.by_cost_type = aggregateCostType(ctBody)
+    out.by_token_type = aggregateTokenTypeCost(ttBody)
+    out.token_tiers = aggregateTokenTiers(usageBody)
     return out
   }
 

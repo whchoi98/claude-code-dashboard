@@ -36,6 +36,11 @@ type CsvResp = {
   last_modified: string
   data_refreshed_at?: string | null
   by_cost_type?: { cost_type: string; spend_usd: number }[]
+  by_token_type?: { token_type: string; spend_usd: number }[]
+  token_tiers?: {
+    uncached: number; cache_read: number; cache_creation: number; output: number
+    input_total: number; cache_hit_rate: number | null
+  }
   period: { starting_date: string; ending_date: string } | null
   rows: CsvRow[]
   daily?: DailyPoint[]
@@ -92,6 +97,17 @@ const COST_TYPE_COLORS: Record<string, string> = {
   tokens:         '#D97757',
   web_search:     '#6A8EAE',
   code_execution: '#4CA371',
+}
+// usage/cost token_type → display tier (cache_creation 1h+5m fold into "cache_write").
+const TOKEN_TIER_OF: Record<string, string> = {
+  uncached_input_tokens: 'uncached',
+  cache_read_input_tokens: 'cache_read',
+  'cache_creation.ephemeral_1h_input_tokens': 'cache_write',
+  'cache_creation.ephemeral_5m_input_tokens': 'cache_write',
+  output_tokens: 'output',
+}
+const TOKEN_TIER_COLORS: Record<string, string> = {
+  uncached: '#CC7722', cache_read: '#4CA371', cache_write: '#6A8EAE', output: '#1F1E1D',
 }
 
 const shortModel = (m: string) =>
@@ -499,6 +515,45 @@ export function Cost() {
                 />
               </>
             )}
+          </div>
+        )}
+
+        {/* Prompt-cache efficiency — cache-hit ratio (the biggest Claude Code cost
+            lever) + token-tier $ breakdown (cache_creation 1h+5m folded). The
+            current input-token collapse in the cost reshape hides this. */}
+        {dataSource === 'live' && data.token_tiers?.cache_hit_rate != null && (
+          <div className="rounded-xl border border-ink-100 bg-white p-4 print-export">
+            <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium mb-3">{t('cost.cache.title')}</div>
+            <div className="flex items-center gap-6">
+              <div className="shrink-0">
+                <div className="text-3xl font-semibold text-claude-600 tabular-nums">{(data.token_tiers.cache_hit_rate * 100).toFixed(1)}%</div>
+                <div className="text-[11px] text-ink-400">{t('cost.cache.hit_rate')}</div>
+              </div>
+              <div className="flex-1 min-w-0 space-y-0.5">
+                {(() => {
+                  const folded = new Map<string, number>()
+                  for (const r of data.by_token_type ?? []) {
+                    const tier = TOKEN_TIER_OF[r.token_type] || 'other'
+                    folded.set(tier, (folded.get(tier) || 0) + r.spend_usd)
+                  }
+                  const tierRows = [...folded.entries()].sort((a, b) => b[1] - a[1])
+                  const tierTot = tierRows.reduce((s, [, v]) => s + v, 0) || 1
+                  return tierRows.map(([tier, usd]) => {
+                    const pct = (usd / tierTot) * 100
+                    const label = t(`cost.tier.${tier}` as any)
+                    return (
+                      <div key={tier} className="flex items-center justify-between text-sm py-0.5">
+                        <span className="flex items-center gap-2 text-ink-600">
+                          <span className="inline-block w-2 h-2 rounded-full" style={{ background: TOKEN_TIER_COLORS[tier] || '#8A8474' }} />
+                          {label === `cost.tier.${tier}` ? tier.replace(/_/g, ' ') : label}
+                        </span>
+                        <span className="tabular-nums text-ink-700">{fmtUsd(usd)} <span className="text-ink-400">({pct > 0 && pct < 0.1 ? pct.toFixed(2) : pct.toFixed(0)}%)</span></span>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
           </div>
         )}
 

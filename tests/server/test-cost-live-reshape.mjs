@@ -2,7 +2,7 @@
 // Runs with: node tests/server/test-cost-live-reshape.mjs
 // Exit code 0 on success, 1 on any failure (TAP-like output).
 
-import { analyticsReportsToCostResp, aggregateCostType } from '../../server/aws.js'
+import { analyticsReportsToCostResp, aggregateCostType, aggregateTokenTypeCost, aggregateTokenTiers } from '../../server/aws.js'
 
 const period = { starting_date: '2026-05-01', ending_date: '2026-05-02' }
 
@@ -77,6 +77,33 @@ const cases = [
     if (Math.abs(r[1].spend_usd - 1.53) > 1e-6) throw new Error(`web_search: ${r[1].spend_usd}`)
     if (aggregateCostType({}).length !== 0) throw new Error('empty body should be []')
     if (aggregateCostType(null).length !== 0) throw new Error('null body should be []')
+  }],
+  ['aggregateTokenTypeCost: groups by token_type, cents→USD, sorted desc, skips null', () => {
+    const body = { data: [{ results: [
+      { token_type: 'cache_read_input_tokens', amount: '474949' },   // $4749.49
+      { token_type: 'uncached_input_tokens', amount: '1335' },       // $13.35
+      { token_type: null, amount: '99999' },                         // ungrouped — skip
+    ] }] }
+    const r = aggregateTokenTypeCost(body)
+    if (r.length !== 2) throw new Error(`len: ${r.length}`)
+    if (r[0].token_type !== 'cache_read_input_tokens') throw new Error(`not sorted desc: ${r[0].token_type}`)
+    if (Math.abs(r[0].spend_usd - 4749.49) > 1e-6) throw new Error(`cache_read $: ${r[0].spend_usd}`)
+  }],
+  ['aggregateTokenTiers: tier counts + cache-hit ratio, skips ungrouped row', () => {
+    const usage = { data: [{ results: [
+      { product: 'claude_code', model: 'm',
+        uncached_input_tokens: 100, cache_read_input_tokens: 900,
+        cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 50 },
+        output_tokens: 200 },
+      { product: null, model: null, uncached_input_tokens: 9999, cache_read_input_tokens: 9999 }, // skip
+    ] }] }
+    const r = aggregateTokenTiers(usage)
+    if (r.uncached !== 100) throw new Error(`uncached: ${r.uncached}`)
+    if (r.cache_read !== 900) throw new Error(`cache_read: ${r.cache_read}`)
+    if (r.cache_creation !== 100) throw new Error(`cache_creation: ${r.cache_creation}`)
+    if (r.input_total !== 1100) throw new Error(`input_total: ${r.input_total}`)
+    if (Math.abs(r.cache_hit_rate - 0.8182) > 1e-3) throw new Error(`hit_rate: ${r.cache_hit_rate}`)
+    if (aggregateTokenTiers({}).cache_hit_rate !== null) throw new Error('empty → null hit rate')
   }],
   ['data_refreshed_at: passes through cost_report value, null when absent', () => {
     const absent = analyticsReportsToCostResp(COST, USAGE, period)
