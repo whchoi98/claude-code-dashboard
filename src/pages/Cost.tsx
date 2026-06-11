@@ -112,6 +112,9 @@ const TOKEN_TIER_COLORS: Record<string, string> = {
 
 const shortModel = (m: string) =>
   m.replace(/^claude_/, '').replace(/_v\d+:\d+$/, '').replace(/_\d{8}$/, '').replace(/_/g, ' ')
+// user_cost_report returns hyphenated model ids (claude-opus-4-8); MODEL_COLORS
+// keys + shortModel expect underscores. Normalize before lookup/label.
+const normModel = (m: string) => String(m).replace(/-/g, '_')
 
 function fmtUsd(v: number) {
   if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`
@@ -207,6 +210,10 @@ export function Cost() {
   const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
   const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const eff = useFetch<EfficiencyResp>(effUrl)
+  // Per-user × model spend (chargeback) — wires the /cost/users route with by=model.
+  const usersByModel = useFetch<{ users: { email: string; net_spend_usd: number; by_model: { model: string; spend_usd: number; requests: number }[] }[] }>(
+    `/api/cost/users?by=model&starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
+  )
 
   // After a successful upload/delete, invalidate the live cost + efficiency
   // queries that depend on the S3 spend-reports/ prefix.
@@ -724,6 +731,45 @@ export function Cost() {
             </div>
           </div>
         )}
+
+        {/* Per-user × model spend (chargeback): top-10 users stacked by model.
+            Live user_cost_report?by=model — cost + requests only (no per-user
+            tokens). Models normalized (hyphen→underscore) for color/label. */}
+        {dataSource === 'live' && (usersByModel.data?.users?.length ?? 0) > 0 && (() => {
+          const top = usersByModel.data!.users.slice(0, 10)
+          const modelTotals = new Map<string, number>()
+          for (const u of top) for (const m of u.by_model) {
+            const id = normModel(m.model)
+            modelTotals.set(id, (modelTotals.get(id) || 0) + m.spend_usd)
+          }
+          const models = [...modelTotals.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+          const chartData = top.map((u) => {
+            const row: Record<string, number | string> = { name: maskEmail(u.email) }
+            for (const m of u.by_model) {
+              const id = normModel(m.model)
+              row[id] = ((row[id] as number) || 0) + m.spend_usd
+            }
+            return row
+          })
+          return (
+            <ChartCard title={t('cost.user_model.title')} subtitle={t('cost.user_model.sub')}>
+              <ResponsiveContainer width="100%" height={Math.max(220, top.length * 32 + 64)}>
+                <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="2 4" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(v: number) => fmtUsd(v)} />
+                  <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => fmtUsd(v)} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                  {models.map((m, i) => (
+                    <Bar key={m} dataKey={m} name={shortModel(m)} stackId="u"
+                         fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
+                         radius={i === models.length - 1 ? [0, 4, 4, 0] : 0} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )
+        })()}
 
         {/* ── Economic Productivity ────────────────────────────────────── */}
         {eff.data && eff.data.users.length > 0 && (

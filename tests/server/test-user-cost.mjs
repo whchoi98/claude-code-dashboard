@@ -33,5 +33,17 @@ ok('utcNextDay crosses year boundary', utcNextDay('2026-12-31') === '2027-01-01'
 ok('single inclusive day → 2-day half-open window (not zero-width)',
    utcNextDay('2026-06-07') !== '2026-06-07')
 
+// byModel mode: aggregate per email, nested by_model sorted desc
+const bm = userCostToUsers([
+  { actor: { email: 'a@x.com', user_id: 'u1', name: 'A' }, model: 'claude-opus-4-8', amount: '300000', requests: 10 },
+  { actor: { email: 'a@x.com' }, model: 'claude-sonnet-4-6', amount: '100000', requests: 5 },
+  { actor: { email: 'b@x.com' }, model: 'claude-opus-4-8', amount: '50000', requests: 2 },
+  { actor: { type: 'api_actor' }, model: 'x', amount: '999' },  // no email — excluded
+], { byModel: true })
+ok('byModel: aggregates per email (api_actor excluded)', bm.length === 2)
+ok('byModel: net_spend summed per email ($4000)', Math.abs(bm[0].net_spend_usd - 4000) < 1e-6 && bm[0].requests === 15)
+ok('byModel: by_model sorted desc (opus $3000 first)', bm[0].by_model[0].model === 'claude-opus-4-8' && Math.abs(bm[0].by_model[0].spend_usd - 3000) < 1e-6 && bm[0].by_model.length === 2)
+ok('byModel=false unchanged (gross_spend present)', userCostToUsers([{ actor: { email: 'x@y.com' }, amount: '200' }])[0].gross_spend_usd === 2)
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

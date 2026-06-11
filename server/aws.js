@@ -193,24 +193,56 @@ export function aggregateTokenTiers(usageBody) {
 // efficiency join; the frontend masks via maskEmail on render. api_actor rows
 // (no email) are excluded — this endpoint is user-centric and emails are the
 // join key.
-export function userCostToUsers(data) {
+export function userCostToUsers(data, { byModel = false } = {}) {
   // Cents (decimal string) → USD; non-numeric/malformed amounts coerce to 0 so a
   // bad upstream value can never inject NaN (which would corrupt the spend sort).
   const usd = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n / 100 : 0 }
-  return (Array.isArray(data) ? data : [])
-    .map((r) => {
-      const a = r.actor || {}
-      return {
-        email: a.email || '',
-        user_id: a.user_id || null,
-        name: a.name || null,
-        deleted: !!a.deleted,
-        net_spend_usd: usd(r.amount),
-        gross_spend_usd: usd(r.list_amount || r.amount),
-        requests: Number(r.requests || 0),
-      }
-    })
-    .filter((u) => u.email)
+  const rows = Array.isArray(data) ? data : []
+  if (!byModel) {
+    return rows
+      .map((r) => {
+        const a = r.actor || {}
+        return {
+          email: a.email || '',
+          user_id: a.user_id || null,
+          name: a.name || null,
+          deleted: !!a.deleted,
+          net_spend_usd: usd(r.amount),
+          gross_spend_usd: usd(r.list_amount || r.amount),
+          requests: Number(r.requests || 0),
+        }
+      })
+      .filter((u) => u.email)
+  }
+  // byModel: the body is per-(actor, model). Aggregate per email, collecting a
+  // sorted per-model spend breakdown (cost + requests only — no per-user tokens).
+  const byEmail = new Map()
+  for (const r of rows) {
+    const a = r.actor || {}
+    const email = a.email || ''
+    if (!email) continue
+    const u = byEmail.get(email) ?? { email, user_id: a.user_id || null, name: a.name || null, net_spend_usd: 0, requests: 0, _m: new Map() }
+    const spend = usd(r.amount)
+    u.net_spend_usd += spend
+    u.requests += Number(r.requests || 0)
+    // net_spend_usd counts every row; by_model only rows carrying a model. In
+    // grouped mode the API always sends a model, so they match in practice.
+    if (r.model) {
+      const m = u._m.get(r.model) ?? { model: r.model, spend_usd: 0, requests: 0 }
+      m.spend_usd += spend
+      m.requests += Number(r.requests || 0)
+      u._m.set(r.model, m)
+    }
+    byEmail.set(email, u)
+  }
+  return [...byEmail.values()].map((u) => ({
+    email: u.email, user_id: u.user_id, name: u.name,
+    net_spend_usd: Number(u.net_spend_usd.toFixed(4)),
+    requests: u.requests,
+    by_model: [...u._m.values()]
+      .map((m) => ({ model: m.model, spend_usd: Number(m.spend_usd.toFixed(4)), requests: m.requests }))
+      .sort((a, b) => b.spend_usd - a.spend_usd),
+  }))
 }
 
 // Inclusive end date (YYYY-MM-DD) → the EXCLUSIVE `ending_at` for the Analytics
@@ -482,7 +514,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Paginate user_cost_report for [starting, ending] and return RAW merged
   // data[] (emails unmasked — needed for the email-keyed efficiency join;
   // the frontend masks on render). Caps pages to stay within the 60/min budget.
-  async function fetchUserCostReport({ starting_date, ending_date } = {}) {
+  async function fetchUserCostReport({ starting_date, ending_date, groupByModel = false } = {}) {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) { const e = new Error('ANTHROPIC_ANALYTICS_KEY is required for per-user cost.'); e.code = 'analytics_key_required'; throw e }
     // Clamp ending to today-3 (Analytics 3-day buffer); default to a 31-day window.
@@ -502,6 +534,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const MAX_PAGES = 50
     for (let i = 0; i < MAX_PAGES; i++) {
       const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, limit: '1000' })
+      if (groupByModel) params.append('group_by[]', 'model')
       if (page) params.set('page', page)
       const res = await fetch(`${apiUrl}/v1/organizations/analytics/user_cost_report?${params.toString()}`, { headers })
       const body = await res.json().catch(() => ({}))
@@ -742,11 +775,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // in this endpoint (cost + requests only).
   router.get('/cost/users', async (req, res) => {
     try {
+      const byModel = req.query.by === 'model'
       const { data, period, data_refreshed_at } = await fetchUserCostReport({
-        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupByModel: byModel,
       })
-      const users = userCostToUsers(data).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
-      res.json({ source: 'live', period, data_refreshed_at, users })
+      const users = userCostToUsers(data, { byModel }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
+      res.json({ source: 'live', period, data_refreshed_at, grouped: byModel ? 'model' : null, users })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
