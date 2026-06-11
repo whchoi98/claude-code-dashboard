@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.5] - 2026-06-11
+
+Step 3 of the Analytics-API roadmap: prompt-cache efficiency.
+
+### Added
+
+- **"Prompt-cache efficiency" card** on the Cost page — the cache-hit ratio (cache_read ÷ total input tokens, from the existing usage_report — no estimate) plus a token-tier $ breakdown (uncached / cache read / cache write / output) from a new best-effort `cost_report group_by[]=token_type` fetch. Surfaces the biggest Claude Code cost lever that the input-token rollup otherwise hides. `/cost/live` now returns `token_tiers` + `by_token_type`.
+- Generalized the single-dimension cost aggregator (`aggregateAmountBy`) shared by the cost_type and token_type rollups; both secondary fetches are network-rejection-isolated and never break the primary cost view.
+
+### 추가
+
+- Cost 페이지 **"프롬프트 캐시 효율" 카드** — 캐시 히트율(cache_read ÷ 총 입력 토큰, 기존 usage_report 기반·추정 없음) + 토큰 티어별 $ 분해(비캐시/캐시 읽기/캐시 쓰기/출력, 신규 best-effort `cost_report group_by=token_type`). 입력 토큰 합산이 가리던 최대 비용 레버를 노출. `/cost/live`에 `token_tiers`·`by_token_type` 추가.
+
 ## [0.8.4] - 2026-06-11
 
 Step 2 of the Analytics-API roadmap: cost-type breakdown.
