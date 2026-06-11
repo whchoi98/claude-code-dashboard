@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.6] - 2026-06-11
+
+Step 4 of the Analytics-API roadmap: per-user × model cost (chargeback).
+
+### Added
+
+- **"Per-user spend by model" chargeback view** on the Cost page — top-10 users as a horizontal bar stacked by model (answers "who's driving Opus spend"). Powered by extending the previously-unused `GET /api/cost/users` with **`?by=model`** → `user_cost_report?group_by[]=model`, aggregated per user into a `by_model[]` breakdown. `userCostToUsers(data, { byModel })` and `fetchUserCostReport({ groupByModel })` gained the mode; the ungrouped path is unchanged. Cost + requests only (no per-user tokens); emails masked at render; model ids normalized (hyphen→underscore) for color/label.
+
+### 추가
+
+- Cost 페이지 **"사용자별 모델 비용" 차지백 뷰** — 지출 상위 10명을 모델별 스택 가로 막대로(“누가 Opus를 쓰는가”). 미사용이던 `GET /api/cost/users`에 **`?by=model`**(→ `user_cost_report?group_by[]=model`)를 추가해 사용자별 `by_model[]` 분해 제공. 비용·요청수만(사용자별 토큰 없음), 이메일 렌더 마스킹.
+
 ## [0.8.5] - 2026-06-11
 
 Step 3 of the Analytics-API roadmap: prompt-cache efficiency.
