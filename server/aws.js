@@ -143,6 +143,24 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
   }
 }
 
+// Aggregate a cost_report?group_by[]=cost_type body into per-cost-type USD spend
+// (tokens / web_search / code_execution), sorted descending. Null cost_type
+// (ungrouped totals) is skipped to avoid double-counting.
+export function aggregateCostType(costTypeBody) {
+  const agg = new Map()
+  for (const day of costTypeBody?.data || []) {
+    for (const r of day?.results || []) {
+      const ct = r?.cost_type
+      if (!ct) continue
+      const usd = (parseFloat(r?.amount ?? '0') || 0) / 100
+      agg.set(ct, (agg.get(ct) || 0) + usd)
+    }
+  }
+  return [...agg.entries()]
+    .map(([cost_type, spend_usd]) => ({ cost_type, spend_usd: Number(spend_usd.toFixed(4)) }))
+    .sort((a, b) => b.spend_usd - a.spend_usd)
+}
+
 // Map a user_cost_report `data[]` array to the dashboard's per-user shape.
 // amount/list_amount are decimal strings in fractional CENTS (same convention
 // as cost_report) → /100 for USD. Emails are returned RAW for the email-keyed
@@ -395,18 +413,25 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const endingDate = ending_date || minus(0)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const buildUrl = (p) => {
+    const buildUrl = (p, dims = ['product', 'model']) => {
       const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${utcNextDay(endingDate)}T00:00:00Z`, bucket_width: '1d' })
-      params.append('group_by[]', 'product'); params.append('group_by[]', 'model')
+      for (const dim of dims) params.append('group_by[]', dim)
       return `${apiUrl}${p}?${params.toString()}`
     }
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-    const [costRes, usageRes] = await Promise.all([
+    const [costRes, usageRes, ctRes] = await Promise.all([
       fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
       fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
+      // Separate cost_type rollup. Best-effort: the .catch degrades a NETWORK
+      // rejection (DNS/ECONNREFUSED/timeout) to a fake non-ok response so it
+      // can never reject this Promise.all and break the primary cost view.
+      // (HTTP non-200 is already handled below via ctRes.ok.)
+      fetch(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type']), { headers })
+        .catch(() => ({ ok: false, json: async () => ({}) })),
     ])
     const costBody = await costRes.json().catch(() => ({}))
     const usageBody = await usageRes.json().catch(() => ({}))
+    const ctBody = ctRes.ok ? await ctRes.json().catch(() => ({})) : {}
     if (!costRes.ok) {
       const e = new Error(`cost_report ${costRes.status}`)
       e.code = 'upstream_error'; e.upstream = costBody
@@ -417,7 +442,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       e.code = 'upstream_error'; e.upstream = usageBody
       throw e
     }
-    return analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
+    const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
+    out.by_cost_type = aggregateCostType(ctBody)
+    return out
   }
 
   // Paginate user_cost_report for [starting, ending] and return RAW merged
