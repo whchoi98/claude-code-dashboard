@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.8.4] - 2026-06-11
+
+Step 2 of the Analytics-API roadmap: cost-type breakdown.
+
+### Added
+
+- **"Spend by type" card** on the Cost page — splits live spend into **tokens / web search / code execution** (`cost_report group_by[]=cost_type`). A compact card with $ + % (not a donut: tokens are ~100%, so a pie would hide the small-but-metered server-tool spend). `/cost/live` now returns `by_cost_type`; the cost_type fetch is best-effort (a network/HTTP failure leaves it empty without breaking the primary product×model cost view).
+
+### 추가
+
+- Cost 페이지 **"유형별 지출" 카드** — 라이브 지출을 **토큰 / 웹 검색 / 코드 실행**으로 분해(`cost_report group_by=cost_type`). 토큰이 ~100%라 도넛 대신 `$ + %` 카드(메터링 서버 도구 지출을 작아도 명시). `/cost/live`에 `by_cost_type` 추가, cost_type fetch는 best-effort(네트워크/HTTP 실패 시 비어도 메인 비용 뷰는 무영향).
+
 ## [0.8.3] - 2026-06-10
 
 UI quick wins from the Analytics-API capability review (step 1 of the roadmap).
