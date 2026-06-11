@@ -2,7 +2,7 @@
 // Runs with: node tests/server/test-cost-live-reshape.mjs
 // Exit code 0 on success, 1 on any failure (TAP-like output).
 
-import { analyticsReportsToCostResp } from '../../server/aws.js'
+import { analyticsReportsToCostResp, aggregateCostType } from '../../server/aws.js'
 
 const period = { starting_date: '2026-05-01', ending_date: '2026-05-02' }
 
@@ -57,6 +57,26 @@ const cases = [
     if (r.period.starting_date !== '2026-05-01') throw new Error(`period.start: ${r.period.starting_date}`)
     if (r.period.ending_date !== '2026-05-02') throw new Error(`period.end: ${r.period.ending_date}`)
     if (r.file !== null) throw new Error(`file: ${r.file}`)
+  }],
+  ['aggregateCostType: sums per cost_type, sorts desc, skips null, cents→USD', () => {
+    const body = { data: [
+      { results: [
+        { cost_type: 'tokens', amount: '500000' },        // $5000
+        { cost_type: 'web_search', amount: '153' },        // $1.53
+        { cost_type: null, amount: '999999' },             // ungrouped total — skip
+      ] },
+      { results: [
+        { cost_type: 'tokens', amount: '313924' },         // +$3139.24 → $8139.24
+        { cost_type: 'code_execution', amount: '0' },
+      ] },
+    ] }
+    const r = aggregateCostType(body)
+    if (r.length !== 3) throw new Error(`len: ${r.length} (null cost_type must be skipped)`)
+    if (r[0].cost_type !== 'tokens') throw new Error(`not sorted desc: ${r[0].cost_type}`)
+    if (Math.abs(r[0].spend_usd - 8139.24) > 1e-6) throw new Error(`tokens: ${r[0].spend_usd}`)
+    if (Math.abs(r[1].spend_usd - 1.53) > 1e-6) throw new Error(`web_search: ${r[1].spend_usd}`)
+    if (aggregateCostType({}).length !== 0) throw new Error('empty body should be []')
+    if (aggregateCostType(null).length !== 0) throw new Error('null body should be []')
   }],
   ['data_refreshed_at: passes through cost_report value, null when absent', () => {
     const absent = analyticsReportsToCostResp(COST, USAGE, period)

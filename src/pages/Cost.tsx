@@ -35,6 +35,7 @@ type CsvResp = {
   file: string | null
   last_modified: string
   data_refreshed_at?: string | null
+  by_cost_type?: { cost_type: string; spend_usd: number }[]
   period: { starting_date: string; ending_date: string } | null
   rows: CsvRow[]
   daily?: DailyPoint[]
@@ -86,6 +87,12 @@ const PRODUCT_LABELS: Record<string, string> = {
 const productLabel = (p: string) =>
   PRODUCT_LABELS[p] || String(p).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 const FALLBACK = ['#D97757', '#1F1E1D', '#8A8474', '#B75E40', '#D7D3C7', '#E69F7F', '#4CA371', '#CC7722']
+// cost_report cost_type → dot color. Labels are i18n'd in the component (t('cost.type.*')).
+const COST_TYPE_COLORS: Record<string, string> = {
+  tokens:         '#D97757',
+  web_search:     '#6A8EAE',
+  code_execution: '#4CA371',
+}
 
 const shortModel = (m: string) =>
   m.replace(/^claude_/, '').replace(/_v\d+:\d+$/, '').replace(/_\d{8}$/, '').replace(/_/g, ' ')
@@ -492,6 +499,34 @@ export function Cost() {
                 />
               </>
             )}
+          </div>
+        )}
+
+        {/* Spend by cost type (tokens vs metered server tools). A card, not a
+            donut: tokens are ~100% so a pie hides web_search/code_execution —
+            this keeps the small-but-growing metered-tool spend explicit. */}
+        {dataSource === 'live' && (data.by_cost_type?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-ink-100 bg-white p-4 max-w-md print-export">
+            <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium mb-2">{t('cost.by_type')}</div>
+            {(() => {
+              const items = data.by_cost_type!
+              const tot = items.reduce((s, c) => s + c.spend_usd, 0) || 1
+              return items.map((c) => {
+                const pct = (c.spend_usd / tot) * 100
+                const label = t(`cost.type.${c.cost_type}` as any)
+                return (
+                  <div key={c.cost_type} className="flex items-center justify-between text-sm py-0.5">
+                    <span className="flex items-center gap-2 text-ink-600">
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: COST_TYPE_COLORS[c.cost_type] || '#8A8474' }} />
+                      {label === `cost.type.${c.cost_type}` ? c.cost_type.replace(/_/g, ' ') : label}
+                    </span>
+                    <span className="tabular-nums text-ink-700">
+                      {fmtUsd(c.spend_usd)} <span className="text-ink-400">({pct > 0 && pct < 0.1 ? pct.toFixed(2) : pct.toFixed(0)}%)</span>
+                    </span>
+                  </div>
+                )
+              })
+            })()}
           </div>
         )}
 
