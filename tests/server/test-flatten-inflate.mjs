@@ -77,6 +77,8 @@ ok('absent cowork tool-edit → null', empty.cowork_file_edit_count === null)
 ok('absent design → 0', empty.design_sessions === 0)
 
 // --- Task 4: schema-drift guard (flatten must emit every documented new column) ---
+// Keep NEW_COLUMNS in sync with flattenUser (collector/flatten.js), USER_COLUMNS
+// (infra/lib/storage-stack.ts), and collector/glue-schemas.md — all list the same names.
 const NEW_COLUMNS = [
   'office_excel_sessions','office_excel_messages','office_excel_skills_used','office_excel_distinct_skills','office_excel_connectors_used','office_excel_distinct_connectors',
   'office_powerpoint_sessions','office_powerpoint_messages','office_powerpoint_skills_used','office_powerpoint_distinct_skills','office_powerpoint_connectors_used','office_powerpoint_distinct_connectors',

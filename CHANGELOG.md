@@ -17,16 +17,23 @@ _No changes yet — next entries land here._
 
 ## [0.9.0] - 2026-06-11
 
-Collector office/design/cowork-tool-edit 캡처
+Roadmap step 5: collector capture of office / design / cowork tool-edit metrics.
 
 ### Added
 
-- **office_metrics 캡처** — excel / powerpoint / word / outlook 4개 surface 각각 6개 필드(`_sessions`, `_messages`, `_skills_used`, `_distinct_skills`, `_connectors_used`, `_distinct_connectors`) → S3 아카이브에 flat bigint 24컬럼으로 저장; absent → 0 기본값.
-- **design_metrics 캡처** — `design_sessions`, `design_projects_used`, `design_projects_created`, `design_messages` 4컬럼; absent → 0.
-- **cowork tool-edit 필드 캡처** — `cowork_file_edit_count`, `cowork_edit_tool_count`, `cowork_multi_edit_tool_count`, `cowork_write_tool_count`, `cowork_notebook_edit_tool_count`, `cowork_sessions_with_file_edits_count` 6컬럼; **null 보존** ("미추적" ≠ "0회", 조직이 cowork file-editing을 활성화하기 전까지 NULL).
-- **flatten/inflate 계약 순수 모듈 추출** — `collector/flatten.js` (write side) + `server/inflate.js` (read side); 라운드트립·드리프트 테스트 29 assertions (`tests/server/test-flatten-inflate.mjs`).
-- **USER_COLUMNS** 28 → 62 (`infra/lib/storage-stack.ts` Glue 스키마 동기화).
-- 포워드 전용: 옛 파티션은 신규 컬럼을 NULL(office/design → 0으로 inflate, cowork → null)로 읽음.
+- **office_metrics capture** — all 4 surfaces (excel / powerpoint / word / outlook) × 6 fields (`_sessions`, `_messages`, `_skills_used`, `_distinct_skills`, `_connectors_used`, `_distinct_connectors`) archived as 24 flat `bigint` columns; absent → 0.
+- **design_metrics capture** — `design_sessions`, `design_projects_used`, `design_projects_created`, `design_messages` (4 columns); absent → 0.
+- **cowork tool-edit capture** — `cowork_file_edit_count`, `cowork_edit_tool_count`, `cowork_multi_edit_tool_count`, `cowork_write_tool_count`, `cowork_notebook_edit_tool_count`, `cowork_sessions_with_file_edits_count` (6 columns); **null-preserving** ("not tracked" ≠ "zero usage" — NULL until the org enables cowork file-editing).
+- **flatten/inflate contract extracted into pure modules** — `collector/flatten.js` (write) + `server/inflate.js` (read), with a round-trip + schema-drift test (`tests/server/test-flatten-inflate.mjs`).
+- **`USER_COLUMNS` 28 → 62** (`infra/lib/storage-stack.ts`). Forward-only: old partitions read new columns as NULL (office/design → 0 on inflate, cowork → null).
+
+### 추가
+
+- **office_metrics 캡처** — excel / powerpoint / word / outlook 4개 surface × 6필드를 flat `bigint` 24컬럼으로 S3 아카이브; absent → 0.
+- **design_metrics 캡처** — `design_sessions` / `design_projects_used` / `design_projects_created` / `design_messages` 4컬럼.
+- **cowork tool-edit 캡처** — 6컬럼, **null 보존**("미추적" ≠ "0회"; 조직이 cowork file-editing 활성화 전까지 NULL).
+- **flatten/inflate 순수 모듈 추출** — `collector/flatten.js`(write) + `server/inflate.js`(read) + 라운드트립·드리프트 테스트.
+- **`USER_COLUMNS` 28 → 62**; 포워드 전용(옛 파티션은 신규 컬럼을 NULL로 읽음).
 
 ## [0.8.6] - 2026-06-11
 

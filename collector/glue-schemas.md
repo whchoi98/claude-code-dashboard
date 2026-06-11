@@ -89,4 +89,4 @@ Partition: `date` (string, YYYY-MM-DD)
 
 ## `skills_daily`, `connectors_daily`
 
-See `flattenSkill` and `flattenConnector` in `handler.js`.
+See `flattenSkill` and `flattenConnector` in `flatten.js`.

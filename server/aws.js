@@ -341,6 +341,9 @@ export function sanitizeAthenaQuery(raw) {
   return normalized
 }
 
+// Human-readable schema reference for code readers — NOT injected into any prompt.
+// The live chatbot tool spec uses ATHENA_SCHEMA_HINT_FOR_TOOL in server/chat-tools.js
+// (that is the source of truth the model actually sees); keep this copy only as docs.
 const ATHENA_SCHEMA_HINT = `
 Available Athena database: \`claude_code_analytics\`
 Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled from 2026-01-01):
