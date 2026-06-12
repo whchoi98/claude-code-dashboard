@@ -1,6 +1,6 @@
 // Round-trip test for the collector flatten ↔ server inflate contract.
 // node tests/server/test-flatten-inflate.mjs — exit 0 on success, 1 on failure.
-import { flattenUser, flattenSkill, flattenConnector } from '../../collector/flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject } from '../../collector/flatten.js'
 import { inflateUser } from '../../server/inflate.js'
 
 let n = 0, failed = 0
@@ -89,6 +89,13 @@ const NEW_COLUMNS = [
 ]
 const flatKeys = new Set(Object.keys(flat))
 ok('flatten emits all 34 documented new columns', NEW_COLUMNS.every((c) => flatKeys.has(c)) && NEW_COLUMNS.length === 34)
+
+// --- Step 7: flattenProject (created_by flattened; sparse → null/0) ---
+const proj = flattenProject({ project_id: 'p1', project_name: 'Demo', distinct_user_count: 3, distinct_conversation_count: 5, message_count: 40, created_at: '2026-04-10T09:08:43Z', created_by: { id: 'u9', email_address: 'a@acme.com' } })
+ok('flattenProject maps scalars', proj.project_id === 'p1' && proj.project_name === 'Demo' && proj.distinct_user_count === 3 && proj.distinct_conversation_count === 5 && proj.message_count === 40 && proj.created_at === '2026-04-10T09:08:43Z')
+ok('flattenProject flattens created_by', proj.created_by_id === 'u9' && proj.created_by_email === 'a@acme.com')
+const projSparse = flattenProject({ project_id: 'p2' })
+ok('flattenProject sparse → null/0', projSparse.created_by_id === null && projSparse.created_by_email === null && projSparse.message_count === 0 && projSparse.created_at === null)
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

@@ -13,7 +13,7 @@
  */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
-import { flattenUser, flattenSkill, flattenConnector } from './flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject } from './flatten.js'
 
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
@@ -121,7 +121,7 @@ export const handler = async (event = {}) => {
 
   const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date })
   results.projects = await writePartition('projects', date,
-    toNdjson(projects, { snapshot_date: date }))
+    toNdjson(projects.map(flattenProject), { snapshot_date: date }))
 
   return { ok: true, date, writes: results, counts: {
     users: users.length, summaries: (summaries.data||[]).length,

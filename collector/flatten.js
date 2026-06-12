@@ -100,3 +100,16 @@ export function flattenConnector(c) {
     cowork_uses: c.cowork_metrics?.distinct_session_connector_used_count ?? 0,
   }
 }
+
+export function flattenProject(p) {
+  return {
+    project_id:                  p.project_id,
+    project_name:                p.project_name,
+    distinct_user_count:         p.distinct_user_count ?? 0,
+    distinct_conversation_count: p.distinct_conversation_count ?? 0,
+    message_count:               p.message_count ?? 0,
+    created_at:                  p.created_at ?? null,
+    created_by_id:               p.created_by?.id ?? null,
+    created_by_email:            p.created_by?.email_address ?? null,
+  }
+}
