@@ -7,7 +7,7 @@ Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJS
 ## Files
 
 - **`handler.js`** — `export const handler`; resolves the Analytics API key from Secrets Manager (or `ANTHROPIC_ANALYTICS_KEY` env), paginates each endpoint, imports the flatten helpers from `flatten.js`, and writes NDJSON per partition.
-- **`flatten.js`** — pure, dependency-free write-side helpers (`flattenUser`/`flattenSkill`/`flattenConnector`): nested Analytics API record → flat columnar NDJSON row. The read-side inverse is `server/inflate.js` `inflateUser()`; the two are unit-tested together in `tests/server/test-flatten-inflate.mjs`.
+- **`flatten.js`** — pure, dependency-free write-side helpers (`flattenUser`/`flattenSkill`/`flattenConnector`/`flattenProject`): nested Analytics API record → flat columnar NDJSON row. The read-side inverse is `server/inflate.js` `inflateUser()`; the two are unit-tested together in `tests/server/test-flatten-inflate.mjs`.
 - **`glue-schemas.md`** — the flattened column schemas the server uses via `inflateUser()` to reconstruct nested Analytics shapes on read.
 - **`package.json`** — `@aws-sdk/client-s3` + `@aws-sdk/client-secrets-manager` only; the Lambda runtime provides the rest.
 
