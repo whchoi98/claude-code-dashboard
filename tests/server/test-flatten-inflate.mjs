@@ -96,6 +96,9 @@ ok('flattenProject maps scalars', proj.project_id === 'p1' && proj.project_name 
 ok('flattenProject flattens created_by', proj.created_by_id === 'u9' && proj.created_by_email === 'a@acme.com')
 const projSparse = flattenProject({ project_id: 'p2' })
 ok('flattenProject sparse → null/0', projSparse.created_by_id === null && projSparse.created_by_email === null && projSparse.message_count === 0 && projSparse.created_at === null)
+// drift guard: flattenProject must emit exactly the 8 documented PROJECT_COLUMNS (+ snapshot_date added by the writer)
+const PROJECT_COLUMN_NAMES = ['project_id','project_name','distinct_user_count','distinct_conversation_count','message_count','created_at','created_by_id','created_by_email']
+ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES.every((c) => c in proj) && Object.keys(proj).length === 8)
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)
