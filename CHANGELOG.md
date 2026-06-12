@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.9.1] - 2026-06-12
+
+Roadmap step 7: make the archived `projects` data queryable.
+
+### Added
+
+- **`projects_daily` Athena table** — the collector's daily chat-project archive is now queryable via `/api/archive/query` and the chatbot SQL tool. `flattenProject` flattens the nested `created_by` into `created_by_id`/`created_by_email` scalars (projects was previously written raw); `projects_daily` registered in Glue + added to `ATHENA_ALLOWED_TABLES` and both schema hints. Forward-only: pre-existing partitions read `created_by_*` as NULL.
+
+### 추가
+
+- **`projects_daily` Athena 테이블** — collector의 일일 chat-project 아카이브를 `/api/archive/query`·챗봇 SQL로 쿼리 가능. `flattenProject`가 중첩 `created_by`를 `created_by_id`/`created_by_email` 스칼라로 펼침(이전엔 raw). 포워드 전용(옛 파티션은 `created_by_*` NULL).
+
 ## [0.9.0] - 2026-06-11
 
 Roadmap step 5: collector capture of office / design / cowork tool-edit metrics.

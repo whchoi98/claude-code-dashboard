@@ -73,6 +73,22 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 
 Partition: `date` (string, YYYY-MM-DD)
 
+## `projects_daily` (daily per chat project)
+
+| Column                      | Type   |
+|-----------------------------|--------|
+| project_id                  | string |
+| project_name                | string |
+| distinct_user_count         | bigint |
+| distinct_conversation_count | bigint |
+| message_count               | bigint |
+| created_at                  | string |
+| created_by_id               | string |
+| created_by_email            | string |
+| snapshot_date               | string |
+
+Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenProject` in `flatten.js`.
+
 ## `summaries_daily` (org-wide daily)
 
 | Column                              | Type   |

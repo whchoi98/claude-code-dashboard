@@ -94,6 +94,7 @@ const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. 
 • summaries_daily (org/day): date, daily_active_user_count, weekly_active_user_count, monthly_active_user_count, assigned_seat_count, pending_invite_count
 • skills_daily: skill_name, distinct_users, chat_uses, claude_code_uses
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses
+• projects_daily: project_id, project_name, distinct_user_count, distinct_conversation_count, message_count, created_at, created_by_id, created_by_email (created_by_* nullable)
 Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
 
 // Strip the heavy per-user array from the snapshot to keep tokens low; keep the

@@ -93,6 +93,18 @@ const SKILL_COLUMNS: glue.CfnTable.ColumnProperty[] = [
 const CONNECTOR_COLUMNS = SKILL_COLUMNS.map((c) =>
   c.name === 'skill_name' ? { ...c, name: 'connector_name' } : c)
 
+const PROJECT_COLUMNS: glue.CfnTable.ColumnProperty[] = [
+  { name: 'project_id', type: 'string' },
+  { name: 'project_name', type: 'string' },
+  { name: 'distinct_user_count', type: 'bigint' },
+  { name: 'distinct_conversation_count', type: 'bigint' },
+  { name: 'message_count', type: 'bigint' },
+  { name: 'created_at', type: 'string' },
+  { name: 'created_by_id', type: 'string' },
+  { name: 'created_by_email', type: 'string' },
+  { name: 'snapshot_date', type: 'string' },
+]
+
 export class StorageStack extends cdk.Stack {
   readonly archiveBucket: s3.Bucket
   readonly athenaWorkGroup: athena.CfnWorkGroup
@@ -157,6 +169,7 @@ export class StorageStack extends cdk.Stack {
     table('summaries_daily', SUMMARY_COLUMNS, 'summaries')
     table('skills_daily', SKILL_COLUMNS, 'skills')
     table('connectors_daily', CONNECTOR_COLUMNS, 'connectors')
+    table('projects_daily', PROJECT_COLUMNS, 'projects')
 
     this.athenaWorkGroup = new athena.CfnWorkGroup(this, 'Wg', {
       name: 'claude-code-dashboard',

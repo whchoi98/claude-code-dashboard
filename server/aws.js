@@ -278,6 +278,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'summaries_daily',
   'skills_daily',
   'connectors_daily',
+  'projects_daily',
 ])
 const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
 
@@ -373,6 +374,11 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
 
 • skills_daily:   skill_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
+
+• projects_daily (one row per chat project per day):
+  project_id, project_name, distinct_user_count, distinct_conversation_count,
+  message_count, created_at, created_by_id, created_by_email
+  (created_by_* are NULL for partitions collected before this column existed)
 
 Always filter by partition: WHERE date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'.
 The partition column is varchar — do NOT wrap the literals in DATE '...';
