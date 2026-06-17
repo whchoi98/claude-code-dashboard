@@ -5,6 +5,7 @@ import {
   ComposedChart, Line, ReferenceLine, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -210,6 +211,7 @@ export function Compliance() {
         })}
         right={<DateRangeControl />}
       />
+      <GroupScopeNote />
       <div className="p-8 space-y-6">
         {data?.stop_reason === 'max' && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">

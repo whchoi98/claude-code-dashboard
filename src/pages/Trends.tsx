@@ -3,6 +3,7 @@ import {
   AreaChart, Area,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState } from '../components/LoadingState'
@@ -43,6 +44,7 @@ export function Trends() {
         reason={reason}
         right={<DateRangeControl />}
       />
+      <GroupScopeNote />
       <div className="p-8 space-y-6">
         <ChartCard title={t('trends.active_users')}>
           <ResponsiveContainer width="100%" height={300}>

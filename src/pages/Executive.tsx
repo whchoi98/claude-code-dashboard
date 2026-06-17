@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -234,6 +235,7 @@ export function Executive() {
           right={<DateRangeControl />}
         />
       </div>
+      <GroupScopeNote />
       <div className="p-8 space-y-6 print-export">
         <div className="flex items-center justify-end gap-2 print-hide">
           <button

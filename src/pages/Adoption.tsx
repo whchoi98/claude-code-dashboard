@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState } from '../components/LoadingState'
@@ -126,6 +127,7 @@ export function Adoption() {
         source={skills.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
         right={<DateRangeControl />}
       />
+      <GroupScopeNote />
       <div className="p-8 space-y-6">
         <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>
           <ResponsiveContainer width="100%" height={Math.max(220, skillRows.length * 32)}>

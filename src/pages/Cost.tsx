@@ -4,6 +4,7 @@ import {
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
@@ -450,6 +451,7 @@ export function Cost() {
               : t('cost.source.csv')
         }
       />
+      <GroupScopeNote />
       <div className="p-8 space-y-6 print-export">
         <div className="flex items-center justify-between gap-2 print-hide">
           {/* Real data-freshness from the API (cost_report data_refreshed_at),

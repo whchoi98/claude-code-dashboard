@@ -4,6 +4,7 @@ import {
   BarChart, Bar, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -92,6 +93,7 @@ export function Overview() {
         reason={summaries.reason}
         right={<DateRangeControl />}
       />
+      <GroupScopeNote />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
           <KpiCard accent label={t('kpi.dau')} value={fmtNum(kpis.dau)} trend={kpis.dauTrend} hint={t('kpi.seats', { n: fmtNum(kpis.seats) })} />
