@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [1.2.0] - 2026-06-17
+
+Economic Productivity score v2 ("Value per Dollar").
+
+### Changed
+
+- **Rewrote the per-user economic-productivity score** as cost-efficiency v2. Each signal counts once (no more commits/PRs/accepts double-counting); output is multi-surface (net-LOC churn-discounted + cowork/Office/design), replacing gross-LOC; dropped the `1/tokens_per_LOC` term (was silently 0 on the live path and rewarded under-use); normalization is winsorized + cohort-median-anchored (outlier-immune, not divide-by-max). Weights value/$ 0.55 · acceptance 0.25 · delivery 0.12 · breadth 0.08. Response carries `score_version:"2.0"`, per-user `value_units`/`score_components`, and `totals.value_units`. Reframed the UI as "Cost Efficiency — not a performance metric."
+
+### 변경
+
+- **사용자별 경제 생산성 점수를 비용 효율 v2로 재작성.** 각 신호를 한 번만 계산(commits/PRs/accepts 이중계산 제거), 산출을 멀티 surface(순-LOC churn 할인 + cowork/Office/design)로 확장(총 LOC 대체), `1/tokens_per_LOC` 항 제거(라이브에서 0·과소사용 보상), 정규화를 winsorized + 코호트 중앙값 앵커로(아웃라이어 면역). 가중치 value/$ 0.55 · 수락 0.25 · delivery 0.12 · breadth 0.08. 응답에 `score_version`·per-user `value_units`/`score_components`·`totals.value_units`. UI를 "비용 효율 — 성과 지표 아님"으로 리프레이밍.
+
 ## [1.1.1] - 2026-06-17
 
 Fix: monthly cost total was undercounted.

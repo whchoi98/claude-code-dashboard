@@ -162,6 +162,7 @@ type EfficiencyResp = {
     prompt_tokens: number; completion_tokens: number
     avg_cost_per_loc: number | null
     avg_cost_per_commit: number | null
+    value_units?: number
   }
   users: EfficiencyUser[]
 }
@@ -828,7 +829,7 @@ function EconomicProductivitySection({ data, t, range }: {
           <KpiCard accent label={t('econ.kpi.score')}      value={topScore[0]?.economic_productivity_score ?? '—'}  hint={maskEmail(topScore[0]?.email ?? '')} />
           <KpiCard       label={t('econ.kpi.cost_loc')}    value={data.totals.avg_cost_per_loc != null ? `$${data.totals.avg_cost_per_loc.toFixed(4)}` : '—'}    hint="avg org" />
           <KpiCard       label={t('econ.kpi.cost_commit')} value={data.totals.avg_cost_per_commit != null ? fmtUsd(data.totals.avg_cost_per_commit) : '—'} hint="avg org" />
-          <KpiCard       label={t('econ.kpi.total_output')} value={fmtCompact(data.totals.loc_added + 100 * data.totals.commits + 1000 * data.totals.prs)} hint="LOC + 100×commits + 1000×PRs" />
+          <KpiCard       label={t('econ.kpi.total_output')} value={fmtCompact(data.totals.value_units ?? 0)} hint={t('econ.kpi.total_output.hint')} />
         </div>
 
         <ChartCard title={t('econ.scatter')} subtitle={t('econ.scatter.sub')}>
@@ -905,9 +906,6 @@ function EconomicProductivitySection({ data, t, range }: {
 
         <div className="mt-4 rounded-xl border border-ink-100 bg-paper-muted/40 px-5 py-3 text-[11px] text-ink-500 leading-relaxed">
           <b className="text-ink-700">{t('econ.formula')}</b>
-          <br />
-          Score = 35% · normalized(output/$) + 20% · tool_acceptance + 20% · normalized(1/tokens_per_LOC) + 15% · commit_velocity + 10% · PR_velocity.
-          Output score = LOC + 100·commits + 1000·PRs + 0.5·tool_accepted.
         </div>
       </div>
   )
