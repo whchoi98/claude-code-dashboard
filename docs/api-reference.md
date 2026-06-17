@@ -63,6 +63,15 @@ See [ADR-0009](decisions/0009-live-user-cost.md) for the decision to promote `us
 | GET | `/api/cost/uploads` | Lists all CSVs under `spend-reports/` with parsed period, size, and `last_modified`, newest first. Used by the dashboard's upload history + overlap detection. |
 | DELETE | `/api/cost/uploads/:file` | Removes a single CSV. Filename regex-checked (`[A-Za-z0-9._-]+\.csv`) to block path traversal. |
 
+## Groups (visibility mapping)
+
+Admin-defined `email→group` mapping for group-level dashboard scoping (v1.4.0). The Analytics API's `rbac_group_id`/`claude_project_id` group dimensions return HTTP 400 ("not yet supported") and user records carry no group field, so groups come from an uploaded CSV stored latest-wins at `s3://<archive>/group-map/`. Cognito-edge-gated like the cost routes.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/groups` | Returns the latest mapping under `group-map/`: `{ source: "live"|"empty", file, groups: string[], map: Record<emailLower, group> }`. No mapping uploaded → `{ source: "empty", groups: [], map: {} }` (200, not an error). Returns the raw `email→group` map (lowercased emails) for client-side matching; the UI still renders every email via `maskEmail`. Consumed by the `useGroupScope` hook + the sidebar Group-scope selector. |
+| POST | `/api/groups/upload` | Multipart CSV upload (field `file`, reuses the 25 MB / `.csv` multer guard). Requires `email` + `group` columns → 400 `schema_mismatch` otherwise; 400 `empty_mapping` if no valid rows. Stored latest-wins as `group-map/group-map-<YYYY-MM-DD>.csv`. Response `{ ok, file, rows, groups }`. |
+
 ## AI Chatbot (Bedrock tool-use)
 
 See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision.
