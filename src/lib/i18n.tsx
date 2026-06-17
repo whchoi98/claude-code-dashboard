@@ -63,6 +63,7 @@ const DICT = {
     'group.upload.groups':  'groups',
     'group.upload.rows':    'users',
     'group.empty':          'No mapping uploaded — showing all users.',
+    'group.note':           'Group scope ({group}) isn’t applied on this page — showing org-wide data.',
 
     // Common
     'common.loading': 'Loading…',
@@ -594,6 +595,7 @@ const DICT = {
     'group.upload.groups':  '그룹',
     'group.upload.rows':    '사용자',
     'group.empty':          '매핑 미업로드 — 전체 사용자 표시.',
+    'group.note':           '이 페이지에는 그룹 스코프({group})가 적용되지 않습니다 — 전사 데이터 표시.',
 
     'common.loading': '불러오는 중…',
     'common.error':   '데이터 로드 실패',
