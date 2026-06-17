@@ -772,7 +772,7 @@ export function Cost() {
           )
         })()}
 
-        {/* ── Economic Productivity ────────────────────────────────────── */}
+        {/* ── Cost Efficiency ──────────────────────────────────────────── */}
         {eff.data && eff.data.users.length > 0 && (
           <EconomicProductivitySection data={eff.data} t={t} range={range} />
         )}
