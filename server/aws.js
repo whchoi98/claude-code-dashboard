@@ -283,6 +283,7 @@ export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, m
     refreshedAt = body.data_refreshed_at ?? refreshedAt
     if (!body.has_more || !body.next_page) break
     page = body.next_page
+    if (i === maxPages - 1) console.warn(`[cost/live] fetchAllReportPages hit ${maxPages}-page cap; total may be truncated`)
   }
   return { ok: true, status, body: { data, data_refreshed_at: refreshedAt } }
 }

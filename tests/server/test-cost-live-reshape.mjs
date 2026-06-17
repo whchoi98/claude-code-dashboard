@@ -204,6 +204,10 @@ const cases = [
     if (calls !== 2) throw new Error(`expected 2 fetches, got ${calls}`)
     if (r.body.data.length !== 2) throw new Error(`merged data len: ${r.body.data.length}`)
     if (r.body.data_refreshed_at !== '2026-06-17T00:00:00Z') throw new Error(`refreshed_at carried from page 1: ${r.body.data_refreshed_at}`)
+    // end-to-end: both pages' amounts (100 + 200 cents) must reach the reshaped total ($3.00),
+    // not just one page — guards the financial-total correctness of the merge, not only data.length
+    const reshaped = analyticsReportsToCostResp(r.body, { data: [] }, period)
+    if (Math.abs(reshaped.totals.net_spend_usd - 3) > 1e-6) throw new Error(`merged total should be $3.00 (both pages), got ${reshaped.totals.net_spend_usd}`)
   }],
   ['fetchAllReportPages: single page (has_more=false) → one fetch', async () => {
     let calls = 0
