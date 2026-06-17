@@ -50,5 +50,17 @@ const ok = (name, cond) => { n++; console.log(`${cond ? 'ok' : 'not ok'} ${n} - 
   ok('duplicate email → last row wins', r.map['a@x.com'] === 'Apps')
 })()
 
+// Robustness inherited from parseCsv: a leading UTF-8 BOM (Excel/Sheets export)
+// must not break header detection; CRLF endings + quoted emails containing a
+// comma must parse correctly.
+;(() => {
+  const bom = parseGroupMap('﻿email,group\na@x.com,Platform')
+  ok('leading UTF-8 BOM is stripped (Excel export)', bom.map['a@x.com'] === 'Platform')
+  const crlf = parseGroupMap('email,group\r\nb@y.com,Apps\r\n')
+  ok('CRLF line endings parse', crlf.map['b@y.com'] === 'Apps')
+  const quoted = parseGroupMap('email,group\n"weird,comma@x.com",Data')
+  ok('quoted email containing a comma parses', quoted.map['weird,comma@x.com'] === 'Data')
+})()
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

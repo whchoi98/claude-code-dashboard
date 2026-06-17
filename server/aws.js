@@ -1380,7 +1380,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
 // Minimal CSV parser that handles quoted fields and commas inside quotes.
 function parseCsv(text) {
-  const lines = text.replace(/\r/g, '').split('\n').filter((l) => l.length > 0)
+  // Strip a leading UTF-8 BOM (Excel / Google Sheets prepend one on CSV export);
+  // left in place it fuses onto the first header cell ("﻿user_email") and
+  // every column lookup silently misses. Then normalize CRLF → LF.
+  const lines = text.replace(/^﻿/, '').replace(/\r/g, '').split('\n').filter((l) => l.length > 0)
   if (lines.length === 0) return { columns: [], rows: [] }
   const split = (line) => {
     const out = []
