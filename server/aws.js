@@ -1330,8 +1330,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       }
     })
 
-    // v2 "Value per Dollar" scoring — pure, unit-tested. See scoreEconomicProductivity.
+    // v3 cost-efficiency scoring — pure, unit-tested. See scoreEconomicProductivity.
     const scored = scoreEconomicProductivity(joined)
+
+    // Cohort median of the final score — the org-level headline KPI for v3.
+    const scoreVals = scored.map((u) => u.economic_productivity_score).sort((a, b) => a - b)
+    const median_score = scoreVals.length
+      ? (scoreVals.length % 2
+          ? scoreVals[(scoreVals.length - 1) / 2]
+          : Math.round((scoreVals[scoreVals.length / 2 - 1] + scoreVals[scoreVals.length / 2]) / 2))
+      : 0
 
     const totals = scored.reduce((t, u) => ({
       spend_usd:         t.spend_usd + u.spend_usd,
@@ -1340,11 +1348,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       prs:               t.prs + u.prs,
       prompt_tokens:     t.prompt_tokens + u.prompt_tokens,
       completion_tokens: t.completion_tokens + u.completion_tokens,
-      value_units:       t.value_units + (u.value_units ?? 0),
-    }), { spend_usd: 0, loc_added: 0, commits: 0, prs: 0, prompt_tokens: 0, completion_tokens: 0, value_units: 0 })
+    }), { spend_usd: 0, loc_added: 0, commits: 0, prs: 0, prompt_tokens: 0, completion_tokens: 0 })
 
     res.json({
-      score_version: '2.0',
+      score_version: '3.0',
       source,
       period: csvPeriod,
       user_count: scored.length,
@@ -1355,7 +1362,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         prs:       totals.prs,
         prompt_tokens:     totals.prompt_tokens,
         completion_tokens: totals.completion_tokens,
-        value_units: Number(totals.value_units.toFixed(2)),
+        median_score,
         avg_cost_per_loc:    totals.loc_added > 0 ? Number((totals.spend_usd / totals.loc_added).toFixed(4)) : null,
         avg_cost_per_commit: totals.commits   > 0 ? Number((totals.spend_usd / totals.commits).toFixed(2))   : null,
       },
