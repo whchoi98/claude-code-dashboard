@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [1.4.0] - 2026-06-17
+
+Group visibility — Foundation (admin email→group mapping + global scope filter; Users pilot).
+
+### Added
+
+- **Group-level visibility (Foundation).** Admins upload an `email,group` CSV (stored latest-wins at `s3://<archive>/group-map/` via `POST /api/groups/upload`); `GET /api/groups` returns the parsed map + group list. A new global **Group scope** selector in the sidebar (URL-synced `?group=`, same idiom as the date range) scopes pages to a selected group — or to `(Unmapped)` users for admin gap-spotting. The **Users page** is the pilot: its per-user aggregation now filters by the selected group via a reusable `useGroupScope().inGroup(email)` predicate. Groups come from the uploaded mapping because the Analytics API's `rbac_group_id`/`claude_project_id` dimensions return HTTP 400 ("not yet supported") and user records carry no group field. Rollout to the remaining pages is a later cycle.
+
+### 추가
+
+- **그룹 단위 가시성 (Foundation).** 관리자가 `email,group` CSV를 업로드하면(`POST /api/groups/upload` → `s3://<archive>/group-map/`에 최신본 저장), `GET /api/groups`가 파싱된 매핑+그룹 목록을 반환합니다. 사이드바에 전역 **그룹 범위** 선택기(날짜 범위와 동일한 `?group=` URL 동기화)를 추가해 선택한 그룹으로 페이지를 스코프하거나 `(미매핑)` 사용자를 골라낼 수 있습니다. **Users 페이지**가 파일럿으로, 사용자별 집계가 재사용 가능한 `useGroupScope().inGroup(email)` 술어로 선택 그룹을 필터링합니다. Analytics API의 `rbac_group_id`/`claude_project_id` 차원이 HTTP 400("미지원")을 반환하고 사용자 레코드에 그룹 필드가 없어, 그룹은 업로드된 매핑에서 가져옵니다. 나머지 페이지 적용은 다음 사이클입니다.
+
 ## [1.3.0] - 2026-06-17
 
 Cost Efficiency score v3 — per-surface within-cohort normalization.
