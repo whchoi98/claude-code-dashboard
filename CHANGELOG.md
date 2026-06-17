@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
-## [0.10.0] - 2026-06-17
+## [1.0.0] - 2026-06-17
 
-Dedicated Cowork analysis page.
+First stable release — dedicated Cowork analysis page.
 
 ### Added
 
