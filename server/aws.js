@@ -1176,6 +1176,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         const u = byProdUser.get(email) ?? {
           sessions: 0, loc_added: 0, loc_removed: 0, commits: 0, prs: 0,
           accepted: 0, rejected: 0, messages: 0, active_days: 0,
+          office_messages: 0, office_sessions: 0,
+          cowork_actions: 0, cowork_file_edits: 0, cowork_sessions: 0,
+          design_projects_created: 0, design_messages: 0, design_sessions: 0,
         }
         if (cc.distinct_session_count > 0 || rec.chat_metrics?.message_count > 0) u.active_days += 1
         u.sessions   += cc.distinct_session_count ?? 0
@@ -1188,6 +1191,23 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
                         (ta?.write_tool?.accepted_count ?? 0) + (ta?.notebook_edit_tool?.accepted_count ?? 0)
         u.rejected   += (ta?.edit_tool?.rejected_count ?? 0) + (ta?.multi_edit_tool?.rejected_count ?? 0) +
                         (ta?.write_tool?.rejected_count ?? 0) + (ta?.notebook_edit_tool?.rejected_count ?? 0)
+        const off = rec.office_metrics
+        if (off) for (const k of ['excel', 'powerpoint', 'word', 'outlook']) {
+          u.office_messages += off[k]?.message_count ?? 0
+          u.office_sessions += off[k]?.distinct_session_count ?? 0
+        }
+        const cw = rec.cowork_metrics
+        if (cw) {
+          u.cowork_actions    += cw.action_count ?? 0
+          u.cowork_file_edits += cw.file_edit_count ?? 0
+          u.cowork_sessions   += cw.distinct_session_count ?? 0
+        }
+        const dz = rec.design_metrics
+        if (dz) {
+          u.design_projects_created += dz.distinct_projects_created_count ?? 0
+          u.design_messages         += dz.message_count ?? 0
+          u.design_sessions         += dz.distinct_session_count ?? 0
+        }
         byProdUser.set(email, u)
       }
     }
@@ -1196,7 +1216,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const allEmails = new Set([...bySpendUser.keys(), ...byProdUser.keys()])
     const joined = [...allEmails].map((email) => {
       const s = bySpendUser.get(email) ?? { spend: 0, prompt_tokens: 0, completion_tokens: 0, requests: 0, models: new Set(), products: new Set() }
-      const p = byProdUser.get(email)   ?? { sessions: 0, loc_added: 0, loc_removed: 0, commits: 0, prs: 0, accepted: 0, rejected: 0, messages: 0, active_days: 0 }
+      const p = byProdUser.get(email)   ?? { sessions: 0, loc_added: 0, loc_removed: 0, commits: 0, prs: 0, accepted: 0, rejected: 0, messages: 0, active_days: 0, office_messages: 0, office_sessions: 0, cowork_actions: 0, cowork_file_edits: 0, cowork_sessions: 0, design_projects_created: 0, design_messages: 0, design_sessions: 0 }
 
       // Output score: weighted sum of productivity outcomes
       const output_score = p.loc_added + (100 * p.commits) + (1000 * p.prs) + (0.5 * p.accepted)
@@ -1256,36 +1276,22 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         range_completion_tokens,
         range_total_tokens,
         range_requests,
+        messages: p.messages,
+        office_messages: p.office_messages,
+        office_sessions: p.office_sessions,
+        cowork_actions: p.cowork_actions,
+        cowork_file_edits: p.cowork_file_edits,
+        cowork_sessions: p.cowork_sessions,
+        design_projects_created: p.design_projects_created,
+        design_messages: p.design_messages,
+        design_sessions: p.design_sessions,
         sessions_in_csv_period: sessionsCsv,
         activity_ratio: Number(ratio.toFixed(4)),
       }
     })
 
-    // 6) Normalize to 0-100 economic productivity score
-    //    0.35 * output_per_dollar (higher is better)
-    //    0.20 * tool_acceptance_rate
-    //    0.20 * inverse(tokens_per_loc)
-    //    0.15 * normalized(commits per 10 active days)
-    //    0.10 * normalized(prs per 10 active days)
-    const cap = (x) => Math.max(0, Math.min(1, x))
-    const maxOPD = Math.max(1, ...joined.map((j) => j.output_per_dollar ?? 0))
-    const minTPL = joined.filter((j) => j.tokens_per_loc != null).reduce((a, b) => Math.min(a, b.tokens_per_loc), Infinity)
-    const scored = joined.map((j) => {
-      const opd = (j.output_per_dollar ?? 0) / maxOPD
-      const acc = j.tool_acceptance_rate ?? 0
-      // Lower tokens/LOC = better; normalize with min of cohort as 1
-      const tokRatio = j.tokens_per_loc && isFinite(minTPL) ? cap(minTPL / j.tokens_per_loc) : 0
-      const commitsPer10d = j.active_days > 0 ? (j.commits / j.active_days) * 10 / 15 : 0 // 15 commits/10days = ideal
-      const prsPer10d     = j.active_days > 0 ? (j.prs     / j.active_days) * 10 / 5  : 0 // 5 PRs/10days = ideal
-      const economic_productivity_score = Math.round((
-        0.35 * cap(opd) +
-        0.20 * cap(acc) +
-        0.20 * cap(tokRatio) +
-        0.15 * cap(commitsPer10d) +
-        0.10 * cap(prsPer10d)
-      ) * 100)
-      return { ...j, economic_productivity_score }
-    })
+    // v2 "Value per Dollar" scoring — pure, unit-tested. See scoreEconomicProductivity.
+    const scored = scoreEconomicProductivity(joined)
 
     const totals = scored.reduce((t, u) => ({
       spend_usd:         t.spend_usd + u.spend_usd,
@@ -1294,9 +1300,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       prs:               t.prs + u.prs,
       prompt_tokens:     t.prompt_tokens + u.prompt_tokens,
       completion_tokens: t.completion_tokens + u.completion_tokens,
-    }), { spend_usd: 0, loc_added: 0, commits: 0, prs: 0, prompt_tokens: 0, completion_tokens: 0 })
+      value_units:       t.value_units + (u.value_units ?? 0),
+    }), { spend_usd: 0, loc_added: 0, commits: 0, prs: 0, prompt_tokens: 0, completion_tokens: 0, value_units: 0 })
 
     res.json({
+      score_version: '2.0',
       source,
       period: csvPeriod,
       user_count: scored.length,
@@ -1307,6 +1315,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         prs:       totals.prs,
         prompt_tokens:     totals.prompt_tokens,
         completion_tokens: totals.completion_tokens,
+        value_units: Number(totals.value_units.toFixed(2)),
         avg_cost_per_loc:    totals.loc_added > 0 ? Number((totals.spend_usd / totals.loc_added).toFixed(4)) : null,
         avg_cost_per_commit: totals.commits   > 0 ? Number((totals.spend_usd / totals.commits).toFixed(2))   : null,
       },
