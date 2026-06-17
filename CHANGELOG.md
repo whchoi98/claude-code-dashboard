@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [1.1.1] - 2026-06-17
+
+Fix: monthly cost total was undercounted.
+
+### Fixed
+
+- **Cost page total for ranges > 7 days.** The Analytics `cost_report`/`usage_report` cap daily buckets at ~7 per page, but `fetchCostSummary` fetched only page 1 — so a 30-day total showed just the first ~7 days (e.g. ~$6k instead of ~$34k); 1d/7d were correct. Added `fetchAllReportPages`, which follows `has_more`/`next_page` and merges every page (mirroring the per-user path), and applied it to all four reports (cost, usage, cost_type, token_type). The headline total, token KPIs, and by-type/cache cards now cover the full window.
+
+### 수정
+
+- **7일 초과 기간의 비용 총합 정정.** Analytics `cost_report`/`usage_report`는 페이지당 일일 버킷을 ~7개로 제한하는데 `fetchCostSummary`가 1페이지만 가져와, 30일 총합이 첫 ~7일치만 표시됐습니다(예: ~$34k 대신 ~$6k; 1d/7d는 정상). `has_more`/`next_page`를 따라 모든 페이지를 병합하는 `fetchAllReportPages`를 추가해 4개 리포트(cost·usage·cost_type·token_type) 전부에 적용. 헤드라인 총합·토큰 KPI·유형별/캐시 카드가 전체 기간을 반영합니다.
+
 ## [1.1.0] - 2026-06-17
 
 Office and Design surface pages.

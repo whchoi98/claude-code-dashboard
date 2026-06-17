@@ -257,6 +257,36 @@ export function utcNextDay(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
+// Paginate an Analytics report (cost_report / usage_report) by following
+// has_more/next_page and merging every page's `data[]`. The API caps daily
+// buckets at ~7 per page, so a window > 7 days spans multiple pages — fetching
+// only page 1 silently truncates a 30-day total to its first week (the bug this
+// fixes). Mirrors fetchUserCostReport's pagination loop. `fetchImpl` is
+// injectable for unit tests. Never throws on a network error: returns
+// `{ ok:false }` so best-effort callers (cost_type/token_type) degrade and
+// primary callers (cost/usage) can surface the HTTP status.
+export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, maxPages = 24) {
+  const data = []
+  let page = null, refreshedAt = null, status = 0
+  for (let i = 0; i < maxPages; i++) {
+    const url = page ? `${baseUrl}&page=${encodeURIComponent(page)}` : baseUrl
+    let res
+    try {
+      res = await fetchImpl(url, { headers })
+    } catch {
+      return { ok: false, status: 0, body: { data, data_refreshed_at: refreshedAt } }
+    }
+    status = res.status
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return { ok: false, status, body }
+    if (Array.isArray(body.data)) data.push(...body.data)
+    refreshedAt = body.data_refreshed_at ?? refreshedAt
+    if (!body.has_more || !body.next_page) break
+    page = body.next_page
+  }
+  return { ok: true, status, body: { data, data_refreshed_at: refreshedAt } }
+}
+
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
 // Athena's IAM policy already restricts this task to the ccd workgroup, and
 // CDK grants glue:GetTable only on the ccd database. Even so, a naive regex
@@ -492,33 +522,32 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       return `${apiUrl}${p}?${params.toString()}`
     }
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-    // Best-effort secondary rollups (cost_type, token_type). The .catch degrades a
-    // NETWORK rejection (DNS/ECONNREFUSED/timeout) to a fake non-ok response so it
-    // can never reject this Promise.all and break the primary cost view. (HTTP
-    // non-200 is handled below via the .ok checks.)
-    const bestEffort = (dims) =>
-      fetch(buildUrl('/v1/organizations/analytics/cost_report', dims), { headers })
-        .catch(() => ({ ok: false, json: async () => ({}) }))
-    const [costRes, usageRes, ctRes, ttRes] = await Promise.all([
-      fetch(buildUrl('/v1/organizations/analytics/cost_report'), { headers }),
-      fetch(buildUrl('/v1/organizations/analytics/usage_report'), { headers }),
-      bestEffort(['cost_type']),
-      bestEffort(['token_type']),
+    // Each report is PAGINATED via fetchAllReportPages: the Analytics API caps
+    // daily buckets at ~7/page, so a 30-day window spans ~5 pages — fetching page 1
+    // only truncated the month to its first week. cost_type/token_type are
+    // best-effort rollups: fetchAllReportPages returns { ok:false } (never rejects)
+    // on a network error, so a failure leaves them empty without breaking the
+    // primary product×model cost view.
+    const [cost, usage, ct, tt] = await Promise.all([
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report'), headers),
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/usage_report'), headers),
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type']), headers),
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['token_type']), headers),
     ])
-    const costBody = await costRes.json().catch(() => ({}))
-    const usageBody = await usageRes.json().catch(() => ({}))
-    const ctBody = ctRes.ok ? await ctRes.json().catch(() => ({})) : {}
-    const ttBody = ttRes.ok ? await ttRes.json().catch(() => ({})) : {}
-    if (!costRes.ok) {
-      const e = new Error(`cost_report ${costRes.status}`)
-      e.code = 'upstream_error'; e.upstream = costBody
+    if (!cost.ok) {
+      const e = new Error(`cost_report ${cost.status}`)
+      e.code = 'upstream_error'; e.upstream = cost.body
       throw e
     }
-    if (!usageRes.ok) {
-      const e = new Error(`usage_report ${usageRes.status}`)
-      e.code = 'upstream_error'; e.upstream = usageBody
+    if (!usage.ok) {
+      const e = new Error(`usage_report ${usage.status}`)
+      e.code = 'upstream_error'; e.upstream = usage.body
       throw e
     }
+    const costBody = cost.body
+    const usageBody = usage.body
+    const ctBody = ct.ok ? ct.body : {}
+    const ttBody = tt.ok ? tt.body : {}
     const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
     out.by_cost_type = aggregateCostType(ctBody)
     out.by_token_type = aggregateTokenTypeCost(ttBody)

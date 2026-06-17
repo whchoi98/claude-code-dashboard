@@ -2,7 +2,7 @@
 // Runs with: node tests/server/test-cost-live-reshape.mjs
 // Exit code 0 on success, 1 on any failure (TAP-like output).
 
-import { analyticsReportsToCostResp, aggregateCostType, aggregateTokenTypeCost, aggregateTokenTiers } from '../../server/aws.js'
+import { analyticsReportsToCostResp, aggregateCostType, aggregateTokenTypeCost, aggregateTokenTiers, fetchAllReportPages } from '../../server/aws.js'
 
 const period = { starting_date: '2026-05-01', ending_date: '2026-05-02' }
 
@@ -191,6 +191,45 @@ const cases = [
     // totals rounds to 2 decimals: 449.34
     if (Math.abs(r.totals.net_spend_usd - 449.34) > 1e-6) throw new Error(`total: ${r.totals.net_spend_usd}`)
   }],
+  // ── fetchAllReportPages — the cost_report/usage_report paginator (the 30d-total fix).
+  // The Analytics API caps daily buckets at ~7/page; fetching page 1 only truncated a
+  // month to its first week. These guard that next_page is followed + merged.
+  ['fetchAllReportPages: follows has_more/next_page and merges all pages’ data[]', async () => {
+    const p1 = { data: [{ starting_at: 'd1', results: [{ product: 'p', model: 'm', amount: '100' }] }], has_more: true, next_page: 'PAGE2', data_refreshed_at: '2026-06-17T00:00:00Z' }
+    const p2 = { data: [{ starting_at: 'd2', results: [{ product: 'p', model: 'm', amount: '200' }] }], has_more: false, next_page: null }
+    let calls = 0
+    const fakeFetch = async (url) => { calls += 1; return { ok: true, status: 200, json: async () => (url.includes('page=PAGE2') ? p2 : p1) } }
+    const r = await fetchAllReportPages('https://x/cost_report?a=1', { 'x-api-key': 'k' }, fakeFetch)
+    if (!r.ok) throw new Error('should be ok')
+    if (calls !== 2) throw new Error(`expected 2 fetches, got ${calls}`)
+    if (r.body.data.length !== 2) throw new Error(`merged data len: ${r.body.data.length}`)
+    if (r.body.data_refreshed_at !== '2026-06-17T00:00:00Z') throw new Error(`refreshed_at carried from page 1: ${r.body.data_refreshed_at}`)
+  }],
+  ['fetchAllReportPages: single page (has_more=false) → one fetch', async () => {
+    let calls = 0
+    const fakeFetch = async () => { calls += 1; return { ok: true, status: 200, json: async () => ({ data: [{ results: [] }], has_more: false }) } }
+    const r = await fetchAllReportPages('u', {}, fakeFetch)
+    if (calls !== 1) throw new Error(`calls: ${calls}`)
+    if (r.body.data.length !== 1) throw new Error(`len: ${r.body.data.length}`)
+  }],
+  ['fetchAllReportPages: respects maxPages cap (no infinite loop), returns partial ok', async () => {
+    let calls = 0
+    const fakeFetch = async () => { calls += 1; return { ok: true, status: 200, json: async () => ({ data: [{ results: [] }], has_more: true, next_page: 'x' }) } }
+    const r = await fetchAllReportPages('u', {}, fakeFetch, 3)
+    if (calls !== 3) throw new Error(`should cap at 3, got ${calls}`)
+    if (!r.ok || r.body.data.length !== 3) throw new Error(`cap should return ok with 3 merged: ok=${r.ok} len=${r.body.data.length}`)
+  }],
+  ['fetchAllReportPages: HTTP non-ok → { ok:false, status }', async () => {
+    const fakeFetch = async () => ({ ok: false, status: 429, json: async () => ({ error: 'rate' }) })
+    const r = await fetchAllReportPages('u', {}, fakeFetch)
+    if (r.ok) throw new Error('should be ok:false on non-200')
+    if (r.status !== 429) throw new Error(`status: ${r.status}`)
+  }],
+  ['fetchAllReportPages: network throw → { ok:false } (never rejects)', async () => {
+    const fakeFetch = async () => { throw new Error('ECONNREFUSED') }
+    const r = await fetchAllReportPages('u', {}, fakeFetch)
+    if (r.ok) throw new Error('network error must be ok:false, not a rejection')
+  }],
 ]
 
 console.log('TAP version 13')
@@ -200,7 +239,7 @@ let pass = 0, fail = 0, n = 0
 for (const [desc, fn] of cases) {
   n += 1
   try {
-    fn()
+    await fn()
     console.log(`ok ${n} - ${desc}`)
     pass += 1
   } catch (err) {
