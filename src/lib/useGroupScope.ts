@@ -43,8 +43,10 @@ export function useGroupScope() {
   const inGroup = useCallback((email: string | null | undefined): boolean => {
     if (!group) return true
     const e = (email ?? '').toLowerCase()
-    if (group === UNMAPPED) return !(e in map)
-    return map[e] === group
+    // own-key check (not `in`) so an email literally named "toString" etc.
+    // can't match a prototype member and be miscounted as mapped.
+    if (group === UNMAPPED) return !Object.prototype.hasOwnProperty.call(map, e)
+    return Object.prototype.hasOwnProperty.call(map, e) && map[e] === group
   }, [group, map])
 
   return { group, setGroup, groups, hasMap, loading, inGroup, refetch }
