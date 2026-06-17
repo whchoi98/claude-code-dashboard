@@ -119,8 +119,8 @@ export function Design() {
                   <YAxis />
                   <Tooltip />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="projectsUsed" name={t('design.metric.projects_used')} stroke="#4CA371" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="projectsCreated" name={t('design.metric.projects_created')} stroke="#8A8474" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="projectsCreated" name={t('design.metric.projects_created')} stroke="#4CA371" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="projectsUsed" name={t('design.metric.projects_used')} stroke="#8A8474" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
