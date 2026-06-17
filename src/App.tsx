@@ -14,6 +14,7 @@ import { Archive } from './pages/Archive'
 import { UserSearch } from './pages/UserSearch'
 import { Executive } from './pages/Executive'
 import { Changelog } from './pages/Changelog'
+import { Cowork } from './pages/Cowork'
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="users" element={<Users />} />
         <Route path="trends" element={<Trends />} />
         <Route path="claude-code" element={<ClaudeCode />} />
+        <Route path="cowork" element={<Cowork />} />
         <Route path="productivity" element={<Productivity />} />
         <Route path="user-productivity" element={<UserProductivity />} />
         <Route path="user-search" element={<UserSearch />} />

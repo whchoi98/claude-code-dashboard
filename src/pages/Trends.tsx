@@ -55,7 +55,7 @@ export function Trends() {
               <Line type="monotone" dataKey="DAU" stroke="#D97757" strokeWidth={2.5} dot={{ r: 2 }} />
               <Line type="monotone" dataKey="WAU" stroke="#8A8474" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="MAU" stroke="#1F1E1D" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="CoworkDAU" name="Cowork DAU" stroke="#4CA371" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="CoworkDAU" name="Cowork DAU" stroke="#B75E40" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>

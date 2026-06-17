@@ -20,6 +20,7 @@ const NAV = [
   { to: '/user-search',       key: 'user_search',       badge: '🔍' },
   { to: '/trends',            key: 'trends',            badge: '📈' },
   { to: '/claude-code',       key: 'claude_code',       badge: '💻' },
+  { to: '/cowork',            key: 'cowork',            badge: '🤝' },
   { to: '/productivity',      key: 'productivity',      badge: '🎯' },
   { to: '/adoption',          key: 'adoption',          badge: '🌱' },
   { to: '/cost',              key: 'cost',              badge: '$' },

@@ -15,6 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [0.10.0] - 2026-06-17
+
+Dedicated Cowork analysis page.
+
+### Added
+
+- **Cowork page** (`/cowork`, nav 🤝) — a first-class view of cowork usage that was previously only thin secondary metrics on code-centric pages. 4 KPIs (active cowork users, sessions, messages, adoption), a DAU/WAU/MAU trend, daily engagement (sessions/messages/actions/dispatch turns), a sortable Top-cowork-users table, and a file-editing adoption section. Reuses `/api/analytics/summaries` + `/api/analytics/users/range` (no backend change). The file-editing section shows an empty-state until the org's cowork tool-edit counters populate (distinguished by null vs zero).
+
+### Changed
+
+- Trends page cowork-DAU line recolored to the cowork brand color `#B75E40` (was a mismatched green).
+
+### 추가
+
+- **Cowork 페이지** (`/cowork`, nav 🤝) — 그동안 code 중심 페이지에 곁다리로만 있던 cowork 사용량을 1급 뷰로. KPI 4개(활성 사용자·세션·메시지·도입률), DAU/WAU/MAU 추세, 일별 참여량(세션·메시지·액션·dispatch), 정렬 가능한 Top cowork 사용자 테이블, 파일편집 도입 섹션. `/api/analytics/summaries` + `/api/analytics/users/range` 재사용(백엔드 무변경). 파일편집 섹션은 조직의 tool-edit 카운터가 채워질 때까지 empty-state(null과 0을 구분).
+
+### 변경
+
+- Trends 페이지 cowork-DAU 라인 색을 cowork 브랜드색 `#B75E40`으로 정정(기존 녹색 불일치).
+
 ## [0.9.1] - 2026-06-12
 
 Roadmap step 7: make the archived `projects` data queryable.
