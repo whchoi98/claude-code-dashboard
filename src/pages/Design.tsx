@@ -11,6 +11,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtDate, maskEmail } from '../lib/format'
@@ -24,6 +25,7 @@ type Tt = (k: any, p?: any) => string
 export function Design() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const users = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
@@ -33,6 +35,7 @@ export function Design() {
     const daily = days.map((d) => {
       let sessions = 0, messages = 0, projectsUsed = 0, projectsCreated = 0
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const m = r.design_metrics
         sessions += m.distinct_session_count
         messages += m.message_count
@@ -46,6 +49,7 @@ export function Design() {
     let sessionsTotal = 0, messagesTotal = 0, projectsCreatedTotal = 0
     for (const d of days) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const m = r.design_metrics
         const email = r.user.email_address
         if (m.distinct_session_count > 0) activeEmails.add(email)
@@ -65,7 +69,7 @@ export function Design() {
       activeUsers: activeEmails.size,
       sessionsTotal, messagesTotal, projectsCreatedTotal,
     }
-  }, [users.data])
+  }, [users.data, inGroup])
 
   if (users.loading) return <LoadingState />
   if (users.error) return <ErrorState error={users.error} />

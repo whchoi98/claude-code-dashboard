@@ -11,6 +11,7 @@ import { DateRangeControl } from '../components/DateRangeControl'
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, acceptRate, maskEmail } from '../lib/format'
@@ -32,6 +33,7 @@ type K = 'user' | 'score' | 'loc' | 'sessions' | 'commits' | 'accept' | 'activeD
 export function UserProductivity() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -59,6 +61,7 @@ export function UserProductivity() {
 
     for (const d of days) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const email = r.user.email_address
         const cc = r.claude_code_metrics.core_metrics
         const ta = r.claude_code_metrics.tool_actions
@@ -113,7 +116,7 @@ export function UserProductivity() {
 
     const f = q.trim().toLowerCase()
     return enriched.filter((r) => !f || r.masked.toLowerCase().includes(f) || r.email.toLowerCase().includes(f))
-  }, [rangeResp.data, q])
+  }, [rangeResp.data, q, inGroup])
 
   type R = (typeof enrichedRows)[number]
   const accessors: Record<K, (r: R) => string | number | null | undefined> = {

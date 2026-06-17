@@ -11,6 +11,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtDate, maskEmail } from '../lib/format'
@@ -29,6 +30,7 @@ const SURFACE_COLOR: Record<(typeof SURFACES)[number], string> = {
 export function Office() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const users = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
@@ -37,7 +39,7 @@ export function Office() {
     const days = users.data?.days ?? []
     const daily = days.map((d) => {
       const row = { date: fmtDate(d.date), excel: 0, powerpoint: 0, word: 0, outlook: 0 }
-      for (const r of d.data) for (const s of SURFACES) row[s] += r.office_metrics[s].distinct_session_count
+      for (const r of d.data) { if (!inGroup(r.user.email_address)) continue; for (const s of SURFACES) row[s] += r.office_metrics[s].distinct_session_count }
       return row
     })
     const surfaceSessions: Record<(typeof SURFACES)[number], number> = {
@@ -48,6 +50,7 @@ export function Office() {
     let sessionsTotal = 0, messagesTotal = 0, skillsTotal = 0
     for (const d of days) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const email = r.user.email_address
         let userSessions = 0, userMessages = 0
         for (const s of SURFACES) {
@@ -73,7 +76,7 @@ export function Office() {
       activeUsers: activeEmails.size,
       sessionsTotal, messagesTotal, skillsTotal,
     }
-  }, [users.data])
+  }, [users.data, inGroup])
 
   if (users.loading) return <LoadingState />
   if (users.error) return <ErrorState error={users.error} />

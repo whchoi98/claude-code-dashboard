@@ -10,6 +10,7 @@ import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState } from '../components/LoadingState'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
@@ -22,6 +23,7 @@ const TOOLS = ['edit_tool', 'multi_edit_tool', 'write_tool', 'notebook_edit_tool
 export function ClaudeCode() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const { data, loading, error } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
@@ -42,6 +44,7 @@ export function ClaudeCode() {
 
     for (const d of days) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const cm = r.claude_code_metrics.core_metrics
         const email = r.user.email_address
         loc      += cm.lines_of_code.added_count
@@ -84,7 +87,7 @@ export function ClaudeCode() {
 
     return { loc, locRem, commits, prs, sessions, activeUsers: activeEmails.size, tools, topCreators,
              overallAccept: acceptRate(totalAccepted, totalRejected) }
-  }, [data])
+  }, [data, inGroup])
 
   if (loading) return <LoadingState />
   if (error) return <ErrorState error={error} />

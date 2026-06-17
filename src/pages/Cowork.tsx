@@ -11,6 +11,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, fmtDate, maskEmail } from '../lib/format'
@@ -30,6 +31,7 @@ const FE_KEYS = [
 export function Cowork() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const q = `?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const summaries = useFetch<SummariesResp>(`/api/analytics/summaries${q}`)
   const users = useFetch<RangeResp>(`/api/analytics/users/range${q}`)
@@ -51,6 +53,7 @@ export function Cowork() {
     const daily = days.map((d) => {
       let sessions = 0, messages = 0, actions = 0, dispatchTurns = 0
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const c = r.cowork_metrics
         sessions += c.distinct_session_count
         messages += c.message_count
@@ -70,6 +73,7 @@ export function Cowork() {
     let anyNonNull = false
     for (const d of days) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const c = r.cowork_metrics
         const email = r.user.email_address
         if (c.distinct_session_count > 0) activeEmails.add(email)
@@ -96,7 +100,7 @@ export function Cowork() {
       sessionsTotal, messagesTotal,
       feBars, feHasData: anyNonNull,
     }
-  }, [summaries.data, users.data])
+  }, [summaries.data, users.data, inGroup])
 
   if (summaries.loading || users.loading) return <LoadingState />
   if (summaries.error) return <ErrorState error={summaries.error} />
