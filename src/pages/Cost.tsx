@@ -151,6 +151,9 @@ type EfficiencyUser = {
   output_per_dollar: number | null
   tokens_per_loc: number | null
   economic_productivity_score: number
+  surface_scores?: { code: number; cowork: number; office: number; design: number }
+  productivity_index?: number
+  efficiency_raw?: number
 }
 
 type EfficiencyResp = {
@@ -162,7 +165,7 @@ type EfficiencyResp = {
     prompt_tokens: number; completion_tokens: number
     avg_cost_per_loc: number | null
     avg_cost_per_commit: number | null
-    value_units?: number
+    median_score?: number
   }
   users: EfficiencyUser[]
 }
@@ -829,7 +832,7 @@ function EconomicProductivitySection({ data, t, range }: {
           <KpiCard accent label={t('econ.kpi.score')}      value={topScore[0]?.economic_productivity_score ?? '—'}  hint={maskEmail(topScore[0]?.email ?? '')} />
           <KpiCard       label={t('econ.kpi.cost_loc')}    value={data.totals.avg_cost_per_loc != null ? `$${data.totals.avg_cost_per_loc.toFixed(4)}` : '—'}    hint="avg org" />
           <KpiCard       label={t('econ.kpi.cost_commit')} value={data.totals.avg_cost_per_commit != null ? fmtUsd(data.totals.avg_cost_per_commit) : '—'} hint="avg org" />
-          <KpiCard       label={t('econ.kpi.total_output')} value={fmtCompact(data.totals.value_units ?? 0)} hint={t('econ.kpi.total_output.hint')} />
+          <KpiCard       label={t('econ.kpi.total_output')} value={data.totals.median_score ?? '—'} hint={t('econ.kpi.total_output.hint')} />
         </div>
 
         <ChartCard title={t('econ.scatter')} subtitle={t('econ.scatter.sub')}>
