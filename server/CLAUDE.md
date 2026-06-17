@@ -25,7 +25,10 @@ fallback.
     reshaped via `analyticsReportsToCostResp`; also attaches `data_refreshed_at`,
     `by_cost_type` (tokens/web_search/code_execution), `by_token_type` +
     `token_tiers` (cache-hit ratio) from best-effort secondary `cost_report`
-    rollups + the usage body),
+    rollups + the usage body. **All four reports are paginated via
+    `fetchAllReportPages` — the API caps daily buckets at ~7/page, so a window
+    > 7 days MUST follow `has_more`/`next_page` or the total truncates to its
+    first week; fetching page 1 only was the v1.1.1 monthly-total bug.**),
     `/cost/users` (live per-user USD spend via `user_cost_report`, paginated,
     raw emails, sorted by `net_spend_usd` desc; no per-user token counts.
     **`?by=model`** → per-user × model breakdown (`users[].by_model[]`) for
@@ -37,6 +40,9 @@ fallback.
     to the CSV path when live data is empty/unavailable; response `source` is
     `"live+analytics"` or `"csv+analytics"`).
   - Pure exported helpers (unit-tested in `tests/server/`): `analyticsReportsToCostResp`,
+    `fetchAllReportPages(baseUrl, headers, fetchImpl?, maxPages?)` (paginates a report
+    by `has_more`/`next_page`, merges every page's `data[]`; injectable `fetchImpl`
+    for tests; never throws on network error → `{ ok:false }`),
     `aggregateAmountBy(body, field)` + `aggregateCostType`/`aggregateTokenTypeCost`,
     `aggregateTokenTiers(usageBody)` (cache-hit ratio from token subtype counts),
     `utcNextDay`, and `userCostToUsers(data, { byModel })` — ungrouped →
