@@ -15,6 +15,8 @@ src/
 │   ├── UserDetailPanel.tsx   # right-side slide-in (7-day drill-down)
 │   ├── DateRangeControl.tsx  # 7d/14d/30d/custom popover (maxEnd = today; footnote explains the Analytics 3-day partial-count buffer)
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
+│   ├── GroupControl.tsx      # sidebar group selector (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope
+│   ├── GroupScopeNote.tsx    # amber "group scope not applied — org-wide data" banner; self-hides when no group selected; on the 6 org pages
 │   ├── SortableTh.tsx        # ▲/▼ header cell — pairs with useSortable; click to sort, click again to flip
 │   ├── Markdown.tsx      # react-markdown@10 + remark-gfm for AI output
 │   └── chat/             # tool-use chatbot UI (shared by Analyze page + FloatingChat)
@@ -26,6 +28,8 @@ src/
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).
+│   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx
+│   ├── useGroupScope.ts  # reads GroupScopeProvider context + ?group= URL state → { group, setGroup, groups, hasMap, loading, inGroup, refetch }. inGroup(email): ''→all · UNMAPPED→not-in-map · else map[email_lower]===group
 │   ├── api.ts            # useFetch<T>(url) — single-URL fetch, exposes refetch + source/reason from response
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types
 │   ├── useHealth.ts
@@ -55,6 +59,7 @@ src/
 - **Bundling Markdown content**: pages can import `*.md` text into the bundle with Vite's `?raw` query (used by `Changelog.tsx` for `CHANGELOG.md`). When you do this, also remove the file from `.dockerignore` — the production Docker build runs `vite build` and the `?raw` import will fail to resolve otherwise.
 - **Save-as-PDF pattern**: tag the printable subtree with `.print-export` and any chrome inside it with `.print-hide`, then call `document.body.classList.add('app-print')` before `window.print()`. Listen for `afterprint` to clean up. Three pages (Analyze, Cost, Executive) share this one mechanism.
 - **Sortable tables**: any per-row statistics table should use `useSortable` (`src/lib/useSortable.ts`) + `<SortableTh>` (`src/components/SortableTh.tsx`) rather than rolling its own sort state. Pass an accessor map (`Record<K, (item) => string | number | null>`) and an `initialKey` / `initialDir`. The hook handles asc/desc toggle, pins `null` values to the bottom regardless of direction, and routes string columns through `localeCompare` (so Korean labels sort by Hangul order). Five tables already use this — reuse, don't reinvent.
+- **Group scope**: a global selector (`GroupControl` in the sidebar, URL-synced `?group=`) filters per-user pages to an admin-defined group. To scope a per-user page, call `const { inGroup } = useGroupScope()` and guard each per-user aggregation loop with `if (!inGroup(r.user.email_address)) continue` (add `inGroup` to that `useMemo`'s deps). With no group selected `inGroup` returns `true` for everyone (no-op), so default behavior is unchanged. The `/api/groups` map is fetched once by `GroupScopeProvider` (in `App.tsx`) — never re-fetch it per page. Org-level pages that can't honor the scope (no per-user dimension, or org-only aggregates like daily summaries / live cost) render `<GroupScopeNote />` after their `PageHeader` instead. Scoped: Users, UserProductivity, ClaudeCode, Cowork (per-user parts), Office, Design, Productivity, UserSearch. Note-only (org): Overview, Trends, Adoption, Executive, Cost, Compliance.
 
 ## Adding a page
 
