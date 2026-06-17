@@ -40,9 +40,8 @@ export function Office() {
       for (const r of d.data) for (const s of SURFACES) row[s] += r.office_metrics[s].distinct_session_count
       return row
     })
-    const surfaceTotals: Record<(typeof SURFACES)[number], { sessions: number; messages: number }> = {
-      excel: { sessions: 0, messages: 0 }, powerpoint: { sessions: 0, messages: 0 },
-      word: { sessions: 0, messages: 0 }, outlook: { sessions: 0, messages: 0 },
+    const surfaceSessions: Record<(typeof SURFACES)[number], number> = {
+      excel: 0, powerpoint: 0, word: 0, outlook: 0,
     }
     const byEmail = new Map<string, OfficeRow>()
     const activeEmails = new Set<string>()
@@ -53,8 +52,7 @@ export function Office() {
         let userSessions = 0, userMessages = 0
         for (const s of SURFACES) {
           const m = r.office_metrics[s]
-          surfaceTotals[s].sessions += m.distinct_session_count
-          surfaceTotals[s].messages += m.message_count
+          surfaceSessions[s] += m.distinct_session_count
           userSessions += m.distinct_session_count
           userMessages += m.message_count
           skillsTotal += m.skills_used_count
@@ -68,7 +66,7 @@ export function Office() {
         cur.messages += userMessages
       }
     }
-    const surfaceBars = SURFACES.map((s) => ({ surface: s, sessions: surfaceTotals[s].sessions }))
+    const surfaceBars = SURFACES.map((s) => ({ surface: s, sessions: surfaceSessions[s] }))
     return {
       daily, surfaceBars,
       users: Array.from(byEmail.values()),
