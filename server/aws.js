@@ -1410,3 +1410,23 @@ function parseCsv(text) {
   })
   return { columns, rows }
 }
+
+// Pure: parse an `email,group` CSV into a lookup map + sorted unique group list.
+// Emails are lowercased for case-insensitive matching. Rows missing either field
+// (or with empty values) are skipped; duplicate emails take the last row. Returns
+// { map:{}, groups:[] } when the CSV lacks the required columns or is empty.
+// Exported for unit tests; the upload route validates column presence separately.
+export function parseGroupMap(csvText) {
+  const { columns, rows } = parseCsv(String(csvText ?? ''))
+  if (!columns.includes('email') || !columns.includes('group')) return { map: {}, groups: [] }
+  const map = {}
+  const groupSet = new Set()
+  for (const r of rows) {
+    const email = String(r.email ?? '').trim().toLowerCase()
+    const group = String(r.group ?? '').trim()
+    if (!email || !group) continue
+    map[email] = group
+    groupSet.add(group)
+  }
+  return { map, groups: [...groupSet].sort() }
+}
