@@ -6,6 +6,7 @@ import { DateRangeControl } from '../components/DateRangeControl'
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import { useT } from '../lib/i18n'
@@ -24,6 +25,7 @@ type K = 'user' | 'messages' | 'sessions' | 'loc' | 'commits' | 'prs' | 'accept'
 export function Users() {
   const t = useT()
   const { range } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const { data, loading, error } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
@@ -38,6 +40,7 @@ export function Users() {
     const byEmail = new Map<string, Row>()
     for (const d of data?.days ?? []) {
       for (const r of d.data) {
+        if (!inGroup(r.user.email_address)) continue
         const cc = r.claude_code_metrics
         const ta = cc.tool_actions
         const email = r.user.email_address
@@ -60,7 +63,7 @@ export function Users() {
       }
     }
     return Array.from(byEmail.values()).map((u) => ({ ...u, accept: acceptRate(u.accepted, u.rejected) }))
-  }, [data])
+  }, [data, inGroup])
 
   const filtered = useMemo(() => {
     const f = q.trim().toLowerCase()
