@@ -42,14 +42,24 @@ const byEmail = (arr) => Object.fromEntries(arr.map((u) => [u.email, u]))
   ok('non-code surface user gets a non-zero score (surface-bias fix)', r.s.economic_productivity_score > 0)
 })()
 
-// Winsorized median-anchor stability: a whale barely moves a median user's value term.
+// Median-anchor stability: a whale barely moves a median user's value term.
+// (At this N the median anchor is the active mechanism — round-index winsorize
+//  only clips for N ≳ 19; both are intentional per the design.)
 ;(() => {
   const cohort = [10, 20, 30, 40, 50].map((v, i) => U({ email: `u${i}`, loc_added: v * 10, spend_usd: 10 })) // vpd = v
   const before = byEmail(scoreEconomicProductivity(cohort))
   const withWhale = byEmail(scoreEconomicProductivity([...cohort, U({ email: 'whale', loc_added: 100000, spend_usd: 10 })]))
   const med = before.u2.score_components.value // median user (vpd=30) ≈ 0.5
   ok('median user value term ≈ 0.5', Math.abs(med - 0.5) < 0.12)
-  ok('whale barely moves median user (winsorized + median-anchored)', Math.abs(withWhale.u2.score_components.value - med) < 0.1)
+  ok('whale barely moves median user (median-anchored)', Math.abs(withWhale.u2.score_components.value - med) < 0.1)
+})()
+
+// Score stays in [0,100] even with a partial weights override (sum ≠ 1).
+;(() => {
+  const top = U({ email: 't', loc_added: 100000, spend_usd: 1 })   // far above median → valueTerm 1.0
+  const low = U({ email: 'l', loc_added: 1, spend_usd: 1000 })
+  const r = byEmail(scoreEconomicProductivity([top, low], { weights: { value: 0.7 } })) // sum 0.7+0.25+0.12+0.08 = 1.15
+  ok('partial opts.weights cannot push score above 100', r.t.economic_productivity_score <= 100 && r.t.economic_productivity_score >= 0)
 })()
 
 // Edge cases

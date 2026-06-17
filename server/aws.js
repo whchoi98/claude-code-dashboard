@@ -286,7 +286,11 @@ export function scoreEconomicProductivity(joined, opts = {}) {
     return { u, value_units, vpd }
   })
 
-  // winsorize vpd at p5/p95, then anchor to the cohort median
+  // Robust normalization of vpd: anchor to the cohort MEDIAN (median = the
+  // primary outlier-resistance — a lone whale barely moves it), with p5/p95
+  // winsorization as a secondary clip. Note: the round-index percentile makes
+  // winsorize a no-op for small cohorts (N < ~19, where p5→idx0 / p95→idx(n-1));
+  // for typical small teams the median anchor alone carries the stability.
   const sorted = withVpd.map((x) => x.vpd).sort((a, b) => a - b)
   const pctl = (p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((p / 100) * (sorted.length - 1))))] : 0)
   const lo = pctl(5), hi = pctl(95)
@@ -307,9 +311,11 @@ export function scoreEconomicProductivity(joined, opts = {}) {
       (num(u.office_sessions) > 0 || num(u.office_messages) > 0 ? 1 : 0) +
       (num(u.design_sessions) > 0 || num(u.design_messages) > 0 ? 1 : 0)
     const breadthTerm = surfaces / 5
-    const economic_productivity_score = Math.round(100 * (
+    // clamp to [0,100] so a partial opts.weights override (sum ≠ 1) can never
+    // emit an out-of-range score; under default weights (sum 1.0) this is a no-op.
+    const economic_productivity_score = Math.max(0, Math.min(100, Math.round(100 * (
       C.weights.value * valueTerm + C.weights.acceptance * acceptanceTerm +
-      C.weights.delivery * deliveryTerm + C.weights.breadth * breadthTerm))
+      C.weights.delivery * deliveryTerm + C.weights.breadth * breadthTerm))))
     return {
       ...u,
       value_units: Number(value_units.toFixed(2)),
