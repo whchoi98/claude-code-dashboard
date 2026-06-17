@@ -92,8 +92,11 @@ export function UserSearch() {
     return q ? allUsers.filter((u) => u.toLowerCase().includes(q)) : allUsers
   }, [allUsers, search])
 
-  // Auto-pick the first user once data lands, so the page isn't empty on first visit
-  const activeEmail = selectedEmail || allUsers[0] || ''
+  // Auto-pick the first user once data lands, so the page isn't empty on first visit.
+  // If the selected user falls outside the active group scope (allUsers is already
+  // group-filtered), drop the stale selection so the detail panel can't show an
+  // out-of-group user while the dropdown reads blank.
+  const activeEmail = (selectedEmail && inGroup(selectedEmail) ? selectedEmail : '') || allUsers[0] || ''
 
   // Effective date window for the selected preset
   const effectiveRange = useMemo(() => {
