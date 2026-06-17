@@ -8,6 +8,7 @@ import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { useFetch } from '../lib/api'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useI18n, useT } from '../lib/i18n'
 import { fmtCompact, fmtNum, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
@@ -72,6 +73,7 @@ export function UserSearch() {
   const [search, setSearch] = useState('')
   const [rangePreset, setRangePreset] = useState<RangePreset>('7d')
   const [tab, setTab] = useState<Tab>('overview')
+  const { inGroup } = useGroupScope()
 
   const csv = useFetch<CsvResp>('/api/cost/csv')
   const RANGE_END = todayUtc(-3)
@@ -82,8 +84,8 @@ export function UserSearch() {
   // Build candidate user list from CSV
   const allUsers = useMemo(() => {
     if (!csv.data) return [] as string[]
-    return [...new Set(csv.data.rows.map((r) => r.user_email))].sort()
-  }, [csv.data])
+    return [...new Set(csv.data.rows.map((r) => r.user_email))].filter((e) => inGroup(e)).sort()
+  }, [csv.data, inGroup])
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()

@@ -10,6 +10,7 @@ import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState } from '../components/LoadingState'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope } from '../lib/useGroupScope'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, fmtDate, acceptRate } from '../lib/format'
 import type { UserRecord } from '../types'
@@ -35,6 +36,7 @@ const TARGETS = {
 export function Productivity() {
   const t = useT()
   const { range: dr } = useDateRange('7d')
+  const { inGroup } = useGroupScope()
   const range = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${dr.startingDate}&ending_date=${dr.endingDate}`,
   )
@@ -43,19 +45,20 @@ export function Productivity() {
     const days = range.data?.days ?? []
 
     const daily = days.map((d) => {
-      const active = d.data.filter((u) => u.claude_code_metrics.core_metrics.distinct_session_count > 0)
-      const loc = d.data.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.added_count, 0)
-      const locRem = d.data.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.removed_count, 0)
-      const commits = d.data.reduce((s, r) => s + r.claude_code_metrics.core_metrics.commit_count, 0)
-      const prs = d.data.reduce((s, r) => s + r.claude_code_metrics.core_metrics.pull_request_count, 0)
-      const sessions = d.data.reduce((s, r) => s + r.claude_code_metrics.core_metrics.distinct_session_count, 0)
+      const scoped = d.data.filter((u) => inGroup(u.user.email_address))
+      const active = scoped.filter((u) => u.claude_code_metrics.core_metrics.distinct_session_count > 0)
+      const loc = scoped.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.added_count, 0)
+      const locRem = scoped.reduce((s, r) => s + r.claude_code_metrics.core_metrics.lines_of_code.removed_count, 0)
+      const commits = scoped.reduce((s, r) => s + r.claude_code_metrics.core_metrics.commit_count, 0)
+      const prs = scoped.reduce((s, r) => s + r.claude_code_metrics.core_metrics.pull_request_count, 0)
+      const sessions = scoped.reduce((s, r) => s + r.claude_code_metrics.core_metrics.distinct_session_count, 0)
 
-      const accepted = d.data.reduce((s, r) => {
+      const accepted = scoped.reduce((s, r) => {
         const ta = r.claude_code_metrics.tool_actions
         return s + ta.edit_tool.accepted_count + ta.multi_edit_tool.accepted_count +
                ta.write_tool.accepted_count + ta.notebook_edit_tool.accepted_count
       }, 0)
-      const rejected = d.data.reduce((s, r) => {
+      const rejected = scoped.reduce((s, r) => {
         const ta = r.claude_code_metrics.tool_actions
         return s + ta.edit_tool.rejected_count + ta.multi_edit_tool.rejected_count +
                ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count
@@ -65,7 +68,7 @@ export function Productivity() {
       return {
         date: fmtDate(d.date),
         activeDevs: active.length,
-        totalUsers: d.data.length,
+        totalUsers: scoped.length,
         loc, locRem,
         commits, prs, sessions,
         accepted, rejected,
@@ -115,7 +118,7 @@ export function Productivity() {
       },
       score: Math.round(score * 100),
     }
-  }, [range.data])
+  }, [range.data, inGroup])
 
   if (range.loading) return <LoadingState />
   if (range.error) return <ErrorState error={range.error} />
