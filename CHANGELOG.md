@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [1.5.0] - 2026-06-17
+
+Group visibility — rollout to per-user pages.
+
+### Added
+
+- **Group scope across the dashboard.** The Foundation's group selector now scopes 7 more per-user pages — UserProductivity, ClaudeCode, Cowork, Office, Design, Productivity, and UserSearch — via the shared `useGroupScope().inGroup` predicate. The `/api/groups` mapping is now fetched once through a `GroupScopeProvider` context (instead of per page), so a single post-upload refetch refreshes every consumer and there's no duplicate request. Org-level pages that can't honor group scope (Overview, Trends, Adoption, Executive, Cost, Compliance) show a subtle "group scope not applied — org-wide data" note when a group is selected, so the selection is never silently ignored. (Cowork's DAU/WAU/MAU trend and adoption ratio come from org-level daily summaries and remain org-wide; full scoping of Cost/Executive and Compliance audit filtering is a later cycle.)
+
+### 추가
+
+- **대시보드 전반 그룹 스코프.** Foundation의 그룹 선택기가 공유 `useGroupScope().inGroup` 술어로 사용자 단위 7개 페이지(UserProductivity·ClaudeCode·Cowork·Office·Design·Productivity·UserSearch)를 추가로 스코프합니다. `/api/groups` 매핑은 이제 `GroupScopeProvider` 컨텍스트로 한 번만 fetch해(페이지별 중복 제거) 업로드 후 한 번의 refetch가 모든 소비자를 갱신합니다. 그룹 스코프가 적용되지 않는 org 단위 페이지(Overview·Trends·Adoption·Executive·Cost·Compliance)는 그룹 선택 시 "그룹 미적용 — 전사 데이터" 안내를 표시해 선택이 조용히 무시되지 않도록 합니다. (Cowork의 DAU/WAU/MAU 추세와 도입률은 org 단위 일별 요약에서 오므로 전사 기준으로 유지되며, Cost/Executive 전체 스코프와 Compliance 감사 필터는 다음 사이클입니다.)
+
 ## [1.4.0] - 2026-06-17
 
 Group visibility — Foundation (admin email→group mapping + global scope filter; Users pilot).
