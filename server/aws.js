@@ -1375,6 +1375,67 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     })
   })
 
+  // ── Group mapping (admin email→group CSV in S3) ─────────────────────────
+  // The Analytics API's rbac_group_id / claude_project_id group dimensions
+  // return HTTP 400 ("not yet supported") and user records carry no group
+  // field, so groups come from an admin-uploaded `email,group` CSV stored
+  // latest-wins at s3://<archive>/group-map/. Reuses the spend-report upload
+  // infra (uploadSingle multer wrapper, s3 client, parseCsv, parseGroupMap).
+  const GROUP_MAP_REQUIRED_COLUMNS = ['email', 'group']
+
+  // POST /api/groups/upload (multipart, field "file") — validate + store latest-wins.
+  router.post('/groups/upload', uploadSingle, async (req, res) => {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    if (!req.file) return res.status(400).json({ error: 'no_file', message: 'Attach a CSV file under field name "file".' })
+    try {
+      const body = req.file.buffer.toString('utf8')
+      const { columns } = parseCsv(body)
+      const missing = GROUP_MAP_REQUIRED_COLUMNS.filter((c) => !columns.includes(c))
+      if (missing.length) {
+        return res.status(400).json({
+          error: 'schema_mismatch',
+          message: `CSV is missing required columns: ${missing.join(', ')}`,
+          expected: GROUP_MAP_REQUIRED_COLUMNS, found: columns,
+        })
+      }
+      const { map, groups } = parseGroupMap(body)
+      if (groups.length === 0) {
+        return res.status(400).json({ error: 'empty_mapping', message: 'CSV has no valid email,group rows.' })
+      }
+      const d = new Date().toISOString().slice(0, 10)
+      const key = `group-map/group-map-${d}.csv`
+      await s3.send(new PutObjectCommand({
+        Bucket: BUCKET, Key: key, Body: req.file.buffer, ContentType: 'text/csv',
+        Metadata: { uploadedVia: 'dashboard', originalName: req.file.originalname.slice(0, 250) },
+      }))
+      res.json({ ok: true, file: key.split('/').pop(), rows: Object.keys(map).length, groups })
+    } catch (err) {
+      console.error('[groups/upload] error:', err?.message || err)
+      res.status(500).json({ error: 'upload_failed', message: err?.message || String(err) })
+    }
+  })
+
+  // GET /api/groups — latest mapping under group-map/ → { source, file, groups, map }.
+  // No mapping uploaded → { source:'empty', groups:[], map:{} } (200, not an error).
+  router.get('/groups', async (_req, res) => {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
+    try {
+      const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'group-map/' }))
+      const objects = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
+      if (objects.length === 0) return res.json({ source: 'empty', file: null, groups: [], map: {} })
+      const latest = objects.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))[0]
+      const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: latest.Key }))
+      const body = await obj.Body.transformToString()
+      const { map, groups } = parseGroupMap(body)
+      res.json({ source: 'live', file: latest.Key.split('/').pop(), groups, map })
+    } catch (err) {
+      console.error('[groups] error:', err?.message || err)
+      res.status(500).json({ error: 'groups_read_failed', message: err?.message || String(err) })
+    }
+  })
+
   app.use('/api', router)
 }
 
