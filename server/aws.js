@@ -257,49 +257,83 @@ export function utcNextDay(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
-// v2 "Value per Dollar" economic-productivity scorer. Pure + exported for unit
-// tests. Each raw signal lives in exactly ONE term (no double-counting): LOC +
-// surface output → value_per_dollar; commits/PRs → delivery; accepts →
-// acceptance; surfaces → breadth. value_per_dollar is the only cohort-relative
-// term, normalized winsorized + median-anchored (outlier-immune, not divide-by-max).
-export const ECON_V2_DEFAULTS = {
-  surface: { office: 2, coworkAction: 1, coworkFileEdit: 3, designProject: 4, designMessage: 1 },
-  churnDiscount: 0.5, spendFloor: 0.5, deliveryIdeal: 2.0, anchorFactor: 0.5,
+// v3 cost-efficiency scorer. Pure + exported for unit tests. Replaces v2's
+// arbitrary cross-surface multipliers with per-surface within-cohort normalization.
+// The value term is built in 5 passes:
+//   1. per-surface raw output (one metric/surface, no multipliers)
+//   2. normalize each surface within its OWN active cohort (winsorized
+//      median-anchor) → surface_scores ∈ [0,1]
+//   3. coverage-aware blend over ACTIVE surfaces → productivity_index ∈ [0,1]
+//   4. efficiency_raw = index / max(total$, floor)  (per-surface $ unavailable)
+//   5. normalize efficiency_raw across the cohort (median-anchor) → value_term
+// acceptance / delivery / breadth are unchanged from v2 (single-signal, absolute).
+export const ECON_V3_DEFAULTS = {
+  churnDiscount: 0.5,   // code_raw = loc_added − 0.5·loc_removed
+  spendFloor:    0.5,   // $ denominator floor
+  deliveryIdeal: 2.0,   // delivery = (commits+prs)/active_days / 2.0
+  anchorFactor:  0.5,   // median anchor → 0.5 in BOTH normalization passes
   weights: { value: 0.55, acceptance: 0.25, delivery: 0.12, breadth: 0.08 },
 }
 export function scoreEconomicProductivity(joined, opts = {}) {
   const C = {
-    ...ECON_V2_DEFAULTS, ...opts,
-    surface: { ...ECON_V2_DEFAULTS.surface, ...(opts.surface || {}) },
-    weights: { ...ECON_V2_DEFAULTS.weights, ...(opts.weights || {}) },
+    ...ECON_V3_DEFAULTS, ...opts,
+    weights: { ...ECON_V3_DEFAULTS.weights, ...(opts.weights || {}) },
   }
   const clamp01 = (x) => Math.max(0, Math.min(1, x))
   const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
 
-  const withVpd = joined.map((u) => {
-    const codeVU   = Math.max(0, num(u.loc_added) - C.churnDiscount * num(u.loc_removed))
-    const officeVU = C.surface.office * num(u.office_messages)
-    const coworkVU = C.surface.coworkAction * num(u.cowork_actions) + C.surface.coworkFileEdit * num(u.cowork_file_edits)
-    const designVU = C.surface.designProject * num(u.design_projects_created) + C.surface.designMessage * num(u.design_messages)
-    const value_units = codeVU + officeVU + coworkVU + designVU
-    const vpd = value_units / Math.max(num(u.spend_usd), C.spendFloor)
-    return { u, value_units, vpd }
+  // Winsorized median-anchor normalizer over a set of raw values. Returns a
+  // function raw → [0,1] mapping the cohort median to anchorFactor (0.5).
+  // Round-index percentiles make winsorize a no-op for N ≲ 19 (p5→idx0,
+  // p95→idx(n-1)); the median anchor carries small-cohort stability. A
+  // nonpositive median (e.g. all-zero cohort) yields a constant-0 normalizer.
+  const makeNormalizer = (values) => {
+    const sorted = [...values].sort((a, b) => a - b)
+    if (!sorted.length) return () => 0
+    const pctl = (p) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((p / 100) * (sorted.length - 1))))]
+    const lo = pctl(5), hi = pctl(95)
+    const wins = (x) => Math.max(lo, Math.min(hi, x))
+    const w = sorted.map(wins).sort((a, b) => a - b)
+    const median = w.length % 2 ? w[(w.length - 1) / 2] : (w[w.length / 2 - 1] + w[w.length / 2]) / 2
+    return (x) => (median > 0 ? clamp01(C.anchorFactor * wins(x) / median) : 0)
+  }
+
+  // Pass 1: one raw output metric per surface for every user (no multipliers).
+  const SURFACES = ['code', 'cowork', 'office', 'design']
+  const rawOf = (u) => ({
+    code:   Math.max(0, num(u.loc_added) - C.churnDiscount * num(u.loc_removed)),
+    cowork: num(u.cowork_actions),
+    office: num(u.office_messages),
+    design: num(u.design_messages),
+  })
+  const raws = joined.map(rawOf)
+
+  // Pass 2: one normalizer per surface, built from users ACTIVE in it (raw > 0).
+  const normBySurface = {}
+  for (const s of SURFACES) {
+    normBySurface[s] = makeNormalizer(raws.filter((r) => r[s] > 0).map((r) => r[s]))
+  }
+
+  // Passes 3-4: surface_scores, coverage-aware blend, efficiency_raw.
+  const withEff = joined.map((u, i) => {
+    const raw = raws[i]
+    const surface_scores = {}
+    let sum = 0, active = 0
+    for (const s of SURFACES) {
+      const score = raw[s] > 0 ? normBySurface[s](raw[s]) : 0
+      surface_scores[s] = score
+      if (raw[s] > 0) { sum += score; active += 1 }
+    }
+    const productivity_index = active > 0 ? sum / active : 0
+    const efficiency_raw = productivity_index / Math.max(num(u.spend_usd), C.spendFloor)
+    return { u, surface_scores, productivity_index, efficiency_raw }
   })
 
-  // Robust normalization of vpd: anchor to the cohort MEDIAN (median = the
-  // primary outlier-resistance — a lone whale barely moves it), with p5/p95
-  // winsorization as a secondary clip. Note: the round-index percentile makes
-  // winsorize a no-op for small cohorts (N < ~19, where p5→idx0 / p95→idx(n-1));
-  // for typical small teams the median anchor alone carries the stability.
-  const sorted = withVpd.map((x) => x.vpd).sort((a, b) => a - b)
-  const pctl = (p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((p / 100) * (sorted.length - 1))))] : 0)
-  const lo = pctl(5), hi = pctl(95)
-  const wins = (x) => Math.max(lo, Math.min(hi, x))
-  const w = withVpd.map((x) => wins(x.vpd)).sort((a, b) => a - b)
-  const median = w.length ? (w.length % 2 ? w[(w.length - 1) / 2] : (w[w.length / 2 - 1] + w[w.length / 2]) / 2) : 0
+  // Pass 5: normalize efficiency_raw across the whole cohort → value_term.
+  const valueNorm = makeNormalizer(withEff.map((x) => x.efficiency_raw))
 
-  return withVpd.map(({ u, value_units, vpd }) => {
-    const valueTerm = median > 0 ? clamp01(C.anchorFactor * wins(vpd) / median) : 0
+  return withEff.map(({ u, surface_scores, productivity_index, efficiency_raw }) => {
+    const valueTerm = valueNorm(efficiency_raw)
     const accTotal = num(u.tool_accepted) + num(u.tool_rejected)
     const acceptanceTerm = accTotal > 0 ? clamp01(num(u.tool_accepted) / accTotal) : 0
     const events = num(u.commits) + num(u.prs)
@@ -318,8 +352,14 @@ export function scoreEconomicProductivity(joined, opts = {}) {
       C.weights.delivery * deliveryTerm + C.weights.breadth * breadthTerm))))
     return {
       ...u,
-      value_units: Number(value_units.toFixed(2)),
-      value_per_dollar: Number(vpd.toFixed(2)),
+      surface_scores: {
+        code:   Number(surface_scores.code.toFixed(4)),
+        cowork: Number(surface_scores.cowork.toFixed(4)),
+        office: Number(surface_scores.office.toFixed(4)),
+        design: Number(surface_scores.design.toFixed(4)),
+      },
+      productivity_index: Number(productivity_index.toFixed(4)),
+      efficiency_raw: Number(efficiency_raw.toFixed(6)),
       score_components: {
         value: Number(valueTerm.toFixed(4)), acceptance: Number(acceptanceTerm.toFixed(4)),
         delivery: Number(deliveryTerm.toFixed(4)), breadth: Number(breadthTerm.toFixed(4)),
