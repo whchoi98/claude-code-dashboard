@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useGroupScopeData } from '../components/GroupScopeProvider'
+import { useGroupScopeData } from './GroupScopeProvider'
 
 /** Sentinel group value: users NOT present in the uploaded mapping. */
 export const UNMAPPED = '__unmapped__'

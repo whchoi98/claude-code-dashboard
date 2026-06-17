@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { GroupScopeProvider } from './components/GroupScopeProvider'
+import { GroupScopeProvider } from './lib/GroupScopeProvider'
 import { Overview } from './pages/Overview'
 import { Users } from './pages/Users'
 import { Trends } from './pages/Trends'
