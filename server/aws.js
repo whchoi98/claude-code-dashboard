@@ -257,6 +257,72 @@ export function utcNextDay(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
+// v2 "Value per Dollar" economic-productivity scorer. Pure + exported for unit
+// tests. Each raw signal lives in exactly ONE term (no double-counting): LOC +
+// surface output → value_per_dollar; commits/PRs → delivery; accepts →
+// acceptance; surfaces → breadth. value_per_dollar is the only cohort-relative
+// term, normalized winsorized + median-anchored (outlier-immune, not divide-by-max).
+export const ECON_V2_DEFAULTS = {
+  surface: { office: 2, coworkAction: 1, coworkFileEdit: 3, designProject: 4, designMessage: 1 },
+  churnDiscount: 0.5, spendFloor: 0.5, deliveryIdeal: 2.0, anchorFactor: 0.5,
+  weights: { value: 0.55, acceptance: 0.25, delivery: 0.12, breadth: 0.08 },
+}
+export function scoreEconomicProductivity(joined, opts = {}) {
+  const C = {
+    ...ECON_V2_DEFAULTS, ...opts,
+    surface: { ...ECON_V2_DEFAULTS.surface, ...(opts.surface || {}) },
+    weights: { ...ECON_V2_DEFAULTS.weights, ...(opts.weights || {}) },
+  }
+  const clamp01 = (x) => Math.max(0, Math.min(1, x))
+  const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+
+  const withVpd = joined.map((u) => {
+    const codeVU   = Math.max(0, num(u.loc_added) - C.churnDiscount * num(u.loc_removed))
+    const officeVU = C.surface.office * num(u.office_messages)
+    const coworkVU = C.surface.coworkAction * num(u.cowork_actions) + C.surface.coworkFileEdit * num(u.cowork_file_edits)
+    const designVU = C.surface.designProject * num(u.design_projects_created) + C.surface.designMessage * num(u.design_messages)
+    const value_units = codeVU + officeVU + coworkVU + designVU
+    const vpd = value_units / Math.max(num(u.spend_usd), C.spendFloor)
+    return { u, value_units, vpd }
+  })
+
+  // winsorize vpd at p5/p95, then anchor to the cohort median
+  const sorted = withVpd.map((x) => x.vpd).sort((a, b) => a - b)
+  const pctl = (p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((p / 100) * (sorted.length - 1))))] : 0)
+  const lo = pctl(5), hi = pctl(95)
+  const wins = (x) => Math.max(lo, Math.min(hi, x))
+  const w = withVpd.map((x) => wins(x.vpd)).sort((a, b) => a - b)
+  const median = w.length ? (w.length % 2 ? w[(w.length - 1) / 2] : (w[w.length / 2 - 1] + w[w.length / 2]) / 2) : 0
+
+  return withVpd.map(({ u, value_units, vpd }) => {
+    const valueTerm = median > 0 ? clamp01(C.anchorFactor * wins(vpd) / median) : 0
+    const accTotal = num(u.tool_accepted) + num(u.tool_rejected)
+    const acceptanceTerm = accTotal > 0 ? clamp01(num(u.tool_accepted) / accTotal) : 0
+    const events = num(u.commits) + num(u.prs)
+    const deliveryTerm = num(u.active_days) > 0 ? clamp01((events / num(u.active_days)) / C.deliveryIdeal) : 0
+    const surfaces =
+      (num(u.loc_added) > 0 || num(u.commits) > 0 || num(u.prs) > 0 || num(u.tool_accepted) > 0 ? 1 : 0) +
+      (num(u.messages) > 0 ? 1 : 0) +
+      (num(u.cowork_sessions) > 0 || num(u.cowork_actions) > 0 ? 1 : 0) +
+      (num(u.office_sessions) > 0 || num(u.office_messages) > 0 ? 1 : 0) +
+      (num(u.design_sessions) > 0 || num(u.design_messages) > 0 ? 1 : 0)
+    const breadthTerm = surfaces / 5
+    const economic_productivity_score = Math.round(100 * (
+      C.weights.value * valueTerm + C.weights.acceptance * acceptanceTerm +
+      C.weights.delivery * deliveryTerm + C.weights.breadth * breadthTerm))
+    return {
+      ...u,
+      value_units: Number(value_units.toFixed(2)),
+      value_per_dollar: Number(vpd.toFixed(2)),
+      score_components: {
+        value: Number(valueTerm.toFixed(4)), acceptance: Number(acceptanceTerm.toFixed(4)),
+        delivery: Number(deliveryTerm.toFixed(4)), breadth: Number(breadthTerm.toFixed(4)),
+      },
+      economic_productivity_score,
+    }
+  })
+}
+
 // Paginate an Analytics report (cost_report / usage_report) by following
 // has_more/next_page and merging every page's `data[]`. The API caps daily
 // buckets at ~7 per page, so a window > 7 days spans multiple pages — fetching
