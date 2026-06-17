@@ -71,7 +71,7 @@ In `src/pages/Users.tsx`, call `useGroupScope()` and apply `inGroup` in the per-
 - **`parseGroupMap`** unit test (`tests/server/test-group-map.mjs`): header detection, email/group trim + lowercase, skip blank/missing-field rows, dedup group names, empty input → `{ map:{}, groups:[] }`.
 - Frontend: `npx tsc --noEmit` + `npx vite build` (no frontend harness, per repo convention).
 - Full suite (`bash tests/run-all.sh`) green; the new server route is additive.
-- Version: **v1.3.0**.
+- Version: **v1.4.0** (v1.3.0 was taken by the cost-efficiency v3 release).
 
 ## 7. Out of scope (rollout / later)
 
