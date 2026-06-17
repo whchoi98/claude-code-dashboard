@@ -110,7 +110,6 @@ export function Cowork() {
         title={t('cowork.title')}
         subtitle={t('cowork.subtitle', { start: range.startingDate, end: range.endingDate, days: range.days })}
         source={source}
-        reason={summaries.reason}
         right={<DateRangeControl />}
       />
       <div className="p-8 space-y-6">
