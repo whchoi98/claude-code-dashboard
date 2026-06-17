@@ -329,11 +329,16 @@ export function scoreEconomicProductivity(joined, opts = {}) {
     return { u, surface_scores, productivity_index, efficiency_raw }
   })
 
-  // Pass 5: normalize efficiency_raw across the whole cohort → value_term.
-  const valueNorm = makeNormalizer(withEff.map((x) => x.efficiency_raw))
+  // Pass 5: normalize efficiency_raw within the ACTIVE subpopulation
+  // (efficiency_raw > 0), mirroring Pass 2's per-surface treatment. Anchoring
+  // over the whole cohort would let structurally-zero users — billed but with no
+  // code/cowork/office/design output (e.g. chat-only seats) — drag the median: a
+  // zero-dominated cohort would collapse every value term to 0, and a zero-skewed
+  // one would inflate active users. Zero-output users map straight to value 0.
+  const valueNorm = makeNormalizer(withEff.filter((x) => x.efficiency_raw > 0).map((x) => x.efficiency_raw))
 
   return withEff.map(({ u, surface_scores, productivity_index, efficiency_raw }) => {
-    const valueTerm = valueNorm(efficiency_raw)
+    const valueTerm = efficiency_raw > 0 ? valueNorm(efficiency_raw) : 0
     const accTotal = num(u.tool_accepted) + num(u.tool_rejected)
     const acceptanceTerm = accTotal > 0 ? clamp01(num(u.tool_accepted) / accTotal) : 0
     const events = num(u.commits) + num(u.prs)

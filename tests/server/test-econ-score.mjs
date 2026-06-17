@@ -116,5 +116,22 @@ const byEmail = (arr) => Object.fromEntries(arr.map((u) => [u.email, u]))
      Number.isFinite(rNull.nu.productivity_index) && Number.isFinite(rNull.nu.economic_productivity_score))
 })()
 
+// J) Idle billed users (positive spend, ZERO output on every surface) must not
+//    distort active users' value term — Pass 5 anchors on the ACTIVE subpopulation,
+//    not the whole cohort. Regression test for the v3 final-review Critical defect.
+;(() => {
+  const active = [100, 200, 300, 400, 500].map((loc, i) => U({ email: `a${i}`, loc_added: loc, spend_usd: 10 }))
+  const baseline = byEmail(scoreEconomicProductivity(active))           // no idle users
+  const idle = Array.from({ length: 30 }, (_, i) => U({ email: `idle${i}`, spend_usd: 5 }))
+  const withIdle = byEmail(scoreEconomicProductivity([...active, ...idle]))  // idle-majority cohort
+  ok('idle-majority cohort does NOT change an active user value term',
+     withIdle.a2.score_components.value === baseline.a2.score_components.value)
+  ok('idle-majority active user value term stays positive (not collapsed to 0)',
+     withIdle.a2.score_components.value > 0)
+  ok('idle billed user gets value term 0', withIdle.idle0.score_components.value === 0)
+  ok('idle billed user score ≤ a median active user score',
+     withIdle.idle0.economic_productivity_score <= withIdle.a2.economic_productivity_score)
+})()
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

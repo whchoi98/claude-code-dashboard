@@ -119,15 +119,15 @@ dollars. This is the same constraint v2 lived under and is called out in CLAUDE.
 
 ### Pass 5 — normalize efficiency within the cohort → value_term
 
-Apply the winsorized median-anchor a second time, now across **all users'** `efficiency_raw`:
+Apply the winsorized median-anchor a second time, now across the **active subpopulation's** `efficiency_raw` (users with `efficiency_raw > 0`), mirroring Pass 2's per-surface treatment. Anchoring over the whole cohort would let structurally-zero users — billed seats with no output on any of the four surfaces (e.g. chat-only users) — drag the median: a zero-dominated cohort would collapse every value term to 0, and a zero-skewed one would inflate active users. Zero-output users (`efficiency_raw = 0`) map straight to `value_term = 0`:
 
 ```
-value_term = median(efficiency_raw) > 0
-           ? clamp01(anchorFactor · wins(efficiency_raw) / median(efficiency_raw))
+value_term = median(active efficiency_raw) > 0
+           ? clamp01(anchorFactor · wins(efficiency_raw) / median(active efficiency_raw))
            : 0
 ```
 
-Median user → 0.5; a lone whale barely moves it. `value_term ∈ [0,1]` feeds the 0.55 weight.
+The median is taken over active users only (`efficiency_raw > 0`). Median active user → 0.5; a lone whale barely moves it. `value_term ∈ [0,1]` feeds the 0.55 weight.
 
 ## Unchanged terms (carried verbatim from v2)
 
