@@ -21,6 +21,8 @@ const NAV = [
   { to: '/trends',            key: 'trends',            badge: '📈' },
   { to: '/claude-code',       key: 'claude_code',       badge: '💻' },
   { to: '/cowork',            key: 'cowork',            badge: '🤝' },
+  { to: '/office',            key: 'office',            badge: '📑' },
+  { to: '/design',            key: 'design',            badge: '🎨' },
   { to: '/productivity',      key: 'productivity',      badge: '🎯' },
   { to: '/adoption',          key: 'adoption',          badge: '🌱' },
   { to: '/cost',              key: 'cost',              badge: '$' },

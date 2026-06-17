@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet — next entries land here._
 
+## [1.1.0] - 2026-06-17
+
+Office and Design surface pages.
+
+### Added
+
+- **Office page** (`/office`, nav 📑) — Claude usage across the Excel / PowerPoint / Word / Outlook surfaces: active users, sessions, messages, skills KPIs; usage-by-app bar; stacked daily engagement; top-users table. Reuses `/api/analytics/users/range` (no backend change). Shows an empty-state until Office adoption begins (gated on window total > 0).
+- **Design page** (`/design`, nav 🎨) — Claude Design surface activity: active users, sessions, messages, projects-created KPIs; daily engagement; projects used-vs-created trend; top-users table. Brand color `#4CA371`.
+
+### 추가
+
+- **Office 페이지** (`/office`, nav 📑) — Excel / PowerPoint / Word / Outlook surface 내 Claude 사용: 활성 사용자·세션·메시지·스킬 KPI, 앱별 사용량 막대, 일별 stacked 참여량, Top 사용자 테이블. `/api/analytics/users/range` 재사용(백엔드 무변경). Office 도입 전까지 empty-state(윈도우 합계>0 게이트).
+- **Design 페이지** (`/design`, nav 🎨) — Claude Design surface 활동: 활성 사용자·세션·메시지·생성 프로젝트 KPI, 일별 참여량, 사용 vs 생성 프로젝트 추세, Top 사용자 테이블. 브랜드색 `#4CA371`.
+
 ## [1.0.0] - 2026-06-17
 
 First stable release — dedicated Cowork analysis page.
