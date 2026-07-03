@@ -226,6 +226,9 @@ export function Cost() {
     groups: { group_id: string; label: string; spend_usd: number; requests: number }[]
     ungrouped: { spend_usd: number; requests: number }
     period: { starting_date: string; ending_date: string }
+    // true when the server served a last-good payload because the upstream
+    // rbac_group_id dimension is flapping (503 "not ready yet").
+    stale?: boolean
   }>(`/api/cost/groups?starting_date=${range.startingDate}&ending_date=${range.endingDate}`)
 
   // After a successful upload/delete, invalidate the live cost + efficiency
@@ -830,7 +833,14 @@ export function Cost() {
         {/* ── Spend by RBAC group ──────────────────────────────────────────
             Native group attribution from cost_report × rbac_group_id (shipped
             upstream 2026-07). Labels are grp-<id suffix>; real names need a
-            read:rbac_groups-scoped key (subtitle says so). */}
+            read:rbac_groups-scoped key (subtitle says so). The dimension
+            FLAPS upstream (503 "not ready yet") — on error show an
+            explanatory note instead of silently omitting the card. */}
+        {dataSource === 'live' && groupCost.error && (
+          <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500 print-hide">
+            {t('cost.groups.unavailable')}
+          </div>
+        )}
         {dataSource === 'live' && (groupCost.data?.groups?.length ?? 0) > 0 && (() => {
           const gs = groupCost.data!.groups
           const ung = groupCost.data!.ungrouped
@@ -841,7 +851,12 @@ export function Cost() {
             share: total > 0 ? g.spend_usd / total : 0,
           }))
           return (
-            <ChartCard title={t('cost.groups.title')} subtitle={t('cost.groups.sub')}>
+            <ChartCard
+              title={t('cost.groups.title')}
+              subtitle={groupCost.data!.stale
+                ? `${t('cost.groups.sub')} · ${t('cost.groups.stale')}`
+                : t('cost.groups.sub')}
+            >
               <ResponsiveContainer width="100%" height={Math.max(160, gs.length * 40 + 56)}>
                 <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="2 4" horizontal={false} />

@@ -1066,6 +1066,25 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   })
 
+  // The upstream rbac_group_id dimension FLAPS: it intermittently returns
+  // 503 overloaded_error "Team membership data is not ready yet; RBAC group
+  // breakdowns and filters are temporarily unavailable" (observed live
+  // 2026-07-03 — worked in the morning, 503 in the afternoon). Last-good
+  // responses are kept per window key so a flap serves the most recent
+  // successful payload (`stale: true`) instead of blanking the group card.
+  const groupLastGood = new Map()
+  const GROUP_LAST_GOOD_CAP = 20
+  function rememberGroupResult(key, payload) {
+    groupLastGood.delete(key)                       // refresh insertion order
+    groupLastGood.set(key, payload)
+    if (groupLastGood.size > GROUP_LAST_GOOD_CAP) {
+      groupLastGood.delete(groupLastGood.keys().next().value)  // evict oldest
+    }
+  }
+  const isRbacUnavailable = (body) =>
+    body?.error?.type === 'overloaded_error' ||
+    /RBAC group breakdowns .* temporarily unavailable|Team membership data is not ready/i.test(body?.error?.message || '')
+
   // GET /api/cost/groups — org spend by RBAC group over the selected range.
   // cost_report × rbac_group_id shipped upstream (probed 2026-07-03; was 400
   // "not yet supported" before). Groups are labeled grp-<id suffix> because
@@ -1076,10 +1095,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     if (!ANALYTICS_KEY) {
       return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY is required for group cost.' })
     }
+    const { starting, ending } = resolveUserCostWindow({
+      starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+    })
+    const cacheKey = `cost/groups:${starting}:${ending}`
     try {
-      const { starting, ending } = resolveUserCostWindow({
-        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
-      })
       const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
       const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
       const params = new URLSearchParams({
@@ -1091,16 +1111,27 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
       )
       if (!r.ok) {
+        const stale = groupLastGood.get(cacheKey)
+        if (stale) {
+          console.warn(`[cost/groups] upstream ${r.status}; serving last-good for ${cacheKey}`)
+          return res.json({ ...stale, stale: true })
+        }
+        if (isRbacUnavailable(r.body)) {
+          return res.status(503).json({ error: 'rbac_groups_unavailable', message: r.body?.error?.message || 'RBAC group data temporarily unavailable upstream.' })
+        }
         return res.status(502).json({ error: 'upstream_error', message: `cost_report(rbac_group_id) ${r.status}`, upstream: r.body })
       }
-      const out = aggregateGroupCost(r.body)
-      res.json({
+      const out = {
         source: 'live',
         period: { starting_date: starting, ending_date: ending },
         data_refreshed_at: r.body.data_refreshed_at ?? null,
-        ...out,
-      })
+        ...aggregateGroupCost(r.body),
+      }
+      rememberGroupResult(cacheKey, out)
+      res.json(out)
     } catch (err) {
+      const stale = groupLastGood.get(cacheKey)
+      if (stale) return res.json({ ...stale, stale: true })
       res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
     }
   })
@@ -1609,12 +1640,21 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           const live = await fetchUserCostReport({ groupBy: 'rbac_group_id' })
           const derived = deriveGroupMap(live.data)
           if (derived.groups.length > 0) {
-            return res.json({
+            const out = {
               source: 'auto', file: null, period: live.period,
               groups: derived.groups, map: derived.map, group_ids: derived.ids,
-            })
+            }
+            rememberGroupResult('groups:auto', out)
+            return res.json(out)
           }
         } catch (err) {
+          // rbac_group_id flaps upstream (503 "Team membership data is not
+          // ready yet") — serve the last successful derivation if we have one.
+          const stale = groupLastGood.get('groups:auto')
+          if (stale) {
+            console.warn('[groups] auto-derive upstream failure; serving last-good map:', err?.message || err)
+            return res.json({ ...stale, stale: true })
+          }
           console.warn('[groups] auto-derive unavailable, falling back to empty:', err?.message || err)
         }
         return res.json({ source: 'empty', file: null, groups: [], map: {} })
