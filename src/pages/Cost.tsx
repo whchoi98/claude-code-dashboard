@@ -216,9 +216,17 @@ export function Cost() {
   const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const eff = useFetch<EfficiencyResp>(effUrl)
   // Per-user × model spend (chargeback) — wires the /cost/users route with by=model.
-  const usersByModel = useFetch<{ users: { email: string; net_spend_usd: number; by_model: { model: string; spend_usd: number; requests: number }[] }[] }>(
+  // Also the source of the Top-10 cost table (full-range spend; see liveUserRows).
+  const usersByModel = useFetch<{ users: { email: string; net_spend_usd: number; requests: number; by_model: { model: string; spend_usd: number; requests: number }[] }[] }>(
     `/api/cost/users?by=model&starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
+  // Spend by RBAC group (native Analytics attribution; labels are grp-<id
+  // suffix> until a read:rbac_groups key exists for name resolution).
+  const groupCost = useFetch<{
+    groups: { group_id: string; label: string; spend_usd: number; requests: number }[]
+    ungrouped: { spend_usd: number; requests: number }
+    period: { starting_date: string; ending_date: string }
+  }>(`/api/cost/groups?starting_date=${range.startingDate}&ending_date=${range.endingDate}`)
 
   // After a successful upload/delete, invalidate the live cost + efficiency
   // queries that depend on the S3 spend-reports/ prefix.
@@ -348,6 +356,26 @@ export function Cost() {
     }))
   }, [eff.data])
 
+  // Live per-user spend over the FULL selected range, reusing the
+  // usersByModel fetch (user_cost_report serves the 3-day buffer with partial
+  // data, so this matches the headline KPI window exactly). This — not
+  // /cost/efficiency — feeds the Top-10 cost table: the efficiency route
+  // deliberately clamps to today-3 to keep its spend÷productivity ratios
+  // window-aligned with users/range, which would leave this table 3 days
+  // short of the headline.
+  const liveUserRows = useMemo(() => {
+    if (!usersByModel.data?.users?.length) return null
+    return usersByModel.data.users.map((u) => ({
+      email: u.email,
+      masked: maskEmail(u.email),
+      spend: u.net_spend_usd,
+      input: 0, output: 0, total_tokens: 0,   // user_cost_report is cost-only
+      requests: u.requests ?? 0,
+      products: 0,
+      models: u.by_model.length,
+    }))
+  }, [usersByModel.data])
+
   const csvUserRows = useMemo(() => {
     if (!csvData?.rows?.length) return null
     const byUser = new Map<string, { spend: number; input: number; output: number; requests: number; products: Set<string>; models: Set<string> }>()
@@ -419,16 +447,22 @@ export function Cost() {
   }
 
   // Per-user SPEND table preference order:
-  //   1. eff.data.users — live user_cost_report spend (live mode) or CSV-derived
-  //      spend+productivity (CSV mode), range-aware
-  //   2. csvUserRows (raw CSV totals) when eff is loading / returns no users
-  //   3. agg.userRows (live cost rows; user_email empty in live mode → unused)
-  const userRowsForTop = effUserRows ?? csvUserRows ?? agg.userRows
+  //   1. liveUserRows — user_cost_report over the FULL selected range
+  //      (same window as the headline KPIs, buffer days included)
+  //   2. eff.data.users — live spend clamped to today-3 (window-aligned with
+  //      the productivity join) or CSV-derived scaled spend in CSV mode
+  //   3. csvUserRows (raw CSV totals) when eff is loading / returns no users
+  //   4. agg.userRows (live cost rows; user_email empty in live mode → unused)
+  const userRowsForTop = liveUserRows ?? effUserRows ?? csvUserRows ?? agg.userRows
   // Per-user TOKEN counts exist ONLY from a CSV (user_cost_report is cost-only).
-  // The token-ranked tables must come from a token-bearing set — NOT from the
-  // live spend rows (whose token fields are 0), otherwise uploading a CSV for
-  // token detail while spend is live would show all-zero token tables.
-  const tokenRows = csvUserRows ?? (eff.data?.source?.includes('csv') ? effUserRows : null)
+  // In CSV mode prefer eff's rows: their range_* token fields are scaled to the
+  // selected date range by activity weighting, while raw csvUserRows are
+  // whole-CSV-period totals that ignore the range (the old ordering made the
+  // token Top-10 tables range-blind even when scaled values existed). In live
+  // mode csvUserRows are the only token-bearing set — tokens_csv_caveat below
+  // labels them. Never source tokens from the live spend rows (token fields 0):
+  // that would render all-zero token tables.
+  const tokenRows = (eff.data?.source?.includes('csv') ? effUserRows : null) ?? csvUserRows
   const hasPerUserTokens = !!(tokenRows && tokenRows.length > 0 && tokenRows[0].email !== '')
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
   const topInput  = [...(tokenRows ?? [])].sort((a, b) => b.input - a.input).slice(0, 10)
@@ -706,7 +740,15 @@ export function Cost() {
             tokens (CSV only) — see hasPerUserTokens gating below. */}
         {userRowsForTop && userRowsForTop.length > 0 && userRowsForTop[0].email !== '' && (
           <div>
-            {effUserRows && csvData?.period && (
+            {/* Caveats state exactly where each table's numbers come from:
+                - live spend (liveUserRows or eff live+analytics) → cost table
+                  is range-exact live; the token tables (if a CSV exists) are
+                  whole-CSV-period totals that do NOT follow the range.
+                - eff source csv+analytics → spend AND tokens are activity-
+                  scaled from the CSV period to the selected range.
+                The old single range_caveat mislabeled live spend as
+                "scaled CSV data" and showed the CSV period for it. */}
+            {!liveUserRows && effUserRows && eff.data?.source === 'csv+analytics' && csvData?.period && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">
                 {t('cost.top.range_caveat', {
                   start: csvData.period.starting_date,
@@ -714,7 +756,15 @@ export function Cost() {
                 })}
               </p>
             )}
-            {!effUserRows && csvUserRows && dataSource === 'live' && csvData?.period && (
+            {(liveUserRows || eff.data?.source === 'live+analytics') && hasPerUserTokens && csvData?.period && (
+              <p className="text-[11px] text-ink-400 mb-2 px-1">
+                {t('cost.top.tokens_csv_caveat', {
+                  start: csvData.period.starting_date,
+                  end:   csvData.period.ending_date,
+                })}
+              </p>
+            )}
+            {!liveUserRows && !effUserRows && csvUserRows && dataSource === 'live' && csvData?.period && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">
                 {t('cost.top.csv_caveat', {
                   start: csvData.period.starting_date,
@@ -773,6 +823,47 @@ export function Cost() {
                   ))}
                 </BarChart>
               </ResponsiveContainer>
+            </ChartCard>
+          )
+        })()}
+
+        {/* ── Spend by RBAC group ──────────────────────────────────────────
+            Native group attribution from cost_report × rbac_group_id (shipped
+            upstream 2026-07). Labels are grp-<id suffix>; real names need a
+            read:rbac_groups-scoped key (subtitle says so). */}
+        {dataSource === 'live' && (groupCost.data?.groups?.length ?? 0) > 0 && (() => {
+          const gs = groupCost.data!.groups
+          const ung = groupCost.data!.ungrouped
+          const total = gs.reduce((s, g) => s + g.spend_usd, 0) + ung.spend_usd
+          const chartData = gs.map((g) => ({
+            name: g.label,
+            spend: g.spend_usd,
+            share: total > 0 ? g.spend_usd / total : 0,
+          }))
+          return (
+            <ChartCard title={t('cost.groups.title')} subtitle={t('cost.groups.sub')}>
+              <ResponsiveContainer width="100%" height={Math.max(160, gs.length * 40 + 56)}>
+                <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="2 4" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(v: number) => fmtUsd(v)} />
+                  <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => fmtUsd(v)} />
+                  <Bar dataKey="spend" fill="#D97757" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="px-4 pb-2 space-y-0.5">
+                {chartData.map((g) => (
+                  <div key={g.name} className="flex items-center justify-between text-[11px] text-ink-500">
+                    <span>{g.name}</span>
+                    <span className="tabular-nums">{fmtUsd(g.spend)} · {fmtPct(g.share)}</span>
+                  </div>
+                ))}
+                {ung.spend_usd > 0 && (
+                  <p className="text-[11px] text-ink-400 pt-1">
+                    {t('cost.groups.ungrouped', { usd: fmtUsd(ung.spend_usd) })}
+                  </p>
+                )}
+              </div>
             </ChartCard>
           )
         })()}

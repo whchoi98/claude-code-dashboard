@@ -15,6 +15,10 @@ fallback.
   (`cache` Map, `TTL_MS = 600_000`). Schedules a **compliance prewarm** at
   task startup + every 5 minutes for the 7d / 14d / 30d windows so the
   audit page hits the cache instead of paginating the live API.
+  `COMPLIANCE_KEY` falls back to the Analytics key (its scopes include
+  `read:compliance_activities`, verified live 2026-07-03) — the dedicated
+  `ccd/compliance-key` secret is optional; `/api/health` reports which is
+  active (`compliance` / `analytics-fallback` / `none`).
 - **`inflate.js`** — pure read-side helper `inflateUser()`: a flattened NDJSON
   row (written by `collector/flatten.js`) → nested Analytics-API user shape.
   Imported by `index.js` `readUsersFromS3`; unit-tested in
@@ -33,6 +37,9 @@ fallback.
     raw emails, sorted by `net_spend_usd` desc; no per-user token counts.
     **`?by=model`** → per-user × model breakdown (`users[].by_model[]`) for
     chargeback),
+    `/cost/groups` (org spend by **RBAC group** — `cost_report` ×
+    `rbac_group_id`, reshaped via `aggregateGroupCost`; labels `grp-<id
+    suffix>` because id→name needs a `read:rbac_groups` key),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (live-first: queries `user_cost_report` for the exact
     range via `fetchUserCostReport`, joins on `email` with `users/range`
@@ -45,15 +52,29 @@ fallback.
     for tests; never throws on network error → `{ ok:false }`),
     `aggregateAmountBy(body, field)` + `aggregateCostType`/`aggregateTokenTypeCost`,
     `aggregateTokenTiers(usageBody)` (cache-hit ratio from token subtype counts),
-    `utcNextDay`, and `userCostToUsers(data, { byModel })` — ungrouped →
+    `utcNextDay`, `resolveUserCostWindow({ starting_date, ending_date }, now?)`
+    (window guard for `user_cost_report`: ending clamps to **today** only —
+    NOT today−3; see the buffer note below — and an inverted pair pins
+    starting to ending), and `userCostToUsers(data, { byModel })` — ungrouped →
     `{ email, user_id, name, deleted, net_spend_usd, gross_spend_usd, requests }`;
     `byModel` → per-email `{ email, …, net_spend_usd, requests, by_model[] }`.
     Excludes `api_actor` rows (no email).
   - Closure helper inside `registerAwsRoutes`: `fetchUserCostReport({
-    starting_date, ending_date, groupByModel })` — paginates `user_cost_report`
-    (up to 50 pages; `groupByModel` appends `group_by[]=model`), clamps ending to
-    `today − 3` (exclusive `ending_at` via `utcNextDay`), returns
-    `{ data, period, data_refreshed_at }`.
+    starting_date, ending_date, groupBy })` — paginates `user_cost_report`
+    (up to 50 pages; `groupBy` appends `group_by[]=<dim>`: `'model'` for
+    chargeback, `'rbac_group_id'` for group-map derivation), resolves its
+    window via `resolveUserCostWindow` (exclusive `ending_at` via `utcNextDay`;
+    **the upstream cost family caps spans at 31 days** — defaults are
+    `[today−30, today]`, longer selections 400→502→CSV fallback),
+    returns `{ data, period, data_refreshed_at }`.
+  - Group helpers (pure, tested in `tests/server/test-group-cost.mjs`):
+    `labelGroupIds(ids)` (`grp-<last-6>` labels, collision-extended),
+    `aggregateGroupCost(costBody)` (per-group totals + daily; null group id =
+    genuinely-ungrouped remainder, accumulated not dropped),
+    `deriveGroupMap(data)` (user_cost_report×rbac_group_id → email→label map,
+    max-spend group per email, + `ids` label→group_id lookup). `GET /groups`
+    serves the admin CSV when uploaded, else **auto-derives** the map this way
+    (`source:'auto'`; works without `ARCHIVE_S3_BUCKET`).
   - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
     `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
     `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,
@@ -88,15 +109,23 @@ fallback.
   - Compliance `/v1/compliance/activities`: **`?after_id=<last_event_id>`**
     derived from `data[-1].id`. The endpoint does NOT return `next_page`;
     relying on it silently breaks pagination after page 1.
-- **Analytics dates must be clamped to today-3 before hitting upstream**.
-  The Analytics + Admin APIs return HTTP 400 ("Data is not yet available")
-  for any date inside the 3-day finalization buffer. The DateRangeControl
-  picker allows today as the end date by design (the UTC/daily-refresh
-  footnote spells out the partial-count caveat), so the proxy clamps
-  every `ending_date` and `starting_date` it forwards via
-  `clampAnalyticsEnd(raw)`. Use this helper on every new Analytics-family
-  endpoint — bypassing it surfaces the upstream 400 to the user as a
-  `mock` source-badge with the full error message in `reason`.
+- **Analytics *usage/engagement* dates must be clamped to today-3 before
+  hitting upstream — but the *cost* endpoints must NOT be**. The Analytics
+  engagement endpoints (`users`, `users/range`, `summaries`, …) and the
+  Admin API return HTTP 400 ("Data is not yet available") for any date
+  inside the 3-day finalization buffer, so the proxy clamps every
+  `ending_date`/`starting_date` it forwards via `clampAnalyticsEnd(raw)` —
+  use it on every new endpoint of that family. The **cost family**
+  (`cost_report`, `usage_report`, `user_cost_report`) serves those buffer
+  days with *partial* data instead (verified live 2026-07-03), so clamping
+  them makes the per-user tables cover fewer days than the headline KPIs —
+  the 2026-07 Cost-page inaccuracy bug. Cost windows go through
+  `resolveUserCostWindow` (ending ≤ today, never inverted) instead.
+  **One deliberate exception**: `/cost/efficiency` clamps its whole window
+  to today−3 — its metrics are spend ÷ productivity ratios and the
+  `users/range` productivity side is buffer-clamped, so mismatched windows
+  would inflate $/LOC and skew the econ score. Headline-consistent
+  full-range per-user spend lives in `/cost/users`.
   Compliance endpoints stay un-clamped (they're real-time).
 - **Self-call URL params must be `encodeURIComponent`'d** before
   interpolation — `req.query`-derived dates flow into upstream URLs and

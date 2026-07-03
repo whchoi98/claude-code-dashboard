@@ -207,7 +207,7 @@ Per-user USD spend for the requested period. Paginated via `?page=` token (same 
 | Parameter | Type | Notes |
 |---|---|---|
 | `starting_at` | string (RFC 3339) | Start of the window, e.g. `2026-05-08T00:00:00Z` |
-| `ending_at` | string (RFC 3339) | End of the window (must be `≤ today − 3`). |
+| `ending_at` | string (RFC 3339) | End of the window (exclusive). Serves the 3-day finalization buffer with **partial** data — same semantics as `cost_report` (verified live 2026-07-03; the endpoint previously rejected buffer dates). `starting_at` must be strictly before `ending_at` or the API returns 400. |
 | `limit` | number | Max results per page (up to 1000). |
 | `page` | string | Pagination cursor returned in `body.next_page`. |
 

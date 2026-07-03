@@ -28,7 +28,7 @@ src/
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).
-│   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx
+│   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx. Accepts source 'live' (admin CSV) AND 'auto' (server-derived from user_cost_report×rbac_group_id, labels grp-<id suffix>) — both light up the sidebar selector
 │   ├── useGroupScope.ts  # reads GroupScopeProvider context + ?group= URL state → { group, setGroup, groups, hasMap, loading, inGroup, refetch }. inGroup(email): ''→all · UNMAPPED→not-in-map · else map[email_lower]===group
 │   ├── api.ts            # useFetch<T>(url) — single-URL fetch, exposes refetch + source/reason from response
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types
@@ -39,10 +39,17 @@ src/
 │ Page-local hooks (not in lib/ — kept colocated with the consumer page):
 │   - useCostData(range)  # composite: tries /api/cost/live first, falls back to /api/cost/csv;
 │                         # exposes csvData separately so per-user token tables can use CSV in live mode.
-│                         # Since v0.8.0 the per-user "Top by Cost" table + distinct_users KPI are live
-│                         # (sourced from /api/cost/efficiency source=live+analytics); the 3 token-ranked
-│                         # Top tables render only when per-user tokens exist (CSV path, source=csv+analytics).
+│                         # The per-user "Top by Cost" table is live and covers the SAME window as the
+│                         # headline KPIs: it sources liveUserRows from /api/cost/users?by=model (full
+│                         # range — user_cost_report serves the 3-day buffer), falling back to
+│                         # /api/cost/efficiency rows (today−3-aligned with the productivity join) then
+│                         # CSV. The 3 token-ranked Top tables need per-user tokens (CSV only): in
+│                         # csv+analytics mode they use eff's activity-scaled range_* values; in live
+│                         # mode they fall back to whole-CSV-period totals labeled by tokens_csv_caveat.
 │                         # A cost.top.live_caveat note shows in live-only mode explaining the token gap.
+│                         # The Cost page also renders a "Cost by Group" card from /api/cost/groups
+│                         # (native rbac_group_id attribution; labels grp-<id suffix> until a
+│                         # read:rbac_groups key exists for name resolution).
 ├── types.ts              # Analytics API schema types
 ├── App.tsx / main.tsx
 └── index.css             # Tailwind entry + custom utilities + the generic `@media print` block (visibility-based isolation of `.print-export`, `.print-hide` opt-out, auto-expanded `<details>`) used by Analyze/Cost/Executive

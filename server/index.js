@@ -20,7 +20,12 @@ const ADMIN_KEY = process.env.ANTHROPIC_ADMIN_KEY_ADMIN || (
     ? process.env.ANTHROPIC_ADMIN_KEY
     : null
 )
-const COMPLIANCE_KEY = process.env.ANTHROPIC_COMPLIANCE_KEY || null
+// The Analytics key carries read:compliance_activities (+ the compliance
+// org/user-data read scopes) — verified live against /v1/compliance/activities
+// on 2026-07-03 — so a dedicated Compliance key is optional: fall back to the
+// Analytics key when ANTHROPIC_COMPLIANCE_KEY is absent. The dedicated key's
+// only extra scope (delete:compliance_user_data) is never used here.
+const COMPLIANCE_KEY = process.env.ANTHROPIC_COMPLIANCE_KEY || process.env.ANTHROPIC_ANALYTICS_KEY || null
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
 const UA = 'ClaudeCodeDashboard/0.1.0 (+https://github.com/whchoi98/claude-code-dashboard)'
@@ -114,7 +119,11 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     analyticsKey: keyClass(ANALYTICS_KEY),
     adminKey: keyClass(ADMIN_KEY),
-    complianceKey: COMPLIANCE_KEY ? 'compliance' : 'none',
+    // 'compliance' = dedicated key · 'analytics-fallback' = riding the
+    // Analytics key's read:compliance_activities scope · 'none' = audit off.
+    complianceKey: process.env.ANTHROPIC_COMPLIANCE_KEY
+      ? 'compliance'
+      : COMPLIANCE_KEY ? 'analytics-fallback' : 'none',
     apiUrl: API_URL,
     apiVersion: API_VERSION,
     dataConstraints: {

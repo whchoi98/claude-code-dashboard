@@ -1,6 +1,6 @@
 // Standalone ESM test for userCostToUsers (server/aws.js).
 // Runs with: node tests/server/test-user-cost.mjs — exit 0 on success, 1 on failure.
-import { userCostToUsers, utcNextDay } from '../../server/aws.js'
+import { userCostToUsers, utcNextDay, resolveUserCostWindow } from '../../server/aws.js'
 
 let n = 0, failed = 0
 const ok = (name, cond) => { n++; console.log(`${cond ? 'ok' : 'not ok'} ${n} - ${name}`); if (!cond) failed++ }
@@ -44,6 +44,28 @@ ok('byModel: aggregates per email (api_actor excluded)', bm.length === 2)
 ok('byModel: net_spend summed per email ($4000)', Math.abs(bm[0].net_spend_usd - 4000) < 1e-6 && bm[0].requests === 15)
 ok('byModel: by_model sorted desc (opus $3000 first)', bm[0].by_model[0].model === 'claude-opus-4-8' && Math.abs(bm[0].by_model[0].spend_usd - 3000) < 1e-6 && bm[0].by_model.length === 2)
 ok('byModel=false unchanged (gross_spend present)', userCostToUsers([{ actor: { email: 'x@y.com' }, amount: '200' }])[0].gross_spend_usd === 2)
+
+// resolveUserCostWindow — user_cost_report serves the recent 3-day buffer
+// (partial data, same as cost_report), so the window must NOT be clamped to
+// today-3 anymore; that clamp cut the last 3 days out of every per-user
+// table while the org-wide headline included them, and (with `starting`
+// left unclamped) inverted fully-recent ranges into upstream 400s.
+const NOW = new Date('2026-07-03T12:00:00Z')
+const w1 = resolveUserCostWindow({ starting_date: '2026-06-27', ending_date: '2026-07-03' }, NOW)
+ok('window: ending inside 3-day buffer passes through un-clamped',
+   w1.starting === '2026-06-27' && w1.ending === '2026-07-03')
+const w2 = resolveUserCostWindow({ starting_date: '2026-07-02', ending_date: '2026-07-03' }, NOW)
+ok('window: fully-recent range no longer inverts (starting ≤ ending)',
+   w2.starting === '2026-07-02' && w2.ending === '2026-07-03')
+const w3 = resolveUserCostWindow({ starting_date: '2026-07-03', ending_date: '2026-08-01' }, NOW)
+ok('window: future ending clamps to today, starting follows (never inverted)',
+   w3.ending === '2026-07-03' && w3.starting <= w3.ending)
+const w4 = resolveUserCostWindow({ starting_date: '2026-07-10', ending_date: '2026-07-01' }, NOW)
+ok('window: inverted input pins starting back to ending',
+   w4.starting === '2026-07-01' && w4.ending === '2026-07-01')
+const w5 = resolveUserCostWindow({}, NOW)
+ok('window: defaults = 31 inclusive days ending today (upstream caps spans at 31d)',
+   w5.ending === '2026-07-03' && w5.starting === '2026-06-03')
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

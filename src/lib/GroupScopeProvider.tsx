@@ -2,7 +2,9 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useFetch } from '../lib/api'
 
 type GroupsResp = {
-  source: 'live' | 'empty'
+  // 'live' = admin-uploaded CSV · 'auto' = derived from user_cost_report ×
+  // rbac_group_id (labels are grp-<id suffix>) · 'empty' = neither available
+  source: 'live' | 'auto' | 'empty'
   file: string | null
   groups: string[]
   map: Record<string, string>   // lowercased email → group
@@ -35,7 +37,8 @@ export function GroupScopeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<GroupScopeData>(() => {
     const groups = data?.groups ?? []
     const map = data?.map ?? {}
-    return { groups, map, hasMap: data?.source === 'live' && groups.length > 0, loading, refetch }
+    const hasMap = (data?.source === 'live' || data?.source === 'auto') && groups.length > 0
+    return { groups, map, hasMap, loading, refetch }
   }, [data, loading, refetch])
   return <GroupScopeContext.Provider value={value}>{children}</GroupScopeContext.Provider>
 }

@@ -17,7 +17,7 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 | Infra | AWS CDK 2.170 (TypeScript) — 4 stacks (network/storage/compute/collector) |
 | Runtime | Fargate ARM64 · CloudFront + WAF · ALB (CloudFront-prefix-list locked) · Secrets Manager · Lambda |
 | Data | S3 NDJSON archive · Glue Data Catalog · Athena · Bedrock (Claude Sonnet 4.6 via global inference profile) |
-| External APIs | Anthropic Analytics API · Admin API · Compliance API (three separate keys) |
+| External APIs | Anthropic Analytics API · Admin API · Compliance API (the Analytics key's scopes now cover compliance reads — the dedicated Compliance key is optional; server falls back automatically) |
 
 ## Project Structure
 

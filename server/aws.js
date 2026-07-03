@@ -187,6 +187,95 @@ export function aggregateTokenTiers(usageBody) {
   }
 }
 
+// Human-readable labels for opaque rbac_group ids. The rbac_groups listing
+// endpoint (id → name) needs the read:rbac_groups scope, which none of the
+// provisioned keys carry — until a key with that scope exists, groups are
+// labeled `grp-<last 6 of id>`, extending the suffix on (rare) collisions.
+export function labelGroupIds(ids) {
+  const uniq = [...new Set((ids || []).filter(Boolean))]
+  for (let len = 6; ; len += 2) {
+    const entries = uniq.map((id) => [id, `grp-${String(id).slice(-len)}`])
+    if (new Set(entries.map(([, l]) => l)).size === uniq.length || len >= 24) {
+      return Object.fromEntries(entries)
+    }
+  }
+}
+
+// Aggregate a cost_report body grouped by rbac_group_id into per-group spend
+// totals + a daily series. Rows with a null rbac_group_id are the genuinely
+// UNGROUPED remainder (usage by users in no group) — unlike the single-dim
+// cost_type/token_type rollups where a null key is a duplicate total — so
+// they accumulate into `ungrouped` instead of being dropped. Amounts follow
+// the cost_report convention: decimal-string minor units (cents) → /100 USD.
+export function aggregateGroupCost(costBody) {
+  const byGroup = new Map()
+  const dailyAcc = new Map()
+  const ungrouped = { spend_usd: 0, requests: 0 }
+  for (const day of costBody?.data || []) {
+    const date = (day?.starting_at || '').slice(0, 10)
+    for (const r of day?.results || []) {
+      const usd = (parseFloat(r?.amount ?? '0') || 0) / 100
+      const reqs = r?.requests ?? 0
+      const g = r?.rbac_group_id
+      if (!g) {
+        ungrouped.spend_usd = Number((ungrouped.spend_usd + usd).toFixed(4))
+        ungrouped.requests += reqs
+        continue
+      }
+      const acc = byGroup.get(g) ?? { group_id: g, spend_usd: 0, requests: 0 }
+      acc.spend_usd = Number((acc.spend_usd + usd).toFixed(4))
+      acc.requests += reqs
+      byGroup.set(g, acc)
+      if (date) {
+        const dkey = `${date}|${g}`
+        const d = dailyAcc.get(dkey) ?? { date, group_id: g, spend: 0 }
+        d.spend = Number((d.spend + usd).toFixed(4))
+        dailyAcc.set(dkey, d)
+      }
+    }
+  }
+  const labels = labelGroupIds([...byGroup.keys()])
+  const groups = [...byGroup.values()]
+    .map((g) => ({ ...g, label: labels[g.group_id] }))
+    .sort((a, b) => b.spend_usd - a.spend_usd)
+  const daily = [...dailyAcc.values()]
+    .map((d) => ({ ...d, label: labels[d.group_id] }))
+    .sort((a, b) => (a.date === b.date ? a.group_id.localeCompare(b.group_id) : a.date.localeCompare(b.date)))
+  return { groups, ungrouped, daily }
+}
+
+// Derive an email→group mapping from a user_cost_report body grouped by
+// rbac_group_id (one row per actor × group). The scope-filter format is ONE
+// group per email (see parseGroupMap), so a multi-group user maps to their
+// max-spend group — deterministic and usage-representative. Rows without an
+// email (api_actor) or without a group are skipped. Returns the same
+// { map, groups } shape as parseGroupMap plus `ids` (label → full group id)
+// for future name resolution once a read:rbac_groups key exists.
+export function deriveGroupMap(data) {
+  const rows = Array.isArray(data) ? data : []
+  const perEmail = new Map()   // email → Map(group_id → spend)
+  for (const r of rows) {
+    const email = String(r?.actor?.email || '').trim().toLowerCase()
+    const g = r?.rbac_group_id
+    if (!email || !g) continue
+    const usd = parseFloat(r?.amount)
+    const v = Number.isFinite(usd) ? usd : 0
+    const m = perEmail.get(email) ?? new Map()
+    m.set(g, (m.get(g) || 0) + v)
+    perEmail.set(email, m)
+  }
+  const allIds = [...new Set([...perEmail.values()].flatMap((m) => [...m.keys()]))]
+  const labels = labelGroupIds(allIds)
+  const map = {}
+  for (const [email, m] of perEmail) {
+    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0]
+    map[email] = labels[top[0]]
+  }
+  const groups = [...new Set(Object.values(map))].sort()
+  const ids = Object.fromEntries(Object.entries(labels).map(([id, label]) => [label, id]))
+  return { map, groups, ids }
+}
+
 // Map a user_cost_report `data[]` array to the dashboard's per-user shape.
 // amount/list_amount are decimal strings in fractional CENTS (same convention
 // as cost_report) → /100 for USD. Emails are returned RAW for the email-keyed
@@ -255,6 +344,31 @@ export function utcNextDay(dateStr) {
   const d = new Date(`${dateStr}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+// Resolve the inclusive [starting, ending] window for user_cost_report.
+// The endpoint serves the recent 3-day finalization buffer with PARTIAL data
+// (same semantics as cost_report; verified against the live API 2026-07-03),
+// so the old `today − 3` ending clamp is gone. That clamp silently cut the
+// last 3 days out of every per-user table (Top-10 cost, per-user × model)
+// while the org-wide headline included them — and because `starting` was
+// never clamped, a fully-recent range inverted into starting > ending, which
+// upstream rejects with 400. Ending still clamps to today (future dates are
+// invalid upstream) and an inverted pair pins starting back to ending.
+// The default window is 31 inclusive days ([today-30, today]) — the upstream
+// cost family rejects any span over 31 days ("date range must span at most
+// 31 days", measured 2026-07-03 on cost_report AND user_cost_report, grouped
+// or not). Longer user-selected ranges surface that 400 as a 502 and the UI
+// falls back to the CSV path, which is the documented >30-day reconciliation
+// story. `now` is injectable for unit tests.
+export function resolveUserCostWindow({ starting_date, ending_date } = {}, now = new Date()) {
+  const minus = (n) => { const d = new Date(now); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
+  const today = minus(0)
+  let ending = ending_date || today
+  if (ending > today) ending = today
+  let starting = starting_date || minus(30)
+  if (starting > ending) starting = ending
+  return { starting, ending }
 }
 
 // v3 cost-efficiency scorer. Pure + exported for unit tests. Replaces v2's
@@ -630,7 +744,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
     const today = new Date()
     const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
-    const startingDate = starting_date || minus(31)
+    // 31 inclusive days max — the upstream cost family rejects spans > 31
+    // days (see resolveUserCostWindow). minus(31) was one day over the cap:
+    // a date-less call (chat get_cost_summary, bare /cost/live) hit a 400.
+    const startingDate = starting_date || minus(30)
     const endingDate = ending_date || minus(0)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
@@ -676,16 +793,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Paginate user_cost_report for [starting, ending] and return RAW merged
   // data[] (emails unmasked — needed for the email-keyed efficiency join;
   // the frontend masks on render). Caps pages to stay within the 60/min budget.
-  async function fetchUserCostReport({ starting_date, ending_date, groupByModel = false } = {}) {
+  // `groupBy` appends a group_by[] dimension: 'model' (per-user × model
+  // chargeback) or 'rbac_group_id' (per-user group membership derivation).
+  async function fetchUserCostReport({ starting_date, ending_date, groupBy = null } = {}) {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) { const e = new Error('ANTHROPIC_ANALYTICS_KEY is required for per-user cost.'); e.code = 'analytics_key_required'; throw e }
-    // Clamp ending to today-3 (Analytics 3-day buffer); default to a 31-day window.
-    const today = new Date()
-    const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
-    const maxEnd = minus(3)
-    let ending = ending_date || maxEnd
-    if (ending > maxEnd) ending = maxEnd
-    const starting = starting_date || minus(34)
+    // Window resolution (incl. why there is NO today-3 clamp anymore) lives in
+    // resolveUserCostWindow — pure + unit-tested in tests/server/test-user-cost.mjs.
+    const { starting, ending } = resolveUserCostWindow({ starting_date, ending_date })
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
@@ -696,7 +811,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const MAX_PAGES = 50
     for (let i = 0; i < MAX_PAGES; i++) {
       const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, limit: '1000' })
-      if (groupByModel) params.append('group_by[]', 'model')
+      if (groupBy) params.append('group_by[]', groupBy)
       if (page) params.set('page', page)
       const res = await fetch(`${apiUrl}/v1/organizations/analytics/user_cost_report?${params.toString()}`, { headers })
       const body = await res.json().catch(() => ({}))
@@ -939,7 +1054,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     try {
       const byModel = req.query.by === 'model'
       const { data, period, data_refreshed_at } = await fetchUserCostReport({
-        starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupByModel: byModel,
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: byModel ? 'model' : null,
       })
       const users = userCostToUsers(data, { byModel }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
       res.json({ source: 'live', period, data_refreshed_at, grouped: byModel ? 'model' : null, users })
@@ -948,6 +1063,45 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
       }
       return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
+    }
+  })
+
+  // GET /api/cost/groups — org spend by RBAC group over the selected range.
+  // cost_report × rbac_group_id shipped upstream (probed 2026-07-03; was 400
+  // "not yet supported" before). Groups are labeled grp-<id suffix> because
+  // the id→name endpoint needs the read:rbac_groups scope (see labelGroupIds).
+  // Window matches /cost/live semantics (full range, buffer days included).
+  router.get('/cost/groups', async (req, res) => {
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    if (!ANALYTICS_KEY) {
+      return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY is required for group cost.' })
+    }
+    try {
+      const { starting, ending } = resolveUserCostWindow({
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+      })
+      const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+      const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+      const params = new URLSearchParams({
+        starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
+      })
+      params.append('group_by[]', 'rbac_group_id')
+      const r = await fetchAllReportPages(
+        `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
+        { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
+      )
+      if (!r.ok) {
+        return res.status(502).json({ error: 'upstream_error', message: `cost_report(rbac_group_id) ${r.status}`, upstream: r.body })
+      }
+      const out = aggregateGroupCost(r.body)
+      res.json({
+        source: 'live',
+        period: { starting_date: starting, ending_date: ending },
+        data_refreshed_at: r.body.data_refreshed_at ?? null,
+        ...out,
+      })
+    } catch (err) {
+      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
     }
   })
 
@@ -1110,6 +1264,15 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // then computes cost-efficiency metrics per user.
   router.get('/cost/efficiency', async (req, res) => {
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    // This route DELIBERATELY clamps its whole window to today-3, unlike
+    // /cost/users: every metric here is a ratio of spend ÷ productivity, and
+    // the productivity source (users/range) is hard-clamped to the Analytics
+    // 3-day buffer upstream (clampAnalyticsEnd). Letting spend run to `today`
+    // while LOC/commits stop at today-3 inflates $/LOC, $/Commit and skews
+    // the economic-productivity score — both windows must match. Full-range
+    // per-user spend (headline-consistent Top-10) comes from /cost/users,
+    // which user_cost_report serves buffer days included. The starting guard
+    // prevents an inverted window (fully-recent range → upstream 400).
     const today = new Date(); today.setUTCDate(today.getUTCDate() - 3)
     const maxEnd = today.toISOString().slice(0, 10)
 
@@ -1121,8 +1284,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     let csvPeriod = null
     let source = 'live+analytics'
     let starting = req.query.starting_date
-    let ending = req.query.ending_date
-    if (ending && ending > maxEnd) ending = maxEnd
+    let ending = req.query.ending_date || maxEnd
+    if (ending > maxEnd) ending = maxEnd
+    if (starting && starting > ending) starting = ending
 
     let liveUsers = []
     try {
@@ -1175,6 +1339,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       starting = starting || csvPeriod?.starting_date
       ending = ending || csvPeriod?.ending_date
       if (ending && ending > maxEnd) ending = maxEnd
+      // Re-guard: starting was just re-derived from the CSV period and can
+      // land after `ending` again (empty users/range → silent zero scores).
+      if (starting && ending && starting > ending) starting = ending
     }
 
     const isLive = source === 'live+analytics'
@@ -1417,14 +1584,41 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   })
 
   // GET /api/groups — latest mapping under group-map/ → { source, file, groups, map }.
-  // No mapping uploaded → { source:'empty', groups:[], map:{} } (200, not an error).
+  // No CSV uploaded → AUTO-DERIVE the mapping from live user_cost_report ×
+  // rbac_group_id (default 31-day window): each user maps to their max-spend
+  // RBAC group, labeled grp-<id suffix> (names need a read:rbac_groups key).
+  // An uploaded CSV still wins — it carries admin-chosen names and intent.
+  // Nothing derivable either → { source:'empty', groups:[], map:{} } (200).
   router.get('/groups', async (_req, res) => {
+    // The bucket is only needed for the CSV path — auto-derive works without
+    // it (local dev has no ARCHIVE_S3_BUCKET but does have the Analytics key).
+    // An S3 listing failure also degrades to auto-derive instead of a 500.
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
-    if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     try {
-      const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'group-map/' }))
-      const objects = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
-      if (objects.length === 0) return res.json({ source: 'empty', file: null, groups: [], map: {} })
+      let objects = []
+      if (BUCKET) {
+        try {
+          const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'group-map/' }))
+          objects = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
+        } catch (err) {
+          console.warn('[groups] S3 list failed, trying auto-derive:', err?.message || err)
+        }
+      }
+      if (objects.length === 0) {
+        try {
+          const live = await fetchUserCostReport({ groupBy: 'rbac_group_id' })
+          const derived = deriveGroupMap(live.data)
+          if (derived.groups.length > 0) {
+            return res.json({
+              source: 'auto', file: null, period: live.period,
+              groups: derived.groups, map: derived.map, group_ids: derived.ids,
+            })
+          }
+        } catch (err) {
+          console.warn('[groups] auto-derive unavailable, falling back to empty:', err?.message || err)
+        }
+        return res.json({ source: 'empty', file: null, groups: [], map: {} })
+      }
       const latest = objects.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))[0]
       const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: latest.Key }))
       const body = await obj.Body.transformToString()
