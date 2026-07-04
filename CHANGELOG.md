@@ -536,7 +536,7 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...HEAD
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0
 
 ---
@@ -812,5 +812,5 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...HEAD
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0
