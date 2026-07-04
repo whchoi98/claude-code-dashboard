@@ -225,7 +225,7 @@ Per-user USD spend for the requested period. Paginated via `?page=` token (same 
 | `list_amount` | string? | Gross (list-price) amount in fractional cents; may be absent — fall back to `amount`. |
 | `requests` | number | Request count for the actor in the period. |
 
-> **No per-user token counts** — this endpoint is cost + requests only. Per-user `prompt_tokens` / `completion_tokens` are not available from any live endpoint; they require a manually exported Spend Report CSV.
+> **No per-user token counts on this endpoint** — `user_cost_report` is cost + requests only. Per-user token counts ARE available live since 2026-07 via `GET /v1/organizations/analytics/user_usage_report` (same envelope/window rules; per-row `uncached_input_tokens`, `cache_creation{1h,5m}`, `cache_read_input_tokens`, `output_tokens`, `total_tokens`, `requests`) — the Spend Report CSV is now a fallback, not a requirement.
 
 > **Confirmed negative**: `GET /v1/organizations/analytics/cost_report?group_by[]=actor` → HTTP 400. Use `user_cost_report` instead (ADR-0009).
 

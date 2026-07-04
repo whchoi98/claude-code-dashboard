@@ -38,11 +38,20 @@ fallback.
     **`?by=model`** → per-user × model breakdown (`users[].by_model[]`) for
     chargeback),
     `/cost/groups` (org spend by **RBAC group** — `cost_report` ×
-    `rbac_group_id`, reshaped via `aggregateGroupCost`; labels `grp-<id
-    suffix>` because id→name needs a `read:rbac_groups` key),
+    `rbac_group_id`, reshaped via `aggregateGroupCost`; labels are REAL group
+    names from `fetchGroupNames` — the documented `GET /v1/compliance/groups`,
+    1h-cached because each listing emits a `group_list_viewed` audit event —
+    with `grp-<id suffix>` fallback),
+    `/cost/user-tokens` (per-user TOKENS via the new `user_usage_report`
+    endpoint, mapped by `userUsageToUsers` — supersedes the CSV as the token
+    Top-tables source),
+    `/cost/spend-limits` (per-member effective limit + month-to-date spend
+    via the Spend Limits API `GET /v1/organizations/spend_limits/effective`,
+    scope `read:spend_limits`; mapped by `spendLimitsToMembers`; no date
+    params — always the current monthly period),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (live-first: queries `user_cost_report` for the exact
-    range via `fetchUserCostReport`, joins on `email` with `users/range`
+    range via `fetchUserReport`, joins on `email` with `users/range`
     productivity — no activity-weighted scaling on the live path; falls back
     to the CSV path when live data is empty/unavailable; response `source` is
     `"live+analytics"` or `"csv+analytics"`).
@@ -59,22 +68,33 @@ fallback.
     `{ email, user_id, name, deleted, net_spend_usd, gross_spend_usd, requests }`;
     `byModel` → per-email `{ email, …, net_spend_usd, requests, by_model[] }`.
     Excludes `api_actor` rows (no email).
-  - Closure helper inside `registerAwsRoutes`: `fetchUserCostReport({
-    starting_date, ending_date, groupBy })` — paginates `user_cost_report`
-    (up to 50 pages; `groupBy` appends `group_by[]=<dim>`: `'model'` for
-    chargeback, `'rbac_group_id'` for group-map derivation), resolves its
-    window via `resolveUserCostWindow` (exclusive `ending_at` via `utcNextDay`;
-    **the upstream cost family caps spans at 31 days** — defaults are
-    `[today−30, today]`, longer selections 400→502→CSV fallback),
-    returns `{ data, period, data_refreshed_at }`.
+  - Closure helper inside `registerAwsRoutes`: `fetchUserReport({
+    report, starting_date, ending_date, groupBy })` — paginates a per-user
+    analytics report (`report`: `'user_cost_report'` default or
+    `'user_usage_report'`; up to 50 pages; `groupBy` appends
+    `group_by[]=<dim>`: `'model'` for chargeback, `'rbac_group_id'` for
+    group-map derivation), resolves its window via `resolveUserCostWindow`
+    (exclusive `ending_at` via `utcNextDay`; **the upstream cost family caps
+    spans at 31 days** — defaults are `[today−30, today]`, longer selections
+    400→502→CSV fallback), returns `{ data, period, data_refreshed_at }`.
+    Sibling closure `fetchGroupNames()` — RBAC group id→name via the
+    documented `GET /v1/compliance/groups` (compliance-or-analytics key), 1h
+    cache + last-good.
   - Group helpers (pure, tested in `tests/server/test-group-cost.mjs`):
     `labelGroupIds(ids)` (`grp-<last-6>` labels, collision-extended),
-    `aggregateGroupCost(costBody)` (per-group totals + daily; null group id =
-    genuinely-ungrouped remainder, accumulated not dropped),
-    `deriveGroupMap(data)` (user_cost_report×rbac_group_id → email→label map,
-    max-spend group per email, + `ids` label→group_id lookup). `GET /groups`
-    serves the admin CSV when uploaded, else **auto-derives** the map this way
-    (`source:'auto'`; works without `ARCHIVE_S3_BUCKET`).
+    `resolveGroupLabels(ids, nameById)` (real names over grp- fallbacks,
+    duplicate names id-suffixed), `aggregateGroupCost(costBody, nameById?)`
+    (per-group totals + daily; null group id = genuinely-ungrouped remainder,
+    accumulated not dropped), `deriveGroupMap(data, nameById?)`
+    (user_cost_report×rbac_group_id → email→label map, max-spend group per
+    email, + `ids` label→group_id lookup). `GET /groups` serves the admin CSV
+    when uploaded, else **auto-derives** the map this way (`source:'auto'`;
+    works without `ARCHIVE_S3_BUCKET`).
+  - Per-user report mappers (pure, tested in `tests/server/test-user-usage.mjs`):
+    `userUsageToUsers(data)` (input = uncached + cache_read + cache_creation
+    1h+5m, reconciles with upstream `total_tokens`) and
+    `spendLimitsToMembers(data)` (cents→USD; `amount:null` = unlimited →
+    `utilization:null`; actor field is `email_address`, not `email`).
   - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
     `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
     `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,

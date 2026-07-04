@@ -72,5 +72,30 @@ ok('non-numeric amount → treated as 0 (no NaN poisoning)', (() => {
   return d.map['x@y.com'] === Object.entries(d.ids).find(([, id]) => id === G_B)?.[0]
 })())
 
+// Real group names (from GET /v1/compliance/groups) override grp- labels.
+const named = deriveGroupMap(rows, { [G_A]: 'Engineering', [G_B]: 'Marketing' })
+ok('names map overrides grp- labels', named.map['alice@acme.com'] === 'Engineering' && named.map['bob@acme.com'] === 'Marketing')
+ok('ids lookup keyed by real name', named.ids['Engineering'] === G_A)
+ok('partial names map: unnamed ids keep grp- fallback', (() => {
+  const d = deriveGroupMap(rows, { [G_A]: 'Engineering' })
+  return d.map['alice@acme.com'] === 'Engineering' && d.map['bob@acme.com'].startsWith('grp-')
+})())
+ok('duplicate group names disambiguated with id suffix', (() => {
+  const d = deriveGroupMap(rows, { [G_A]: 'Team', [G_B]: 'Team' })
+  const labels = new Set([d.map['alice@acme.com'], d.map['bob@acme.com']])
+  return labels.size === 2 && [...labels].every((l) => l.startsWith('Team'))
+})())
+ok('suffix collision among same-named groups extends until unique (labels stay invertible)', (() => {
+  // Three groups named 'Team' whose ids all share the same trailing 4 chars.
+  const rows3 = [
+    { actor: { email: 'p@x.com' }, rbac_group_id: 'rbac_group_0001zz99', amount: '3' },
+    { actor: { email: 'q@x.com' }, rbac_group_id: 'rbac_group_0002zz99', amount: '2' },
+    { actor: { email: 'r@x.com' }, rbac_group_id: 'rbac_group_0003zz99', amount: '1' },
+  ]
+  const names = { rbac_group_0001zz99: 'Team', rbac_group_0002zz99: 'Team', rbac_group_0003zz99: 'Team' }
+  const d = deriveGroupMap(rows3, names)
+  return d.groups.length === 3 && Object.keys(d.ids).length === 3
+})())
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

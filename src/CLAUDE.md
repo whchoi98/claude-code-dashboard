@@ -46,10 +46,15 @@ src/
 │                         # CSV. The 3 token-ranked Top tables need per-user tokens (CSV only): in
 │                         # csv+analytics mode they use eff's activity-scaled range_* values; in live
 │                         # mode they fall back to whole-CSV-period totals labeled by tokens_csv_caveat.
-│                         # A cost.top.live_caveat note shows in live-only mode explaining the token gap.
+│                         # Since 2026-07 the 3 token-ranked Top tables are ALSO live: they source
+│                         # /api/cost/user-tokens (user_usage_report) first and follow the selected
+│                         # range; eff/CSV rows are fallbacks (tokens_csv_caveat labels the CSV case).
 │                         # The Cost page also renders a "Cost by Group" card from /api/cost/groups
-│                         # (native rbac_group_id attribution; labels grp-<id suffix> until a
-│                         # read:rbac_groups key exists for name resolution).
+│                         # (native rbac_group_id attribution; labels are REAL group names via the
+│                         # Compliance groups endpoint, grp-<id suffix> fallback; any-membership
+│                         # semantics — group rows can sum above the org total) and a
+│                         # "Spend Limits (Monthly)" card from /api/cost/spend-limits (month-to-date
+│                         # spend vs effective limit; independent of the page date range).
 ├── types.ts              # Analytics API schema types
 ├── App.tsx / main.tsx
 └── index.css             # Tailwind entry + custom utilities + the generic `@media print` block (visibility-based isolation of `.print-export`, `.print-hide` opt-out, auto-expanded `<details>`) used by Analyze/Cost/Executive

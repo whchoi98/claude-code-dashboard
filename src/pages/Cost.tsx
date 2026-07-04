@@ -220,8 +220,19 @@ export function Cost() {
   const usersByModel = useFetch<{ users: { email: string; net_spend_usd: number; requests: number; by_model: { model: string; spend_usd: number; requests: number }[] }[] }>(
     `/api/cost/users?by=model&starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
-  // Spend by RBAC group (native Analytics attribution; labels are grp-<id
-  // suffix> until a read:rbac_groups key exists for name resolution).
+  // Per-user TOKEN counts, live from user_usage_report (new upstream
+  // endpoint) — replaces the CSV as the primary token source, so the token
+  // Top-10 tables now follow the selected range like everything else.
+  const userTokens = useFetch<{
+    users: { email: string; input_tokens: number; output_tokens: number; total_tokens: number; requests: number }[]
+    period: { starting_date: string; ending_date: string }
+  }>(`/api/cost/user-tokens?starting_date=${range.startingDate}&ending_date=${range.endingDate}`)
+  // Per-member effective spend limit + month-to-date spend (Spend Limits API).
+  const spendLimits = useFetch<{
+    members: { email: string; name: string | null; limit_usd: number | null; spent_usd: number; utilization: number | null; source: string }[]
+  }>('/api/cost/spend-limits')
+  // Spend by RBAC group (native Analytics attribution; labels resolve to real
+  // group names via GET /v1/compliance/groups, grp-<id suffix> fallback).
   const groupCost = useFetch<{
     groups: { group_id: string; label: string; spend_usd: number; requests: number }[]
     ungrouped: { spend_usd: number; requests: number }
@@ -405,6 +416,24 @@ export function Cost() {
     }))
   }, [csvData])
 
+  // Live per-user token rows (user_usage_report). MUST stay above the early
+  // returns below — hooks after a conditional return violate the Rules of
+  // Hooks and crash the page on the loading→loaded transition.
+  const liveTokenRows = useMemo(() => {
+    if (!userTokens.data?.users?.length) return null
+    return userTokens.data.users.map((u) => ({
+      email: u.email,
+      masked: maskEmail(u.email),
+      spend: 0,   // token endpoint is token-only; spend table uses liveUserRows
+      input: u.input_tokens,
+      output: u.output_tokens,
+      total_tokens: u.total_tokens,
+      requests: u.requests ?? 0,
+      products: 0,
+      models: 0,
+    }))
+  }, [userTokens.data])
+
   const trendsPivot = useMemo(() => {
     if (!data?.daily || data.daily.length === 0) return { rows: [], models: [] }
     const byDate = new Map<string, Record<string, any>>()
@@ -457,15 +486,15 @@ export function Cost() {
   //   3. csvUserRows (raw CSV totals) when eff is loading / returns no users
   //   4. agg.userRows (live cost rows; user_email empty in live mode → unused)
   const userRowsForTop = liveUserRows ?? effUserRows ?? csvUserRows ?? agg.userRows
-  // Per-user TOKEN counts exist ONLY from a CSV (user_cost_report is cost-only).
-  // In CSV mode prefer eff's rows: their range_* token fields are scaled to the
-  // selected date range by activity weighting, while raw csvUserRows are
-  // whole-CSV-period totals that ignore the range (the old ordering made the
-  // token Top-10 tables range-blind even when scaled values existed). In live
-  // mode csvUserRows are the only token-bearing set — tokens_csv_caveat below
-  // labels them. Never source tokens from the live spend rows (token fields 0):
-  // that would render all-zero token tables.
-  const tokenRows = (eff.data?.source?.includes('csv') ? effUserRows : null) ?? csvUserRows
+  // Per-user TOKEN source priority:
+  //   1. liveTokenRows — user_usage_report over the FULL selected range
+  //      (live; supersedes the old "tokens exist only in the CSV" constraint)
+  //   2. eff's rows in CSV mode (activity-scaled range_* token fields)
+  //   3. raw csvUserRows (whole-CSV-period totals — tokens_csv_caveat labels
+  //      them). Never the live spend rows (their token fields are 0).
+  // (liveTokenRows itself is a hook, so it lives ABOVE the early returns
+  //  with the other memos — see the hook-ordering note there.)
+  const tokenRows = liveTokenRows ?? (eff.data?.source?.includes('csv') ? effUserRows : null) ?? csvUserRows
   const hasPerUserTokens = !!(tokenRows && tokenRows.length > 0 && tokenRows[0].email !== '')
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
   const topInput  = [...(tokenRows ?? [])].sort((a, b) => b.input - a.input).slice(0, 10)
@@ -759,7 +788,7 @@ export function Cost() {
                 })}
               </p>
             )}
-            {(liveUserRows || eff.data?.source === 'live+analytics') && hasPerUserTokens && csvData?.period && (
+            {!liveTokenRows && (liveUserRows || eff.data?.source === 'live+analytics') && hasPerUserTokens && csvData?.period && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">
                 {t('cost.top.tokens_csv_caveat', {
                   start: csvData.period.starting_date,
@@ -832,9 +861,9 @@ export function Cost() {
 
         {/* ── Spend by RBAC group ──────────────────────────────────────────
             Native group attribution from cost_report × rbac_group_id (shipped
-            upstream 2026-07). Labels are grp-<id suffix>; real names need a
-            read:rbac_groups-scoped key (subtitle says so). The dimension
-            FLAPS upstream (503 "not ready yet") — on error show an
+            upstream 2026-07). Labels are REAL group names resolved server-side
+            via the Compliance groups endpoint (grp-<id suffix> fallback). The
+            dimension FLAPS upstream (503 "not ready yet") — on error show an
             explanatory note instead of silently omitting the card. */}
         {dataSource === 'live' && groupCost.error && (
           <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500 print-hide">
@@ -878,6 +907,49 @@ export function Cost() {
                     {t('cost.groups.ungrouped', { usd: fmtUsd(ung.spend_usd) })}
                   </p>
                 )}
+              </div>
+            </ChartCard>
+          )
+        })()}
+
+        {/* ── Spend limits (monthly, live from the Spend Limits API) ──────
+            Month-to-date spend vs each member's effective limit. Independent
+            of the page date range AND of the /cost/live path — so no
+            dataSource gate: its own fetch succeeding is the only condition
+            (a cost_report fallback to CSV shouldn't hide available limits). */}
+        {(spendLimits.data?.members?.length ?? 0) > 0 && (() => {
+          const members = spendLimits.data!.members.slice(0, 10)
+          return (
+            <ChartCard title={t('cost.limits.title')} subtitle={t('cost.limits.sub')}>
+              <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+                <table className="w-full text-sm">
+                  <thead className="bg-paper-muted/60 text-ink-500">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('user_prod.col.user')}</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('cost.limits.col.spent')}</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('cost.limits.col.limit')}</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('cost.limits.col.util')}</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('cost.limits.col.source')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.map((m) => (
+                      <tr key={m.email} className="border-t border-ink-100">
+                        <td className="px-3 py-1.5 font-medium text-ink-700">{maskEmail(m.email)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-claude-600 font-medium">{fmtUsd(m.spent_usd)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-ink-600">
+                          {m.limit_usd != null ? fmtUsd(m.limit_usd) : t('cost.limits.unlimited')}
+                        </td>
+                        <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${
+                          m.utilization != null && m.utilization >= 0.9 ? 'text-claude-700' : 'text-ink-600'
+                        }`}>
+                          {m.utilization != null ? fmtPct(m.utilization) : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-[11px] text-ink-400">{m.source.replace(/_/g, ' ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </ChartCard>
           )
