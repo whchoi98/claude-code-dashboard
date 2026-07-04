@@ -163,8 +163,10 @@ New-VPC path adds one NAT Gateway (~$43/month) plus EIP cost, so reuse an existi
 See `docs/runbooks/` for incident procedures. Currently shipped:
 - [`alb-listener-drift.md`](runbooks/alb-listener-drift.md) — recover when the ALB listener loses its target group association.
 - [`cognito-users.md`](runbooks/cognito-users.md) — provision / disable Hosted UI users.
+- [`rbac-group-cost-503-flap.md`](runbooks/rbac-group-cost-503-flap.md) — diagnose the upstream 503 flap on the RBAC group dimension (group card/scope degraded).
+- [`spend-limits-scope-missing.md`](runbooks/spend-limits-scope-missing.md) — recover the Spend Limits card when the key lacks `read:spend_limits` (key re-creation + rotation).
 
-Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, compliance prewarm cache flush, cost data reconciliation when live ≠ CSV, RBAC group-cost upstream 503 flap diagnosis, Spend Limits missing-scope (`read:spend_limits`) recovery.
+Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, compliance prewarm cache flush, cost data reconciliation when live ≠ CSV.
 
 ---
 
@@ -324,5 +326,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 `docs/runbooks/` 의 사고 대응 절차. 현재 보유:
 - [`alb-listener-drift.md`](runbooks/alb-listener-drift.md) — ALB listener의 target group 연결 손실 복구.
 - [`cognito-users.md`](runbooks/cognito-users.md) — Hosted UI 사용자 관리.
+- [`rbac-group-cost-503-flap.md`](runbooks/rbac-group-cost-503-flap.md) — RBAC 그룹 차원 upstream 503 플랩 진단 (그룹 카드/스코프 강등 시).
+- [`spend-limits-scope-missing.md`](runbooks/spend-limits-scope-missing.md) — 키에 `read:spend_limits` 스코프가 없을 때 Spend Limits 카드 복구 (키 재발급 + 로테이션).
 
-향후 추가 후보: 롤링 배포 롤백, collector backfill, compliance prewarm 캐시 flush, 라이브 ≠ CSV 비용 데이터 정산 절차, RBAC 그룹 비용 upstream 503 플랩 진단, Spend Limits 스코프(`read:spend_limits`) 누락 복구.
+향후 추가 후보: 롤링 배포 롤백, collector backfill, compliance prewarm 캐시 flush, 라이브 ≠ CSV 비용 데이터 정산 절차.
