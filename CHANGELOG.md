@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No changes yet — next entries land here._
+
+## [1.6.0] - 2026-07-04
+
 Cost page goes fully live — RBAC group cost with real names, per-user tokens without CSV, spend limits, and date-range accuracy fixes. (Deployed to production 2026-07-03/04.)
 
 ### Added

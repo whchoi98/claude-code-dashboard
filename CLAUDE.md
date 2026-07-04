@@ -72,6 +72,7 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 ## Conventions
 
 - **Language**: Korean for conversation and commit messages, English for code/identifiers/UI strings (the UI has a runtime en/ko toggle).
+- **Version strings** (bump all on release — see `/release`): `package.json` `version` is the single source of truth (the sidebar badge reads it via `Layout.tsx` `pkg.version`, so the UI shows the new version only after the next deploy); README.md + README.ko.md shields badges (`version-X.Y.Z-blue`); `CHANGELOG.md` version heading. Tag as `vX.Y.Z`.
 - **TypeScript**: strict mode, noUnusedLocals, noUnusedParameters.
 - **Server code**: ESM (`"type": "module"` in package.json). Use `node --check` for syntax validation before deploy.
 - **Emails**: Always render via `maskEmail()` in UI (keep first 2 chars + domain). Server prompts enforce this in LLM output.
