@@ -13,7 +13,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — next entries land here._
+Cost page goes fully live — RBAC group cost with real names, per-user tokens without CSV, spend limits, and date-range accuracy fixes. (Deployed to production 2026-07-03/04.)
+
+### Added
+
+- **Cost by Group card.** The upstream Analytics API now supports `group_by[]=rbac_group_id` (shipped ~2026-07, announced via blog only), so the Cost page renders per-group spend natively via the new `GET /api/cost/groups`. Group labels are **real names** (Engineering, CXO, …) resolved through the documented Compliance groups endpoint (`GET /v1/compliance/groups`, 1-hour cache — each listing emits a `group_list_viewed` audit event) with `grp-<id suffix>` fallback. Upstream semantics are any-membership: a multi-group user counts fully in each group, so group rows can sum above the org total (the subtitle says so).
+- **Automatic group mapping.** When no admin `email,group` CSV is uploaded, `GET /api/groups` now auto-derives the sidebar group scope from live `user_cost_report × rbac_group_id` (each user → their max-spend group, real names) — `source:"auto"`. An uploaded CSV still wins.
+- **Live per-user token tables.** New `GET /api/cost/user-tokens` proxies the new upstream `user_usage_report`, so the Input/Total/Output token Top-10 tables now follow the selected date range live — the Spend Report CSV is no longer required for per-user tokens (fallback only).
+- **Spend Limits (Monthly) card.** New `GET /api/cost/spend-limits` proxies the new Spend Limits API (`/v1/organizations/spend_limits/effective`): per-member month-to-date spend, effective limit, utilization (highlighted at ≥90%), and limit source (user override / seat tier / RBAC group / org). Independent of the page date range; resets on the 1st (UTC).
+- **Compliance key fallback.** The server now falls back to the Analytics key for `/api/compliance/*` when no dedicated Compliance key is configured — the provisioned Analytics key carries the compliance read scopes (officially combinable per the new admin-api-keys docs). `/api/health` reports `compliance` / `analytics-fallback` / `none`.
+
+### Fixed
+
+- **Date-range accuracy on the Cost page.** The per-user sections (estimated-cost Top 10, per-user × model chart) covered 3 fewer days than the headline KPIs, and a fully-recent range made them vanish: the server still clamped `user_cost_report` to `today−3` even though the upstream cost family now serves the finalization buffer with partial data (watermark model, verified live), and the one-sided clamp could invert the window into an upstream 400. Windows are now resolved by `resolveUserCostWindow` (ending ≤ today, never inverted); the Top-10 cost table sources the full-range `/api/cost/users`; `/api/cost/efficiency` deliberately stays `today−3`-aligned so its spend÷productivity ratios ($/LOC, score) don't mix windows. Also fixed the default cost window being 32 days — one day over the (newly documented) 31-day upstream span cap — which broke date-less chatbot cost questions.
+- **Upstream RBAC flap resilience.** The `rbac_group_id` dimension intermittently returns 503 ("Team membership data is not ready yet"). The group endpoints now keep last-good responses (served with `stale: true`) and the Cost page shows an explanatory note instead of silently dropping the card.
+
+### Changed
+
+- **CSV demoted to fallback.** With live per-user spend and tokens, the Spend Report CSV now covers only >31-day reconciliation windows and live-report outages; captions above the Top tables state exactly which source and period each table reflects.
+
+### 추가
+
+- **그룹별 비용 카드.** upstream Analytics API가 `group_by[]=rbac_group_id`를 지원하기 시작해(2026-07 경, 블로그로만 발표) 신규 `GET /api/cost/groups`로 그룹별 지출을 네이티브 표시합니다. 그룹 라벨은 문서화된 Compliance groups 엔드포인트(`GET /v1/compliance/groups`, 1시간 캐시 — 호출마다 `group_list_viewed` 감사 이벤트 발생)로 조회한 **실명**(Engineering, CXO 등)이며 `grp-<ID 접미사>` 폴백을 둡니다. upstream 의미론은 any-membership: 여러 그룹 소속 사용자는 각 그룹에 전액 계상되어 합계가 조직 총액을 넘을 수 있습니다(부제에 명시).
+- **그룹 매핑 자동화.** 관리자 `email,group` CSV가 없으면 `GET /api/groups`가 라이브 `user_cost_report × rbac_group_id`에서 사이드바 그룹 스코프를 자동 유도합니다(사용자별 최대지출 그룹, 실명 라벨) — `source:"auto"`. CSV 업로드 시 CSV 우선.
+- **사용자별 토큰 테이블 라이브 전환.** 신규 `GET /api/cost/user-tokens`가 신설 upstream `user_usage_report`를 프록시해 Input/Total/Output 토큰 Top-10이 선택 기간을 라이브로 추종합니다 — 사용자별 토큰에 더 이상 Spend Report CSV가 필요 없습니다(폴백 전용).
+- **Spend Limits (월간) 카드.** 신규 `GET /api/cost/spend-limits`가 신설 Spend Limits API(`/v1/organizations/spend_limits/effective`)를 프록시: 멤버별 월 누적 지출, 유효 한도, 소진율(90% 이상 강조), 한도 출처(사용자 오버라이드/시트 티어/RBAC 그룹/조직). 페이지 기간 선택과 무관하며 매월 1일 00:00 UTC 리셋.
+- **Compliance 키 폴백.** 전용 Compliance 키가 없으면 서버가 `/api/compliance/*`에 Analytics 키를 사용합니다 — 발급된 Analytics 키가 compliance 읽기 스코프를 보유(신설 admin-api-keys 문서가 스코프 결합을 공식화). `/api/health`가 `compliance` / `analytics-fallback` / `none`을 보고.
+
+### 수정
+
+- **Cost 페이지 기간 정확도.** 사용자별 섹션(추정 비용 Top 10, 사용자별 모델 차트)이 헤드라인 KPI보다 3일 적게 집계되고, 최근 날짜만 선택하면 사라지던 문제: upstream cost 계열이 확정 버퍼를 부분 데이터로 제공하게 됐는데도(watermark 모델, 실측 검증) 서버가 `user_cost_report`를 `today−3`으로 clamp했고, 한쪽만 clamp해 기간이 역전되면 upstream 400이 났습니다. 이제 `resolveUserCostWindow`(ending ≤ today, 역전 방지)로 해석하고, Top-10 비용 테이블은 전체 기간 `/api/cost/users`를 사용하며, `/api/cost/efficiency`는 비용÷생산성 비율($/LOC, 점수)의 창 혼합을 막기 위해 의도적으로 `today−3` 정렬을 유지합니다. 기본 비용 창이 32일로 (신규 문서화된) 31일 upstream 상한을 1일 초과해 날짜 없는 챗봇 비용 질문이 실패하던 문제도 수정.
+- **upstream RBAC 플랩 내성.** `rbac_group_id` 차원이 간헐적으로 503("Team membership data is not ready yet")을 반환합니다. 그룹 엔드포인트가 마지막 정상 응답을 보관해 `stale: true`로 서빙하고, Cost 페이지는 카드를 조용히 없애는 대신 안내 문구를 표시합니다.
+
+### 변경
+
+- **CSV를 폴백으로 강등.** 사용자별 지출·토큰이 라이브로 제공되면서 Spend Report CSV는 31일 초과 정산과 라이브 리포트 장애 폴백만 담당합니다. Top 테이블 위 캡션이 각 테이블의 소스와 기간을 정확히 표시합니다.
 
 ## [1.5.0] - 2026-06-17
 

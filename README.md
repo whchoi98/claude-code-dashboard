@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](./CHANGELOG.md)
 [![한국어](https://img.shields.io/badge/README-한국어-informational)](./README.ko.md)
 
 Enterprise analytics dashboard for Claude Code — engagement, productivity, cost, and audit insights with an AI query layer.
@@ -99,8 +99,8 @@ Click any section below to jump directly to it. Every metric shown on these page
 | Middle (`cost02.png`) | Spend by Product × Model stacked bar · Token usage by type (stacked area) · Daily cost by model · Top 10 users (total/input/output/spend) |
 | Bottom (`cost03.png`) | **Economic Productivity Score** section: Spend vs Output scatter · Top 10 score · Most Efficient ($/LOC) · Full efficiency matrix (per-user) |
 
-- **Data sources**: Spend Report CSV (uploaded to `s3://<archive>/spend-reports/`) joined with Analytics API `/users/range`
-- **Economic Score formula**: `0.35·N(output/$) + 0.20·acceptance + 0.20·N(1/tokens/LOC) + 0.15·commit_velocity + 0.10·PR_velocity`
+- **Data sources**: live Analytics API — `cost_report`+`usage_report` (headline), `user_cost_report` (per-user spend & per-model), `user_usage_report` (per-user tokens), `cost_report × rbac_group_id` (Cost by Group, real group names via the Compliance groups endpoint), Spend Limits API (monthly limit vs month-to-date). The Spend Report CSV is a fallback for >31-day reconciliation and live-report outages. Productivity join: Analytics `/users/range`
+- **Cost-Efficiency Score (v3)**: `0.55·value + 0.25·acceptance + 0.12·delivery + 0.08·breadth` — per-surface within-cohort normalization (see CHANGELOG 1.3.0)
 - **Output score**: `LOC + 100·commits + 1000·PRs + 0.5·tool_accepted`
 
 <table>
@@ -149,7 +149,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **14 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Productivity · Adoption · Cost (live + CSV reconciliation, PDF export) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
+- **17 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Cowork · Office · Design · Productivity · Adoption · Cost (live per-user spend/tokens, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
@@ -232,7 +232,7 @@ claude-code-dashboard/
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # /api/cost/{live,csv,upload,uploads,efficiency}, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
+│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
 │   └── mock.js             # Deterministic mocks for local dev
 ├── collector/              # Daily Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4 stacks

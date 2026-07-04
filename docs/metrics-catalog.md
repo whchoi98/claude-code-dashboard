@@ -13,9 +13,11 @@ claude-code-dashboard가 수집/가공하는 **모든 지표**의 단일 참조 
 
 | 소스 | 키 타입 | 베이스 URL | 갱신 주기 | 접근 경로 |
 |---|---|---|---|---|
-| **Analytics API** | `sk-ant-api01-…` (Analytics scope) | `/v1/organizations/analytics/*` | 일 단위 집계, 3일 버퍼 | 서버 `/api/analytics/*` → S3-first → 실 API fallback |
-| **Compliance API** | `sk-ant-api01-…` (Compliance scope) | `/v1/compliance/activities` | 거의 실시간 | 서버 `/api/compliance/activities` (paginated) |
-| **Spend Report CSV** | 없음 (Console UI에서 수동 export) | `s3://<archive>/spend-reports/*.csv` | 업로드 시점 | 서버 `/api/cost/csv` 및 `/api/cost/efficiency` |
+| **Analytics API — engagement** | Analytics 키 | `/v1/organizations/analytics/{users,summaries,skills,connectors,…}` | 일 단위 집계, 3일 버퍼 | 서버 `/api/analytics/*` → S3-first → 실 API fallback |
+| **Analytics API — cost 계열** | 같은 Analytics 키 | `/v1/organizations/analytics/{cost_report,usage_report,user_cost_report,user_usage_report}` | ~4시간 watermark, 버퍼는 부분 데이터, 요청당 31일 상한 | 서버 `/api/cost/{live,users,user-tokens,groups,efficiency}` |
+| **Spend Limits API** | 같은 키 (`read:spend_limits`) | `/v1/organizations/spend_limits/effective` | 실시간 (월 단위 누적) | 서버 `/api/cost/spend-limits` |
+| **Compliance API** | Compliance 키 (없으면 Analytics 키 폴백) | `/v1/compliance/activities` · `/v1/compliance/groups`(그룹 실명) | 거의 실시간 | 서버 `/api/compliance/activities` · 그룹 이름은 서버 내부 1h 캐시 |
+| **Spend Report CSV** (폴백) | 없음 (Console UI에서 수동 export) | `s3://<archive>/spend-reports/*.csv` | 업로드 시점 | 31일 초과 정산·라이브 장애 시에만 — `/api/cost/csv` 및 `/api/cost/efficiency` 폴백 |
 | (참고) Admin API | `sk-ant-admin01-…` | `/v1/organizations/usage_report/*` · `/cost_report` | 1시간 지연 | 서버 `/api/admin/*` — **현재 조직은 응답 0** |
 
 ---
@@ -101,14 +103,15 @@ Claude.ai Chat 프로젝트별 사용.
 | `created_at` | 프로젝트 생성 시각 |
 | `created_by.{id,email_address}` | 생성자 |
 
-### 1.6 Analytics API 제약
+### 1.6 Analytics API 제약 (2026-07-04 공식 문서 재확인)
 
-- **첫 이용 가능 날짜**: `2026-01-01`
-- **3일 버퍼**: `ending_date`는 `today - 3` 이하
-- **최대 lookback**: 90일
-- **summaries 최대 범위**: 31일
-- **Rate limit**: 60 rpm (조직 단위)
+- **첫 이용 가능 날짜**: `2026-01-01` (`starting_at`은 최근 365일 이내여야 함)
+- **3일 버퍼 — engagement 계열만**: `users`·`users/range`·`summaries`·`skills`·`connectors`·`projects`는 여전히 `today - 3` 이하만 조회 가능. **cost 계열(`cost_report`·`usage_report`·`user_cost_report`·`user_usage_report`)은 버퍼 구간을 부분 데이터로 제공** — `data_refreshed_at` watermark(약 4시간 주기 갱신, 사용일 기준 약 30일 후 확정) 이후 tail은 미완성 값
+- **cost 계열 기간 상한**: 요청당 **최대 31일** ("date range must span at most 31 days") — 초과 선택은 CSV 폴백 경로로 처리
+- **summaries 최대 범위**: 31일 (기타 engagement 롤업 모드는 366일)
+- **Rate limit**: 60 rpm (**키가 아닌 조직 단위** — 여러 뷰어 동시 접속 시 공유)
 - **Bedrock 경유 Claude Code는 미반영**
+- **`group_by[]=rbac_group_id` 지원** (2026-07~): cost 계열 4개 엔드포인트 모두. any-membership 방식(여러 그룹 소속 사용자는 각 그룹 행에 전액 계상 → 그룹 합계가 조직 총액 초과 가능), 버킷당 상위 100개 그룹. 간헐적 503("Team membership data is not ready yet") 플랩 있음 — 서버가 last-good 캐시로 흡수. `claude_project_id`는 여전히 400
 
 ---
 
@@ -304,7 +307,7 @@ risk_density = risk_events / total_events
 | **Claude Code** | Analytics `/users` | LOC/commits/PRs 총합, 도구별 수락 스택, 수락률 radial, Top contributors |
 | **Productivity** | Analytics `/users/range` | Organization Productivity Score (§4.3), LOC/commits/PRs/수락률 시계열 |
 | **Adoption** | Analytics `/skills` + `/connectors` + `/apps/chat/projects` | 스킬/커넥터별 사용자, Top 프로젝트 메시지 수 |
-| **Cost** | Spend Report CSV + Analytics `/users/range` (조인) | Total spend, 모델별 점유(pie), product × model 스택, Top 10 (total/input/output/spend), **경제 생산성 점수** (§4.4) |
+| **Cost** | Analytics `cost_report`+`usage_report`(헤드라인) · `user_cost_report`(사용자별 지출·모델별) · `user_usage_report`(사용자별 토큰) · `cost_report×rbac_group_id`(그룹별) · Spend Limits API(월 한도/누적) · CSV는 31일 초과·장애 폴백 · `/users/range`(효율 조인) | Total spend, 모델별 점유(pie), product × model 스택, **그룹별 비용(실명)**, Top 10 (total/input/output/spend — 선택 기간 라이브), **Spend Limits 소진율**, **경제 생산성 점수** (§4.4) |
 | **Audit** | Compliance `/activities` | KPI(total/risk/login/actors), 이벤트 타입/행위자 Top, 일자별 추이, 최근 이벤트 피드 |
 | **Analyze** | 위 모두 (snapshot) + (SQL 모드) Athena 아카이브 | Bedrock Sonnet 4.6 자연어 분석 (SSE 스트리밍) |
 | **Archive** | S3 + Glue + Athena | 임의 SELECT SQL — NDJSON 파티션 조회 |

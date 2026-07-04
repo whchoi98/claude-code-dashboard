@@ -56,4 +56,4 @@ A fresh deployment in `ap-northeast-2` runs **~$80/month** in light use (Fargate
 - **`cdk deploy` fails with EIP quota** — the account's 5 EIPs are already consumed. Deploy with `--context existingVpcId=<vpc-id>` to reuse an existing VPC.
 - **Bedrock calls return 403** — check the task role has `bedrock:InvokeModel` on the inference profile ARN. See `docs/runbooks/` or `infra/lib/compute-stack.ts`.
 - **`tsc --noEmit` stuck on 404 imports** — run `npm install` in the project root.
-- **Mock data appears in Cost/Productivity pages** — means the Analytics API key is missing or a recent day is inside the 3-day buffer; see `docs/runbooks/` once created.
+- **Mock data appears in Productivity pages** — means the Analytics API key is missing or a recent day is inside the engagement endpoints' 3-day buffer. The Cost page is different: its cost-family endpoints serve recent days with partial data (watermark model), so mock/CSV fallback there usually means a missing key or a >31-day range.

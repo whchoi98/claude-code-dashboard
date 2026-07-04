@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](./CHANGELOG.md)
 [![English](https://img.shields.io/badge/README-English-informational)](./README.md)
 
 Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생산성·비용·감사 지표를 통합하고 AI 질의응답 레이어를 제공합니다.
@@ -99,8 +99,8 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 | 중단 (`cost02.png`) | 제품 × 모델 지출 누적 막대 · 토큰 유형별 사용량 (누적 영역) · 모델별 일일 비용 · Top 10 사용자 (total/input/output/지출) |
 | 하단 (`cost03.png`) | **경제 생산성 점수** 섹션: 지출 vs 산출 산점도 · Top 10 점수 · 최고 효율 ($/LOC) · 전체 효율 매트릭스 (사용자별) |
 
-- **데이터 소스**: Spend Report CSV (`s3://<archive>/spend-reports/`에 업로드) + Analytics API `/users/range` 조인
-- **경제 점수 공식**: `0.35·N(output/$) + 0.20·수락률 + 0.20·N(1/tokens/LOC) + 0.15·commit_velocity + 0.10·PR_velocity`
+- **데이터 소스**: 라이브 Analytics API — `cost_report`+`usage_report`(헤드라인), `user_cost_report`(사용자별 지출·모델별), `user_usage_report`(사용자별 토큰), `cost_report × rbac_group_id`(그룹별 비용, Compliance groups 엔드포인트로 실명 표기), Spend Limits API(월 한도 대비 누적). Spend Report CSV는 31일 초과 정산·라이브 장애 폴백. 생산성 조인: Analytics `/users/range`
+- **비용 효율 점수 (v3)**: `0.55·value + 0.25·수락률 + 0.12·delivery + 0.08·breadth` — surface별 코호트 내 정규화 (CHANGELOG 1.3.0 참조)
 - **Output 점수**: `LOC + 100·commits + 1000·PRs + 0.5·tool_accepted`
 
 <table>
@@ -149,7 +149,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ## 주요 기능
 
-- **14개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · 생산성 · 도입 · 비용(라이브 + CSV 정산, PDF 내보내기) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **변경 내역**(인앱 릴리즈 이력).
+- **17개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · Cowork · Office · Design · 생산성 · 도입 · 비용(라이브 사용자별 지출/토큰, RBAC 그룹 실명 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **변경 내역**(인앱 릴리즈 이력).
 - **세 개의 API 통합** — Analytics, Admin, Compliance (각각 별도 Secrets Manager 시크릿으로 주입; 모두 선택적이며 키가 없어도 UI는 graceful하게 동작).
 - **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷을 파티셔닝된 NDJSON으로 S3에 저장합니다. 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
 - **AI 자연어 질의** — Amazon Bedrock(Claude Sonnet 4.6 cross-region 프로파일) 기반 SSE 스트리밍. 두 모드: 실시간 스냅샷 직접 분석, 자율 Athena SQL 생성 + 실행.
@@ -232,7 +232,7 @@ claude-code-dashboard/
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # /api/cost/{live,csv,upload,uploads,efficiency}, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
+│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
 │   └── mock.js             # 로컬 개발용 결정론적 목업
 ├── collector/              # 일일 Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4개 스택
