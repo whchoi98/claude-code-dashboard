@@ -4,12 +4,13 @@ import { useT } from '../lib/i18n'
 import { useGroupScope, UNMAPPED } from '../lib/useGroupScope'
 
 /**
- * Sidebar group selector + upload affordance. URL-synced via useGroupScope, so
- * every page's useGroupScope reflects the selection without prop-drilling. The
- * upload mirrors CsvUploader (multipart POST → refetch). When no mapping exists,
- * only "All groups" shows plus an upload prompt.
+ * Per-page group scope tabs. Replaces the former sidebar GroupControl: a pill
+ * row (All · groups · Unmapped) rendered under each page's PageHeader, plus the
+ * email→group CSV upload affordance migrated from GroupControl. URL-synced via
+ * useGroupScope (?group=); sidebar NavLinks re-append the group param
+ * (Layout.tsx withGroup), which is what carries the selection across pages.
  */
-export function GroupControl() {
+export function GroupTabs() {
   const t = useT()
   const { group, setGroup, groups, hasMap, refetch } = useGroupScope()
   const [open, setOpen] = useState(false)
@@ -35,29 +36,40 @@ export function GroupControl() {
     }
   }, [t, refetch])
 
+  const tabs: { value: string; label: string }[] = [
+    { value: '', label: t('group.all') },
+    ...groups.map((g) => ({ value: g, label: g })),
+    ...(hasMap ? [{ value: UNMAPPED, label: t('group.unmapped') }] : []),
+  ]
+
   return (
-    <div className="rounded-lg border border-ink-100 bg-white p-2 text-xs">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="font-medium text-ink-600">{t('group.label')}</span>
+    <div className="px-8 pt-4 pb-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-xs font-medium text-ink-600">{t('group.label')}</span>
+        {tabs.map((tab) => (
+          <button
+            key={tab.value || 'all'}
+            onClick={() => setGroup(tab.value)}
+            className={clsx(
+              'rounded-full border px-3 py-1 text-xs font-medium transition',
+              group === tab.value
+                ? 'border-claude-500 bg-claude-500 text-white shadow-sm'
+                : 'border-ink-100 bg-white text-ink-500 hover:bg-paper-muted',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
         <button
           onClick={() => setOpen((o) => !o)}
-          className="text-[11px] text-ink-400 underline hover:text-ink-700"
+          className="ml-auto text-[11px] text-ink-400 underline hover:text-ink-700"
         >
           {t('group.upload')}
         </button>
       </div>
-      <select
-        value={group}
-        onChange={(e) => setGroup(e.target.value)}
-        className="w-full rounded-md border border-ink-100 bg-paper-muted/40 px-2 py-1 text-xs text-ink-700"
-      >
-        <option value="">{t('group.all')}</option>
-        {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-        {hasMap && <option value={UNMAPPED}>{t('group.unmapped')}</option>}
-      </select>
       {!hasMap && <div className="mt-1 text-[10px] text-ink-400">{t('group.empty')}</div>}
       {open && (
-        <div className="mt-2 space-y-1">
+        <div className="mt-2 space-y-1 rounded-lg border border-ink-100 bg-white p-2">
           <input
             ref={inputRef}
             type="file"

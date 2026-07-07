@@ -4,6 +4,7 @@ import {
   RadialBarChart, RadialBar, PolarAngleAxis,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
 import { ChartCard } from '../components/ChartCard'
 import { KpiCard } from '../components/KpiCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -100,6 +101,7 @@ export function ClaudeCode() {
         source={source}
         right={<DateRangeControl />}
       />
+      <GroupTabs />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
           <KpiCard accent label={t('cc.active_devs')} value={fmtNum(agg.activeUsers)} hint={t('cc.active_devs.hint')} />

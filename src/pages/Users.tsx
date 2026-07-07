@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -107,6 +108,7 @@ export function Users() {
           </div>
         }
       />
+      <GroupTabs />
       <div className="p-8">
         {rows.length === 0 ? (
           <EmptyState title={t('users.empty')} hint={t('users.empty.hint')} />

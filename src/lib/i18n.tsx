@@ -64,6 +64,8 @@ const DICT = {
     'group.upload.rows':    'users',
     'group.empty':          'No mapping uploaded — showing all users.',
     'group.note':           'Group scope ({group}) isn’t applied on this page — showing org-wide data.',
+    'group.note.partial':   'Group scope ({group}) applies to the per-user tables and charts — org-level aggregates on this page stay org-wide.',
+    'group.scoped_empty':   'No per-user cost activity for {group} in this window — the per-user cards are hidden.',
 
     // Common
     'common.loading': 'Loading…',
@@ -609,6 +611,8 @@ const DICT = {
     'group.upload.rows':    '사용자',
     'group.empty':          '매핑 미업로드 — 전체 사용자 표시.',
     'group.note':           '이 페이지에는 그룹 스코프({group})가 적용되지 않습니다 — 전사 데이터 표시.',
+    'group.note.partial':   '그룹 스코프({group})는 사용자별 테이블·차트에만 적용됩니다 — 이 페이지의 조직 레벨 집계는 전사 기준.',
+    'group.scoped_empty':   '{group} 그룹은 이 기간에 사용자별 비용 활동이 없습니다 — 사용자별 카드가 숨겨집니다.',
 
     'common.loading': '불러오는 중…',
     'common.error':   '데이터 로드 실패',

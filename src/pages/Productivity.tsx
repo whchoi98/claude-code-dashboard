@@ -4,6 +4,7 @@ import {
   Area, Bar, AreaChart,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
 import { ChartCard } from '../components/ChartCard'
 import { KpiCard } from '../components/KpiCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -133,6 +134,7 @@ export function Productivity() {
         source={range.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
         right={<DateRangeControl />}
       />
+      <GroupTabs />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-5 gap-4">
           <ScoreCard score={score} t={t} />

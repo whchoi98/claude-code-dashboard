@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupScopeNote } from '../components/GroupScopeNote'
+import { GroupTabs } from '../components/GroupTabs'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
@@ -12,6 +13,7 @@ import { CsvUploader } from '../components/CsvUploader'
 import { DateRangeControl } from '../components/DateRangeControl'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useGroupScope, UNMAPPED } from '../lib/useGroupScope'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtPct, maskEmail, fmtNum } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
@@ -210,6 +212,10 @@ export function useCostData(range: { startingDate: string; endingDate: string })
 export function Cost() {
   const t = useT()
   const { range } = useDateRange('1d')
+  // Group scope: per-user tables/charts below honor the selected group; the
+  // org-level cost_report aggregates (KPIs, pies, trends) cannot — the
+  // partial-variant GroupScopeNote says so when a group is active.
+  const { group, inGroup } = useGroupScope()
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
   const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
@@ -298,10 +304,14 @@ export function Cost() {
     const matrix = new Map<string, Map<string, number>>()
 
     for (const r of rows) {
-      const u = byUser.get(r.user_email) ?? { spend: 0, input: 0, output: 0, requests: 0, products: new Set<string>(), models: new Set<string>() }
-      u.spend += r.total_net_spend_usd; u.input += r.total_prompt_tokens; u.output += r.total_completion_tokens
-      u.requests += r.total_requests; u.products.add(r.product); u.models.add(r.model)
-      byUser.set(r.user_email, u)
+      // per-user rows honor the group scope; the org-level aggregations
+      // below (model/product/matrix) intentionally stay org-wide
+      if (inGroup(r.user_email)) {
+        const u = byUser.get(r.user_email) ?? { spend: 0, input: 0, output: 0, requests: 0, products: new Set<string>(), models: new Set<string>() }
+        u.spend += r.total_net_spend_usd; u.input += r.total_prompt_tokens; u.output += r.total_completion_tokens
+        u.requests += r.total_requests; u.products.add(r.product); u.models.add(r.model)
+        byUser.set(r.user_email, u)
+      }
 
       const m = byModel.get(r.model) ?? { spend: 0, input: 0, output: 0, requests: 0 }
       m.spend += r.total_net_spend_usd; m.input += r.total_prompt_tokens; m.output += r.total_completion_tokens; m.requests += r.total_requests
@@ -348,7 +358,7 @@ export function Cost() {
     })
 
     return { userRows, modelRows, productRows, productModelStack, allModels }
-  }, [data])
+  }, [data, inGroup])
 
   // Per-user aggregation: prefer the activity-weighted range_* fields from
   // /api/cost/efficiency (which scales each user's CSV-period total spend by
@@ -357,7 +367,9 @@ export function Cost() {
   // (range-agnostic) if eff data isn't available.
   const effUserRows = useMemo(() => {
     if (!eff.data?.users?.length) return null
-    return eff.data.users.map((u) => ({
+    // null (not []) when the group filter empties the rows, so the ?? source
+    // chains below keep their "no usable rows → next source" semantics
+    const rows = eff.data.users.filter((u) => inGroup(u.email)).map((u) => ({
       email: u.email,
       masked: maskEmail(u.email),
       spend: u.range_spend_usd ?? u.spend_usd,
@@ -368,7 +380,8 @@ export function Cost() {
       products: 0,  // not provided by eff endpoint
       models: 0,    // not provided by eff endpoint
     }))
-  }, [eff.data])
+    return rows.length ? rows : null
+  }, [eff.data, inGroup])
 
   // Live per-user spend over the FULL selected range, reusing the
   // usersByModel fetch (user_cost_report serves the 3-day buffer with partial
@@ -379,7 +392,7 @@ export function Cost() {
   // short of the headline.
   const liveUserRows = useMemo(() => {
     if (!usersByModel.data?.users?.length) return null
-    return usersByModel.data.users.map((u) => ({
+    const rows = usersByModel.data.users.filter((u) => inGroup(u.email)).map((u) => ({
       email: u.email,
       masked: maskEmail(u.email),
       spend: u.net_spend_usd,
@@ -388,12 +401,14 @@ export function Cost() {
       products: 0,
       models: u.by_model.length,
     }))
-  }, [usersByModel.data])
+    return rows.length ? rows : null
+  }, [usersByModel.data, inGroup])
 
   const csvUserRows = useMemo(() => {
     if (!csvData?.rows?.length) return null
     const byUser = new Map<string, { spend: number; input: number; output: number; requests: number; products: Set<string>; models: Set<string> }>()
     for (const r of csvData.rows) {
+      if (!inGroup(r.user_email)) continue
       const u = byUser.get(r.user_email) ?? { spend: 0, input: 0, output: 0, requests: 0, products: new Set<string>(), models: new Set<string>() }
       u.spend += r.total_net_spend_usd
       u.input += r.total_prompt_tokens
@@ -403,7 +418,7 @@ export function Cost() {
       u.models.add(r.model)
       byUser.set(r.user_email, u)
     }
-    return [...byUser.entries()].map(([email, u]) => ({
+    const rows = [...byUser.entries()].map(([email, u]) => ({
       email,
       masked: maskEmail(email),
       spend: u.spend,
@@ -414,14 +429,15 @@ export function Cost() {
       products: u.products.size,
       models: u.models.size,
     }))
-  }, [csvData])
+    return rows.length ? rows : null
+  }, [csvData, inGroup])
 
   // Live per-user token rows (user_usage_report). MUST stay above the early
   // returns below — hooks after a conditional return violate the Rules of
   // Hooks and crash the page on the loading→loaded transition.
   const liveTokenRows = useMemo(() => {
     if (!userTokens.data?.users?.length) return null
-    return userTokens.data.users.map((u) => ({
+    const rows = userTokens.data.users.filter((u) => inGroup(u.email)).map((u) => ({
       email: u.email,
       masked: maskEmail(u.email),
       spend: 0,   // token endpoint is token-only; spend table uses liveUserRows
@@ -432,7 +448,8 @@ export function Cost() {
       products: 0,
       models: 0,
     }))
-  }, [userTokens.data])
+    return rows.length ? rows : null
+  }, [userTokens.data, inGroup])
 
   const trendsPivot = useMemo(() => {
     if (!data?.daily || data.daily.length === 0) return { rows: [], models: [] }
@@ -517,8 +534,17 @@ export function Cost() {
               : t('cost.source.csv')
         }
       />
-      <GroupScopeNote />
+      <GroupTabs />
       <div className="p-8 space-y-6 print-export">
+        {/* Inside .print-export so the scope indicator survives Save-as-PDF —
+            the per-user tables below ARE group-filtered and a printout must
+            say so. Self-hides when no group is selected. */}
+        <GroupScopeNote variant="partial" />
+        {group && (usersByModel.data?.users?.length ?? 0) > 0 && liveUserRows === null && (
+          <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500">
+            {t('group.scoped_empty', { group: group === UNMAPPED ? t('group.unmapped') : group })}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 print-hide">
           {/* Real data-freshness from the API (cost_report data_refreshed_at),
               not the request time — sets expectations vs the 3-day buffer. */}
@@ -824,7 +850,8 @@ export function Cost() {
             Live user_cost_report?by=model — cost + requests only (no per-user
             tokens). Models normalized (hyphen→underscore) for color/label. */}
         {dataSource === 'live' && (usersByModel.data?.users?.length ?? 0) > 0 && (() => {
-          const top = usersByModel.data!.users.slice(0, 10)
+          const top = usersByModel.data!.users.filter((u) => inGroup(u.email)).slice(0, 10)
+          if (top.length === 0) return null
           const modelTotals = new Map<string, number>()
           for (const u of top) for (const m of u.by_model) {
             const id = normModel(m.model)
@@ -918,7 +945,8 @@ export function Cost() {
             dataSource gate: its own fetch succeeding is the only condition
             (a cost_report fallback to CSV shouldn't hide available limits). */}
         {(spendLimits.data?.members?.length ?? 0) > 0 && (() => {
-          const members = spendLimits.data!.members.slice(0, 10)
+          const members = spendLimits.data!.members.filter((m) => inGroup(m.email)).slice(0, 10)
+          if (members.length === 0) return null
           return (
             <ChartCard title={t('cost.limits.title')} subtitle={t('cost.limits.sub')}>
               <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
@@ -956,9 +984,22 @@ export function Cost() {
         })()}
 
         {/* ── Cost Efficiency ──────────────────────────────────────────── */}
-        {eff.data && eff.data.users.length > 0 && (
-          <EconomicProductivitySection data={eff.data} t={t} range={range} />
-        )}
+        {eff.data && eff.data.users.length > 0 && (() => {
+          const scopedUsers = eff.data!.users.filter((u) => inGroup(u.email))
+          if (scopedUsers.length === 0) return null
+          // Server totals are org-wide; under a group scope the median-score
+          // KPI ("cohort median") must reflect the scoped cohort, so recompute
+          // it client-side. The avg $/LOC / $/Commit KPIs keep the org values
+          // (their hints already say "avg org").
+          let totals = eff.data!.totals
+          if (group) {
+            const scores = scopedUsers.map((u) => u.economic_productivity_score).sort((a, b) => a - b)
+            const mid = scores.length >> 1
+            const median = scores.length % 2 ? scores[mid] : Math.round((scores[mid - 1] + scores[mid]) / 2)
+            totals = { ...totals, median_score: median }
+          }
+          return <EconomicProductivitySection data={{ ...eff.data!, users: scopedUsers, totals }} t={t} range={range} />
+        })()}
 
         {/* ── CSV management (auto-expanded in CSV mode) ────────────── */}
         <details

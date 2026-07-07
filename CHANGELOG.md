@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — next entries land here._
+### Changed
+
+- **Group scope moved from the sidebar to per-page tabs.** The sidebar group selector (`GroupControl`) is removed; a new `GroupTabs` pill row (All groups · groups · Unmapped, plus the mapping-CSV upload) renders under the page header on 10 pages (Users, User Productivity, User Search, Claude Code, Cowork, Office, Design, Productivity, Adoption, Cost). Sidebar navigation now carries the `?group=` selection across pages.
+- **Cost page is partially group-scoped.** Per-user Top-10 tables, the chargeback chart, Spend Limits and the efficiency section follow the selected group (the efficiency cohort-median KPI is recomputed for the scoped cohort); org-level aggregates stay org-wide, flagged by a partial-scope note that also survives the Save-as-PDF export. Cowork gained the same partial-scope note for its org-summaries widgets (Adoption KPI, DAU/WAU/MAU trend).
 
 ## [1.6.0] - 2026-07-04
 

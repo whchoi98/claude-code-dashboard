@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
@@ -115,6 +116,7 @@ export function UserSearch() {
     return (
       <div>
         <PageHeader title={t('user_search.title')} subtitle={t('user_search.subtitle')} />
+        <GroupTabs />
         <EmptyState title={t('user_search.empty.no_users')} hint={t('user_search.empty.hint')} />
       </div>
     )
@@ -245,6 +247,7 @@ export function UserSearch() {
         source="csv"
         reason={`CSV · ${csv.data!.file ?? ''}`}
       />
+      <GroupTabs />
       <div className="p-8 space-y-6">
         {/* ── User selector + range toggle ───────────────────────────── */}
         <div className="rounded-xl border border-ink-100 bg-white p-5">

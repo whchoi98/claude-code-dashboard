@@ -29,7 +29,7 @@ export function useGroupScopeData(): GroupScopeData {
 
 /**
  * Fetches the admin email→group mapping (`GET /api/groups`) ONCE and shares it
- * via context, so the sidebar control + every scoped page read one request and
+ * via context, so the GroupTabs on every scoped page read one request and
  * a single refetch (after upload) refreshes all consumers.
  */
 export function GroupScopeProvider({ children }: { children: ReactNode }) {

@@ -1,8 +1,7 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClaudeIcon } from './ClaudeIcon'
 import { FloatingChat } from './chat/FloatingChat'
-import { GroupControl } from './GroupControl'
 import { useHealth } from '../lib/useHealth'
 import { useI18n } from '../lib/i18n'
 // Single source of truth for the displayed version. Bumping this in
@@ -35,6 +34,13 @@ const NAV = [
 export function Layout() {
   const health = useHealth()
   const { t, locale, setLocale } = useI18n()
+  // Carry ONLY the group scope across sidebar navigation (?group=), so the
+  // per-page GroupTabs selection survives page switches. Date-range params
+  // stay per-page on purpose — each page has its own default window.
+  const [searchParams] = useSearchParams()
+  const groupQ = searchParams.get('group')
+  const withGroup = (path: string) =>
+    groupQ ? `${path}?group=${encodeURIComponent(groupQ)}` : path
 
   return (
     // h-screen pins the layout to the viewport so the sidebar stays put
@@ -61,7 +67,7 @@ export function Layout() {
           {NAV.map((n) => (
             <NavLink
               key={n.to}
-              to={n.to}
+              to={withGroup(n.to)}
               end={n.to === '/'}
               className={({ isActive }) =>
                 clsx(
@@ -117,9 +123,6 @@ export function Layout() {
               <path d="M14 7l3 3-3 3" />
             </svg>
           </a>
-
-          {/* Group scope */}
-          <GroupControl />
 
           {/* Language toggle */}
           <div className="flex items-center gap-1 rounded-lg border border-ink-100 bg-white p-0.5 text-xs font-medium">

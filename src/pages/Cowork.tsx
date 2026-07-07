@@ -4,6 +4,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
+import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -116,6 +118,10 @@ export function Cowork() {
         source={source}
         right={<DateRangeControl />}
       />
+      <GroupTabs />
+      {/* Adoption KPI + DAU/WAU/MAU trend come from org summaries (no per-user
+          dimension) and ignore the group — flag it like Cost does. */}
+      <GroupScopeNote variant="partial" />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-4 gap-4">
           <KpiCard accent label={t('cowork.kpi.active_users')} value={fmtNum(agg.activeUsers)} hint={t('cowork.kpi.active_users.hint')} />

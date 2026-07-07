@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
+import { GroupTabs } from '../components/GroupTabs'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
@@ -162,6 +163,7 @@ export function UserProductivity() {
           </div>
         }
       />
+      <GroupTabs />
       <div className="p-8 space-y-6">
         {rows.length > 0 && (
           <ChartCard title={t('user_prod.top10')} subtitle={t('user_prod.top10.sub')}>
