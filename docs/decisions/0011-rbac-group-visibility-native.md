@@ -32,9 +32,12 @@ yet" for hours (also undocumented).
 ## Decision
 
 - `/api/cost/groups` serves per-group spend from `cost_report ×
-  rbac_group_id`; `/api/groups` auto-derives the sidebar email→group map from
-  `user_cost_report × rbac_group_id` (max-spend group per user) when no admin
-  CSV exists — an uploaded CSV still wins.
+  rbac_group_id`; `/api/groups` auto-derives the email→group map from
+  `user_cost_report × rbac_group_id` when no admin CSV exists — an uploaded
+  CSV still wins. *(Amended 2026-07-07: originally max-spend group per user,
+  which erased any group that was nobody's top group — e.g. CXO/Security
+  members whose Engineering spend won. Map values are now arrays of every
+  membership, spend-desc, matching the upstream any-membership semantics.)*
 - Group ids resolve to display names via `fetchGroupNames()` →
   `GET /v1/compliance/groups`, cached 1 h + last-good, because every listing
   emits a `group_list_viewed` audit event into the org's own feed;

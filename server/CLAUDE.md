@@ -86,8 +86,10 @@ fallback.
     duplicate names id-suffixed), `aggregateGroupCost(costBody, nameById?)`
     (per-group totals + daily; null group id = genuinely-ungrouped remainder,
     accumulated not dropped), `deriveGroupMap(data, nameById?)`
-    (user_cost_report×rbac_group_id → email→label map, max-spend group per
-    email, + `ids` label→group_id lookup). `GET /groups` serves the admin CSV
+    (user_cost_report×rbac_group_id → email→label**s** map — ARRAY of every
+    membership per email, spend-desc, `[0]` = max-spend group; a single-value
+    collapse dropped groups that were nobody's top group — + `ids`
+    label→group_id lookup). `GET /groups` serves the admin CSV
     when uploaded, else **auto-derives** the map this way (`source:'auto'`;
     works without `ARCHIVE_S3_BUCKET`).
   - Per-user report mappers (pure, tested in `tests/server/test-user-usage.mjs`):

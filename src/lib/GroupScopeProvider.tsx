@@ -7,12 +7,16 @@ type GroupsResp = {
   source: 'live' | 'auto' | 'empty'
   file: string | null
   groups: string[]
-  map: Record<string, string>   // lowercased email → group
+  // lowercased email → group(s). CSV path sends a single string; the auto
+  // path sends every membership (spend-desc, [0] = max-spend group) because
+  // upstream attribution is any-membership — a single-value collapse dropped
+  // groups that were nobody's top group from the tab list entirely.
+  map: Record<string, string | string[]>
 }
 
 export type GroupScopeData = {
   groups: string[]
-  map: Record<string, string>
+  map: Record<string, string[]>   // normalized: always arrays
   hasMap: boolean
   loading: boolean
   refetch: () => Promise<void>
@@ -36,7 +40,9 @@ export function GroupScopeProvider({ children }: { children: ReactNode }) {
   const { data, loading, refetch } = useFetch<GroupsResp>('/api/groups')
   const value = useMemo<GroupScopeData>(() => {
     const groups = data?.groups ?? []
-    const map = data?.map ?? {}
+    const map = Object.fromEntries(
+      Object.entries(data?.map ?? {}).map(([email, g]) => [email, Array.isArray(g) ? g : [g]]),
+    )
     const hasMap = (data?.source === 'live' || data?.source === 'auto') && groups.length > 0
     return { groups, map, hasMap, loading, refetch }
   }, [data, loading, refetch])

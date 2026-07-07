@@ -266,13 +266,17 @@ export function aggregateGroupCost(costBody, nameById = {}) {
   return { groups, ungrouped, daily }
 }
 
-// Derive an email→group mapping from a user_cost_report body grouped by
-// rbac_group_id (one row per actor × group). The scope-filter format is ONE
-// group per email (see parseGroupMap), so a multi-group user maps to their
-// max-spend group — deterministic and usage-representative. Rows without an
-// email (api_actor) or without a group are skipped. Returns the same
-// { map, groups } shape as parseGroupMap plus `ids` (label → full group id),
-// which keeps the mapping invertible for API-side follow-ups.
+// Derive an email→groups mapping from a user_cost_report body grouped by
+// rbac_group_id (one row per actor × group). Upstream attribution is
+// any-membership, so map values are ARRAYS of every group the user appears
+// in, sorted by spend desc (first element = max-spend group, the pre-2026-07
+// single-value semantics). Collapsing to one group per email dropped whole
+// groups from the tab list whenever they were nobody's top group (e.g. CXO
+// members whose Engineering spend wins). Rows without an email (api_actor)
+// or without a group are skipped. `groups` covers every membership; `ids`
+// (label → full group id) keeps the mapping invertible for follow-ups.
+// The admin-CSV path (parseGroupMap) still yields single-group strings —
+// the client normalizes both shapes.
 export function deriveGroupMap(data, nameById = {}) {
   const rows = Array.isArray(data) ? data : []
   const perEmail = new Map()   // email → Map(group_id → spend)
@@ -290,10 +294,9 @@ export function deriveGroupMap(data, nameById = {}) {
   const labels = resolveGroupLabels(allIds, nameById)
   const map = {}
   for (const [email, m] of perEmail) {
-    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0]
-    map[email] = labels[top[0]]
+    map[email] = [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => labels[id])
   }
-  const groups = [...new Set(Object.values(map))].sort()
+  const groups = [...new Set(Object.values(map).flat())].sort()
   const ids = Object.fromEntries(Object.entries(labels).map(([id, label]) => [label, id]))
   return { map, groups, ids }
 }

@@ -47,8 +47,10 @@ ok('empty body → empty aggregates', aggregateGroupCost({}).groups.length === 0
 
 // ── deriveGroupMap ─────────────────────────────────────────────────────────
 // user_cost_report grouped by rbac_group_id: one row per (actor, group).
-// A multi-group user maps to their MAX-SPEND group (deterministic single
-// membership — the scope filter format is one group per email).
+// Upstream attribution is any-membership, so map values are ARRAYS of every
+// group the user appears in, spend-desc ([0] = max-spend group). A single-
+// value collapse dropped whole groups from the tab list whenever they were
+// nobody's top group.
 const rows = [
   { actor: { type: 'user_actor', email: 'Alice@Acme.com' }, rbac_group_id: G_A, amount: '9000' },
   { actor: { type: 'user_actor', email: 'alice@acme.com' }, rbac_group_id: G_B, amount: '1000' },
@@ -58,10 +60,21 @@ const rows = [
 ]
 const dm = deriveGroupMap(rows)
 const labelOf = (gid) => Object.entries(dm.ids).find(([, id]) => id === gid)?.[0]
-ok('emails lowercased, max-spend group wins', dm.map['alice@acme.com'] === labelOf(G_A) && !!labelOf(G_A))
-ok('single-group user mapped', dm.map['bob@acme.com'] === labelOf(G_B) && !!labelOf(G_B))
+ok('emails lowercased, memberships spend-desc (max-spend first)',
+  dm.map['alice@acme.com'][0] === labelOf(G_A) && dm.map['alice@acme.com'][1] === labelOf(G_B) && !!labelOf(G_A))
+ok('single-group user maps to a one-element array', dm.map['bob@acme.com'].length === 1 && dm.map['bob@acme.com'][0] === labelOf(G_B))
 ok('ungrouped + api_actor rows skipped', !('carol@acme.com' in dm.map) && Object.keys(dm.map).length === 2)
 ok('groups = sorted unique labels present in map', dm.groups.length === 2 && [...dm.groups].sort().join() === dm.groups.join())
+ok('group that is nobody\'s top group still appears in groups', (() => {
+  // G_B is only ever a secondary membership here — it must survive.
+  const d = deriveGroupMap([
+    { actor: { email: 'a@x.com' }, rbac_group_id: G_A, amount: '900' },
+    { actor: { email: 'a@x.com' }, rbac_group_id: G_B, amount: '100' },
+    { actor: { email: 'b@x.com' }, rbac_group_id: G_A, amount: '800' },
+    { actor: { email: 'b@x.com' }, rbac_group_id: G_B, amount: '50' },
+  ])
+  return d.groups.length === 2
+})())
 ok('ids is label → full group id lookup', Object.values(dm.ids).includes(G_A) && Object.values(dm.ids).includes(G_B))
 ok('empty / non-array → empty map', deriveGroupMap(null).groups.length === 0 && deriveGroupMap([]).groups.length === 0)
 ok('non-numeric amount → treated as 0 (no NaN poisoning)', (() => {
@@ -69,20 +82,21 @@ ok('non-numeric amount → treated as 0 (no NaN poisoning)', (() => {
     { actor: { email: 'x@y.com' }, rbac_group_id: G_A, amount: 'abc' },
     { actor: { email: 'x@y.com' }, rbac_group_id: G_B, amount: '100' },
   ])
-  return d.map['x@y.com'] === Object.entries(d.ids).find(([, id]) => id === G_B)?.[0]
+  return d.map['x@y.com'][0] === Object.entries(d.ids).find(([, id]) => id === G_B)?.[0]
 })())
 
 // Real group names (from GET /v1/compliance/groups) override grp- labels.
 const named = deriveGroupMap(rows, { [G_A]: 'Engineering', [G_B]: 'Marketing' })
-ok('names map overrides grp- labels', named.map['alice@acme.com'] === 'Engineering' && named.map['bob@acme.com'] === 'Marketing')
+ok('names map overrides grp- labels', named.map['alice@acme.com'][0] === 'Engineering' && named.map['bob@acme.com'][0] === 'Marketing')
+ok('multi-group user carries every named membership', named.map['alice@acme.com'].join() === 'Engineering,Marketing')
 ok('ids lookup keyed by real name', named.ids['Engineering'] === G_A)
 ok('partial names map: unnamed ids keep grp- fallback', (() => {
   const d = deriveGroupMap(rows, { [G_A]: 'Engineering' })
-  return d.map['alice@acme.com'] === 'Engineering' && d.map['bob@acme.com'].startsWith('grp-')
+  return d.map['alice@acme.com'][0] === 'Engineering' && d.map['bob@acme.com'][0].startsWith('grp-')
 })())
 ok('duplicate group names disambiguated with id suffix', (() => {
   const d = deriveGroupMap(rows, { [G_A]: 'Team', [G_B]: 'Team' })
-  const labels = new Set([d.map['alice@acme.com'], d.map['bob@acme.com']])
+  const labels = new Set([d.map['alice@acme.com'][0], d.map['bob@acme.com'][0]])
   return labels.size === 2 && [...labels].every((l) => l.startsWith('Team'))
 })())
 ok('suffix collision among same-named groups extends until unique (labels stay invertible)', (() => {
