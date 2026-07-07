@@ -362,6 +362,8 @@ const DICT = {
     'user_search.model.breakdown.sub':     'CSV totals across the user\'s entire export period.',
     'user_search.model.in':                'in',
     'user_search.model.out':               'out',
+    'user_search.model.req':               'req',
+    'user_search.model.live_added':        'Added from the live cost report (since {start}) — not in the uploaded CSV period, so spend & requests only.',
     'user_search.empty.no_users':          'No users in the uploaded CSV',
     'user_search.empty.hint':              'Upload a Spend Report CSV on the Cost page first.',
 
@@ -901,6 +903,8 @@ const DICT = {
     'user_search.model.breakdown.sub':     'CSV 전체 기간 합계 기준.',
     'user_search.model.in':                'in',
     'user_search.model.out':               'out',
+    'user_search.model.req':               '요청',
+    'user_search.model.live_added':        '라이브 비용 리포트에서 추가 ({start}부터) — 업로드된 CSV 기간에 없는 모델이라 지출·요청수만 표시.',
     'user_search.empty.no_users':          '업로드된 CSV에 사용자가 없습니다',
     'user_search.empty.hint':              'Cost 페이지에서 Spend Report CSV를 먼저 업로드하세요.',
 

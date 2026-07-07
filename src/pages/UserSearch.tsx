@@ -41,7 +41,7 @@ type Tab = 'overview' | 'model'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const shortModel = (m: string) =>
-  m.replace(/^claude_/i, '').replace(/_v\d+:\d+$/, '').replace(/_\d{8}$/, '').replace(/_/g, ' ').replace(/-/g, ' ')
+  m.replace(/^claude[-_]/i, '').replace(/_v\d+:\d+$/, '').replace(/[-_]\d{8}$/, '').replace(/[-_]/g, ' ')
 
 const FALLBACK = ['#D97757', '#1F1E1D', '#8A8474', '#B75E40', '#D7D3C7', '#E69F7F', '#4CA371', '#CC7722']
 
@@ -81,6 +81,13 @@ export function UserSearch() {
   const RANGE_START = '2026-01-01'
   const rangeUrl = `/api/analytics/users/range?starting_date=${RANGE_START}&ending_date=${RANGE_END}`
   const range = useFetch<RangeResp>(rangeUrl)
+  // Live per-user × model spend (user_cost_report, ≤31-day span) — fills in
+  // models missing from the CSV period, e.g. models released after the last
+  // spend-report upload (the CSV is the token source and can be weeks old).
+  const LIVE_MODEL_START = todayUtc(-30)
+  const liveByModel = useFetch<{
+    users: { email: string; by_model: { model: string; spend_usd: number; requests: number }[] }[]
+  }>(`/api/cost/users?by=model&starting_date=${LIVE_MODEL_START}&ending_date=${todayUtc(0)}`)
 
   // Build candidate user list from CSV
   const allUsers = useMemo(() => {
@@ -206,6 +213,17 @@ export function UserSearch() {
     .sort((a, b) => b.tokens - a.tokens)
   const favoriteModelShort = modelRowsSorted[0]?.short ?? '—'
   const totalTokensAllModels = modelRowsSorted.reduce((s, r) => s + r.tokens, 0)
+
+  // Models the user ran that are missing from the CSV period, filled from the
+  // live cost report (spend/requests only — the live source has no per-user
+  // token split). Keeps newly released models (e.g. Fable 5) visible even
+  // while the uploaded spend report predates them.
+  const liveUserModels = liveByModel.data?.users?.find((u) => u.email === activeEmail)?.by_model ?? []
+  const csvModelKeys = new Set(modelRowsSorted.map((m) => m.model))
+  const liveOnlyModels = liveUserModels
+    .filter((m) => !csvModelKeys.has(m.model))
+    .map((m) => ({ model: m.model, short: shortModel(m.model), spend: m.spend_usd, requests: m.requests }))
+    .sort((a, b) => b.spend - a.spend)
 
   // Heatmap data: build a 7-rows × N-cols grid for the *entire* known window
   // (we always show the same heatmap shape for orientation; range-preset
@@ -370,7 +388,7 @@ export function UserSearch() {
                 <KpiCard accent label={t('user_search.cost.spend')}    value={`$${spendInWindow.toFixed(2)}`} hint={`× ${(ratio * 100).toFixed(1)}%`} />
                 <KpiCard       label={t('user_search.cost.requests')} value={fmtNum(Math.round(requestsInWindow))} hint={t('user_search.cost.requests.hint')} />
                 <KpiCard       label={t('user_search.cost.csv_total_spend')} value={`$${csvTotalSpend.toFixed(2)}`} hint={t('user_search.cost.csv_total_hint')} />
-                <KpiCard       label={t('user_search.cost.models_used')}    value={fmtNum(modelRowsSorted.length)} hint={t('user_search.cost.models_used.hint')} />
+                <KpiCard       label={t('user_search.cost.models_used')}    value={fmtNum(modelRowsSorted.length + liveOnlyModels.length)} hint={t('user_search.cost.models_used.hint')} />
               </div>
             </ChartCard>
           </>
@@ -417,6 +435,26 @@ export function UserSearch() {
                     </div>
                   )
                 })}
+                {liveOnlyModels.length > 0 && (
+                  <>
+                    <div className="pt-2 mt-1 border-t border-ink-100 text-[10px] text-ink-400">
+                      {t('user_search.model.live_added', { start: LIVE_MODEL_START })}
+                    </div>
+                    {liveOnlyModels.map((m, i) => (
+                      <div key={m.model} className="flex items-center gap-3 text-[12px]">
+                        <div
+                          className="w-3 h-3 rounded-sm shrink-0"
+                          style={{ background: FALLBACK[(modelRowsSorted.length + i) % FALLBACK.length] }}
+                        />
+                        <div className="flex-1 font-medium text-ink-700">{m.short}</div>
+                        <div className="text-ink-500 tabular-nums">
+                          ${m.spend.toFixed(2)} · {fmtNum(m.requests)} {t('user_search.model.req')}
+                        </div>
+                        <div className="w-16 text-right tabular-nums text-ink-400">—</div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </ChartCard>
           </>
