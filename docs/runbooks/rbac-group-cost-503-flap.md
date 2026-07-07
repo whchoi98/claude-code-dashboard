@@ -3,13 +3,13 @@
 ## Symptom
 
 - Cost page shows the amber note **"그룹별 비용을 일시적으로 표시할 수 없습니다 …"** where the Cost by Group card should be, or the card renders with the subtitle suffix **"마지막 정상 조회 값 표시 중"** (`stale: true`).
-- Sidebar group selector is empty/hidden even though no admin CSV was ever needed before (auto-derive degraded to `source:"empty"`).
+- The per-page group tabs (GroupTabs, formerly the sidebar selector) show only "All groups" even though no admin CSV was ever needed before (auto-derive degraded to `source:"empty"`).
 - ECS logs show `[cost/groups] upstream 503; serving last-good …` or `[groups] auto-derive unavailable, falling back to empty: user_cost_report 503`.
 - A direct upstream probe returns `503 overloaded_error` — `"Team membership data is not ready yet; RBAC group breakdowns and filters are temporarily unavailable."`
 
 ## Impact
 
-Only the group surfaces degrade: the Cost by Group card and the auto-derived sidebar group scope. Every other Cost section (headline KPIs, per-user Top-10, tokens, spend limits) and all other pages are unaffected. This is an **upstream Anthropic condition, not our outage** — first observed 2026-07-03 (worked in the morning, 503 for 24 h+ after); it is completely undocumented, so there is no retry contract to lean on.
+Only the group surfaces degrade: the Cost by Group card and the auto-derived per-page group scope (GroupTabs). Every other Cost section (headline KPIs, per-user Top-10, tokens, spend limits) and all other pages are unaffected. This is an **upstream Anthropic condition, not our outage** — first observed 2026-07-03 (worked in the morning, 503 for 24 h+ after); it is completely undocumented, so there is no retry contract to lean on.
 
 ## Diagnose
 
@@ -70,7 +70,7 @@ If the flap persists beyond ~24 h, contact Anthropic support with a `request_id`
 
 - [ ] Diagnose step (1) returns HTTP 200 with non-empty `data[]`.
 - [ ] Cost page reloads with the Cost by Group card showing **real group names** (Engineering, CXO, …) and no stale/unavailable note.
-- [ ] Sidebar group selector repopulates within one page load (auto-derive) — no CSV upload needed.
+- [ ] Per-page group tabs (GroupTabs) repopulate within one page load (auto-derive) — no CSV upload needed.
 
 ## Notes
 

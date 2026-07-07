@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Group scope moved from the sidebar to per-page tabs.** The sidebar group selector (`GroupControl`) is removed; a new `GroupTabs` pill row (All groups · groups · Unmapped, plus the mapping-CSV upload) renders under the page header on 10 pages (Users, User Productivity, User Search, Claude Code, Cowork, Office, Design, Productivity, Adoption, Cost). Sidebar navigation now carries the `?group=` selection across pages.
 - **Cost page is partially group-scoped.** Per-user Top-10 tables, the chargeback chart, Spend Limits and the efficiency section follow the selected group (the efficiency cohort-median KPI is recomputed for the scoped cohort); org-level aggregates stay org-wide, flagged by a partial-scope note that also survives the Save-as-PDF export. Cowork gained the same partial-scope note for its org-summaries widgets (Adoption KPI, DAU/WAU/MAU trend).
 
+### 추가
+
+- **사용자 검색 모델 탭에 CSV 기간 누락 모델 표시.** 업로드된 Spend Report 이후 출시된 모델(`claude-fable-5`, `claude-sonnet-5` 등)을 라이브 `user_cost_report?group_by[]=model`(최근 30일)에서 병합해 지출·요청수로 표시하고, 출처·기간을 캡션으로 명시. Models Used KPI에 포함되며 `shortModel`이 하이픈 `claude-` 접두사도 제거("claude fable 5" 대신 "fable 5").
+
+### 수정
+
+- **누구의 최대 지출 그룹도 아닌 그룹이 그룹 탭에서 사라지던 문제.** `deriveGroupMap`이 사용자당 최대 지출 그룹 1개로 붕괴시켜 부소속 그룹(예: Engineering 지출이 더 큰 CXO/Security 멤버)이 탭 목록에서 통째로 탈락. 자동 유도 맵이 이제 사용자별 전체 소속(지출 내림차순 배열, any-membership — 그룹별 비용 카드와 일관)을 담고, 스코프 필터는 포함 여부를 검사. 관리자 CSV 매핑은 변경 없음.
+
+### 변경
+
+- **그룹 스코프를 사이드바에서 페이지별 탭으로 이동.** 사이드바 그룹 셀렉터(`GroupControl`) 제거; 새 `GroupTabs` 알약 탭(All groups · 그룹들 · Unmapped + 매핑 CSV 업로드)이 10개 페이지(Users, 사용자별 생산성, 사용자 검색, Claude Code, Cowork, Office, Design, 생산성, 도입, 비용)의 페이지 헤더 아래 렌더. 사이드바 내비게이션이 `?group=` 선택을 페이지 간 유지.
+- **Cost 페이지 부분 그룹 스코프.** 사용자별 Top-10 테이블·차지백 차트·Spend Limits·효율 섹션이 선택 그룹을 따르고(효율 cohort median KPI는 스코프 기준 재계산), 조직 레벨 집계는 전사 기준 유지 — partial 안내 노트가 PDF 내보내기에도 포함. Cowork의 조직 summaries 위젯(도입 KPI, DAU/WAU/MAU 추이)에도 동일한 partial 노트 추가.
+
 ## [1.6.0] - 2026-07-04
 
 Cost page goes fully live — RBAC group cost with real names, per-user tokens without CSV, spend limits, and date-range accuracy fixes. (Deployed to production 2026-07-03/04.)

@@ -2,7 +2,7 @@
 
 ## Role
 
-Browser-side SPA. Renders the 14 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
+Browser-side SPA. Renders the 17 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
 
 ## Layout
 
@@ -24,7 +24,7 @@ src/
 │       ├── MessageList.tsx   # message bubbles, typing dots, tool-call badges (running/done/error), markdown rendering
 │       ├── ChatComposer.tsx  # textarea + Send / Stop buttons; Enter to send, Shift-Enter for newline
 │       └── FloatingChat.tsx  # fixed-position launcher button + modal panel; mounted globally in Layout.tsx
-├── pages/                # one file per route — 14 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained)
+├── pages/                # one file per route — 17 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained)
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).

@@ -33,7 +33,7 @@ claude-code-dashboard/
 │   └── main.tsx            Entry + I18nProvider
 ├── server/                 Express API layer
 │   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/* (after_id cursor; startup prewarm + 5-min interval refresh for the 7d/14d/30d audit windows), /api/health, plus a 10-minute in-memory cache shared across upstream calls
-│   ├── aws.js              registerAwsRoutes(): /api/cost/{live,csv,upload,uploads,uploads/:file,efficiency}, /api/analyze (Bedrock SSE), /api/archive/query (Athena, 60-second polling budget), plus the analytics→CsvResp reshape used by /cost/live
+│   ├── aws.js              registerAwsRoutes(): /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups(+/upload — email→group map, auto-derived multi-membership arrays when no CSV), /api/chat/stream (Bedrock SSE chatbot), /api/archive/query (Athena, 60-second polling budget), plus the analytics→CsvResp reshape used by /cost/live
 │   └── mock.js             Deterministic mock generators (dev fallback only)
 ├── collector/              Node 20 Lambda — daily S3 snapshot of Analytics API
 │   ├── handler.js          Flatten → NDJSON → s3://<bucket>/<table>/date=YYYY-MM-DD/

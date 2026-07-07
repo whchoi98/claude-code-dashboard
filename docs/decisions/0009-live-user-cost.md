@@ -32,6 +32,8 @@ correction window).
 - Cost page per-user analysis works with **no CSV upload** — closes ADR-0003's
   main negative and its first two follow-ups.
 - Per-user **token** granularity remains CSV-only (no live source exists).
+  *(Partially superseded by [ADR-0012](0012-live-user-tokens.md) — live
+  per-user tokens now exist via `user_usage_report`.)*
 - Email masking stays at the render layer (`maskEmail`), consistent with
   `/cost/efficiency` + `/analytics/users/range`; the efficiency join keys on raw
   email, so the proxy must not pre-mask.
