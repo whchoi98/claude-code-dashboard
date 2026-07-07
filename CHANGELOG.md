@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **User Search model tab shows models missing from the CSV period.** Models the selected user ran that predate-proof the uploaded spend report (e.g. `claude-fable-5`, `claude-sonnet-5`) are merged in from the live `user_cost_report?group_by[]=model` (last 30 days) with spend & request counts, under a caption naming the source and window. The Models Used KPI includes them, and `shortModel` now strips hyphenated `claude-` prefixes ("fable 5", not "claude fable 5").
+
+### Fixed
+
+- **Groups vanished from the group tabs when they were nobody's top group.** `deriveGroupMap` collapsed each user to their single max-spend group, so secondary memberships (e.g. CXO/Security members whose Engineering spend won) erased whole groups from the tab list. The auto-derived map now carries every membership per user (spend-desc arrays, any-membership — consistent with the Cost by Group card), and the scope filter checks membership inclusion. Admin-CSV mappings are unchanged.
+
 ### Changed
 
 - **Group scope moved from the sidebar to per-page tabs.** The sidebar group selector (`GroupControl`) is removed; a new `GroupTabs` pill row (All groups · groups · Unmapped, plus the mapping-CSV upload) renders under the page header on 10 pages (Users, User Productivity, User Search, Claude Code, Cowork, Office, Design, Productivity, Adoption, Cost). Sidebar navigation now carries the `?group=` selection across pages.
