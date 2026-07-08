@@ -373,12 +373,15 @@ export function spendLimitsToMembers(data) {
 // efficiency join; the frontend masks via maskEmail on render. api_actor rows
 // (no email) are excluded — this endpoint is user-centric and emails are the
 // join key.
-export function userCostToUsers(data, { byModel = false } = {}) {
+export function userCostToUsers(data, { byModel = false, by = null } = {}) {
+  // `by` names the grouped dimension ('model' | 'product'); byModel is the
+  // pre-2026-07 boolean spelling, kept for existing callers/tests.
+  const dim = by || (byModel ? 'model' : null)
   // Cents (decimal string) → USD; non-numeric/malformed amounts coerce to 0 so a
   // bad upstream value can never inject NaN (which would corrupt the spend sort).
   const usd = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n / 100 : 0 }
   const rows = Array.isArray(data) ? data : []
-  if (!byModel) {
+  if (!dim) {
     return rows
       .map((r) => {
         const a = r.actor || {}
@@ -394,8 +397,9 @@ export function userCostToUsers(data, { byModel = false } = {}) {
       })
       .filter((u) => u.email)
   }
-  // byModel: the body is per-(actor, model). Aggregate per email, collecting a
-  // sorted per-model spend breakdown (cost + requests only — no per-user tokens).
+  // Grouped: the body is per-(actor, <dim>). Aggregate per email, collecting a
+  // sorted per-dim spend breakdown (cost + requests only — no per-user tokens).
+  // Output key is by_model / by_product to keep each consumer's shape explicit.
   const byEmail = new Map()
   for (const r of rows) {
     const a = r.actor || {}
@@ -405,13 +409,13 @@ export function userCostToUsers(data, { byModel = false } = {}) {
     const spend = usd(r.amount)
     u.net_spend_usd += spend
     u.requests += Number(r.requests || 0)
-    // net_spend_usd counts every row; by_model only rows carrying a model. In
-    // grouped mode the API always sends a model, so they match in practice.
-    if (r.model) {
-      const m = u._m.get(r.model) ?? { model: r.model, spend_usd: 0, requests: 0 }
+    // net_spend_usd counts every row; the breakdown only rows carrying the
+    // dim. In grouped mode the API always sends it, so they match in practice.
+    if (r[dim]) {
+      const m = u._m.get(r[dim]) ?? { key: r[dim], spend_usd: 0, requests: 0 }
       m.spend_usd += spend
       m.requests += Number(r.requests || 0)
-      u._m.set(r.model, m)
+      u._m.set(r[dim], m)
     }
     byEmail.set(email, u)
   }
@@ -419,8 +423,8 @@ export function userCostToUsers(data, { byModel = false } = {}) {
     email: u.email, user_id: u.user_id, name: u.name,
     net_spend_usd: Number(u.net_spend_usd.toFixed(4)),
     requests: u.requests,
-    by_model: [...u._m.values()]
-      .map((m) => ({ model: m.model, spend_usd: Number(m.spend_usd.toFixed(4)), requests: m.requests }))
+    [`by_${dim}`]: [...u._m.values()]
+      .map((m) => ({ [dim]: m.key, spend_usd: Number(m.spend_usd.toFixed(4)), requests: m.requests }))
       .sort((a, b) => b.spend_usd - a.spend_usd),
   }))
 }
@@ -1146,12 +1150,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // in this endpoint (cost + requests only).
   router.get('/cost/users', async (req, res) => {
     try {
-      const byModel = req.query.by === 'model'
+      const by = req.query.by === 'model' ? 'model' : req.query.by === 'product' ? 'product' : null
       const { data, period, data_refreshed_at } = await fetchUserReport({
-        starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: byModel ? 'model' : null,
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: by,
       })
-      const users = userCostToUsers(data, { byModel }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
-      res.json({ source: 'live', period, data_refreshed_at, grouped: byModel ? 'model' : null, users })
+      const users = userCostToUsers(data, { by }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
+      res.json({ source: 'live', period, data_refreshed_at, grouped: by, users })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })

@@ -2,7 +2,7 @@
 
 ## Role
 
-Browser-side SPA. Renders the 17 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
+Browser-side SPA. Renders the 18 dashboard pages, handles i18n / date range / email masking, and talks to the Express proxy under `/api`.
 
 ## Layout
 
@@ -12,7 +12,7 @@ src/
 │   ├── Layout.tsx        # h-screen flex wrapper (sidebar pinned, main scrolls in its own pane); NAV array, language toggle, health badges, version badge → /changelog, static AWS run-rate label
 │   ├── ClaudeIcon.tsx    # animated asterisk mark
 │   ├── KpiCard.tsx · ChartCard.tsx · PageHeader.tsx · LoadingState.tsx
-│   ├── UserDetailPanel.tsx   # right-side slide-in (7-day drill-down)
+│   ├── UserDetailPanel.tsx   # right-side slide-in drill-down; follows the page date range (range prop from Users/UserProductivity), adds per-product spend (+prev-period Δ) and skills cards (org top skills $/use — the API has no user×skill dimension)
 │   ├── DateRangeControl.tsx  # 7d/14d/30d/custom popover (maxEnd = today; footnote explains the Analytics 3-day partial-count buffer)
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
 │   ├── GroupTabs.tsx         # per-page group scope tabs (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope. Replaced the former sidebar GroupControl (removed 2026-07) — rendered right after PageHeader on the 10 group-aware pages
@@ -24,7 +24,7 @@ src/
 │       ├── MessageList.tsx   # message bubbles, typing dots, tool-call badges (running/done/error), markdown rendering
 │       ├── ChatComposer.tsx  # textarea + Send / Stop buttons; Enter to send, Shift-Enter for newline
 │       └── FloatingChat.tsx  # fixed-position launcher button + modal panel; mounted globally in Layout.tsx
-├── pages/                # one file per route — 17 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained)
+├── pages/                # one file per route — 18 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained; Agentic.tsx = actions-per-prompt delegation metrics + org spend context)
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).
@@ -71,7 +71,7 @@ src/
 - **Bundling Markdown content**: pages can import `*.md` text into the bundle with Vite's `?raw` query (used by `Changelog.tsx` for `CHANGELOG.md`). When you do this, also remove the file from `.dockerignore` — the production Docker build runs `vite build` and the `?raw` import will fail to resolve otherwise.
 - **Save-as-PDF pattern**: tag the printable subtree with `.print-export` and any chrome inside it with `.print-hide`, then call `document.body.classList.add('app-print')` before `window.print()`. Listen for `afterprint` to clean up. Three pages (Analyze, Cost, Executive) share this one mechanism.
 - **Sortable tables**: any per-row statistics table should use `useSortable` (`src/lib/useSortable.ts`) + `<SortableTh>` (`src/components/SortableTh.tsx`) rather than rolling its own sort state. Pass an accessor map (`Record<K, (item) => string | number | null>`) and an `initialKey` / `initialDir`. The hook handles asc/desc toggle, pins `null` values to the bottom regardless of direction, and routes string columns through `localeCompare` (so Korean labels sort by Hangul order). Five tables already use this — reuse, don't reinvent.
-- **Group scope**: per-page tabs (`GroupTabs`, rendered right after `PageHeader`, URL-synced `?group=`) filter per-user pages to an admin-defined group; the old global sidebar selector was removed 2026-07. To scope a per-user page, render `<GroupTabs />` after the header, call `const { inGroup } = useGroupScope()` and guard each per-user aggregation loop with `if (!inGroup(r.user.email_address)) continue` (add `inGroup` to that `useMemo`'s deps). With no group selected `inGroup` returns `true` for everyone (no-op), so default behavior is unchanged. The `/api/groups` map is fetched once by `GroupScopeProvider` (in `App.tsx`) — never re-fetch it per page. Pages whose data has no per-user dimension render `<GroupScopeNote />` under the tabs (Adoption) or skip tabs entirely; Cost is **partially scoped** — its per-user tables/charts (Top-10s, chargeback, spend limits, efficiency) honor the group while org-level cost_report aggregates stay org-wide, flagged by `<GroupScopeNote variant="partial" />`. Fully scoped + tabs: Users, UserProductivity, ClaudeCode, Office, Design, Productivity, UserSearch. Tabs + partial note (mixed org/per-user surfaces): Cowork (org summaries Adoption KPI + DAU/WAU/MAU trend stay org-wide), Cost. Tabs + full note (org-only data): Adoption. Note-only (no tabs): Overview, Trends, Executive, Compliance. Sidebar NavLinks re-append ?group= (Layout.tsx withGroup) so the selection survives page switches.
+- **Group scope**: per-page tabs (`GroupTabs`, rendered right after `PageHeader`, URL-synced `?group=`) filter per-user pages to an admin-defined group; the old global sidebar selector was removed 2026-07. To scope a per-user page, render `<GroupTabs />` after the header, call `const { inGroup } = useGroupScope()` and guard each per-user aggregation loop with `if (!inGroup(r.user.email_address)) continue` (add `inGroup` to that `useMemo`'s deps). With no group selected `inGroup` returns `true` for everyone (no-op), so default behavior is unchanged. The `/api/groups` map is fetched once by `GroupScopeProvider` (in `App.tsx`) — never re-fetch it per page. Pages whose data has no per-user dimension render `<GroupScopeNote />` under the tabs (Adoption) or skip tabs entirely; Cost is **partially scoped** — its per-user tables/charts (Top-10s, chargeback, spend limits, efficiency) honor the group while org-level cost_report aggregates stay org-wide, flagged by `<GroupScopeNote variant="partial" />`. Fully scoped + tabs: Users, UserProductivity, ClaudeCode, Office, Design, Productivity, UserSearch. Tabs + partial note (mixed org/per-user surfaces): Cowork (org summaries Adoption KPI + DAU/WAU/MAU trend stay org-wide), Cost, Agentic (spend section is org-wide cost_report). Tabs + full note (org-only data): Adoption. Note-only (no tabs): Overview, Trends, Executive, Compliance. Sidebar NavLinks re-append ?group= (Layout.tsx withGroup) so the selection survives page switches.
 
 ## Adding a page
 

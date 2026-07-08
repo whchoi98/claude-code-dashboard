@@ -24,6 +24,7 @@ const NAV = [
   { to: '/office',            key: 'office',            badge: '📑' },
   { to: '/design',            key: 'design',            badge: '🎨' },
   { to: '/productivity',      key: 'productivity',      badge: '🎯' },
+  { to: '/agentic',           key: 'agentic',           badge: '🤖' },
   { to: '/adoption',          key: 'adoption',          badge: '🌱' },
   { to: '/cost',              key: 'cost',              badge: '$' },
   { to: '/compliance',        key: 'compliance',        badge: '🔒' },

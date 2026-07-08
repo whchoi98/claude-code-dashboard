@@ -398,24 +398,20 @@ export function UserSearch() {
         {tab === 'model' && (
           <>
             <ChartCard
-              title={t('user_search.model.daily_tokens')}
-              subtitle={t('user_search.model.daily_tokens.sub', { days: inWindow.length })}
-            >
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyBars} margin={{ top: 12, right: 16, left: -12, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="2 4" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v: number) => fmtCompact(v)} />
-                  <Bar dataKey="tokens" fill="#D97757" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard
               title={t('user_search.model.breakdown')}
               subtitle={t('user_search.model.breakdown.sub')}
             >
+              {modelRowsSorted.length > 0 && (
+                <ResponsiveContainer width="100%" height={Math.max(120, modelRowsSorted.length * 34 + 24)}>
+                  <BarChart data={modelRowsSorted} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="2 4" horizontal={false} />
+                    <XAxis type="number" tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="short" width={110} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: number) => fmtCompact(v)} />
+                    <Bar dataKey="tokens" fill="#D97757" radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
               <div className="p-4 space-y-2">
                 {modelRowsSorted.map((m, i) => {
                   const share = totalTokensAllModels > 0 ? m.tokens / totalTokensAllModels : 0
@@ -457,6 +453,22 @@ export function UserSearch() {
                 )}
               </div>
             </ChartCard>
+
+            <ChartCard
+              title={t('user_search.model.daily_tokens')}
+              subtitle={t('user_search.model.daily_tokens.sub', { days: inWindow.length })}
+            >
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={dailyBars} margin={{ top: 12, right: 16, left: -12, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="2 4" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number) => fmtCompact(v)} />
+                  <Bar dataKey="tokens" fill="#D97757" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
           </>
         )}
       </div>

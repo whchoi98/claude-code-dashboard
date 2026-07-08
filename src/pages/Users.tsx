@@ -154,7 +154,7 @@ export function Users() {
         )}
       </div>
 
-      <UserDetailPanel email={selected} onClose={() => setSelected(null)} />
+      <UserDetailPanel email={selected} range={range} onClose={() => setSelected(null)} />
     </div>
   )
 }

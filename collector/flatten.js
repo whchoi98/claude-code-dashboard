@@ -16,6 +16,7 @@ export function flattenUser(r) {
   const cowork = r.cowork_metrics || {}
   const office = r.office_metrics || {}
   const design = r.design_metrics || {}
+  const science = r.science_metrics || {}
   return {
     user_id:                r.user?.id,
     user_email:             r.user?.email_address,
@@ -74,6 +75,9 @@ export function flattenUser(r) {
     cowork_write_tool_count:               cowork.write_tool_count ?? null,
     cowork_notebook_edit_tool_count:       cowork.notebook_edit_tool_count ?? null,
     cowork_sessions_with_file_edits_count: cowork.sessions_with_file_edits_count ?? null,
+    cowork_skills_used:                    cowork.skills_used_count ?? null,
+    cowork_distinct_skills:                cowork.distinct_skills_used_count ?? null,
+    science_skills_used:                   science.skills_used_count ?? null,
     design_sessions:         design.distinct_session_count ?? 0,
     design_projects_used:    design.distinct_projects_used_count ?? 0,
     design_projects_created: design.distinct_projects_created_count ?? 0,

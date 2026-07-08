@@ -60,6 +60,9 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 | office_outlook_connectors_used      | bigint  |
 | office_outlook_distinct_connectors  | bigint  |
 | cowork_file_edit_count              | bigint  |
+| cowork_skills_used                  | bigint  |
+| cowork_distinct_skills              | bigint  |
+| science_skills_used                 | bigint  |
 | cowork_edit_tool_count              | bigint  |
 | cowork_multi_edit_tool_count        | bigint  |
 | cowork_write_tool_count             | bigint  |

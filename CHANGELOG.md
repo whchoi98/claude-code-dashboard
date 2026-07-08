@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agentic page (new sidebar menu).** "How agentic is the work?" — actions Claude performs per prompt (Cowork `action_count / message_count`; higher = more delegation), with org/period average, daily trend, and a sortable per-user table with Δ vs the average. Claude Code shows actions-per-session as its proxy (the API exposes no prompt count). Includes org-wide total-spend and spend-by-model charts for context. Group tabs + partial-scope note.
+- **User detail panel: product spend + skills.** Selecting a user on Users / User Productivity now shows the page-window per-product spend (bar chart, share of the user's total, Δ vs the previous equal-length window via two `user_cost_report?group_by[]=product` calls — new `?by=product` on `/api/cost/users`) and a Skills card: the user's per-surface skill-use counts plus org-wide top skills with uses and $/use (`attributed_list_price / invocation_count`; the API has no user × skill dimension — labeled as such). The drill-down now follows the page date range instead of a fixed default window.
 - **User Search model tab shows models missing from the CSV period.** Models the selected user ran that predate-proof the uploaded spend report (e.g. `claude-fable-5`, `claude-sonnet-5`) are merged in from the live `user_cost_report?group_by[]=model` (last 30 days) with spend & request counts, under a caption naming the source and window. The Models Used KPI includes them, and `shortModel` now strips hyphenated `claude-` prefixes ("fable 5", not "claude fable 5").
 
 ### Fixed
@@ -28,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 추가
 
+- **Agentic 페이지 (신규 사이드바 메뉴).** "작업이 얼마나 에이전틱한가요?" — 프롬프트당 Claude가 수행하는 작업 수(Cowork `action_count / message_count`; 높을수록 위임이 많음). 조직/기간 평균, 일별 추이, 평균 대비 Δ가 붙은 사용자별 정렬 테이블 제공. Claude Code는 API에 프롬프트 수가 없어 세션당 작업 수를 보조 지표로 표시. 맥락용 조직 전체 총지출·모델별 지출 차트 포함. 그룹 탭 + partial 노트.
+- **사용자 상세 패널: 제품별 지출 + 스킬.** Users/사용자별 생산성에서 사용자 선택 시 페이지 기간의 제품별 지출(막대 차트, 본인 총액 대비 점유율, 동일 길이 이전 기간 대비 Δ — `user_cost_report?group_by[]=product` 2회 호출, `/api/cost/users`에 `?by=product` 신설)과 스킬 카드(사용자별 표면별 스킬 사용 횟수 + 조직 전체 주요 스킬의 사용 횟수·사용당 비용 `attributed_list_price / invocation_count`; API에 사용자×스킬 차원이 없어 조직 기준으로 명시)를 표시. 드릴다운 기간이 고정 기본값 대신 페이지 date range를 따름.
 - **사용자 검색 모델 탭에 CSV 기간 누락 모델 표시.** 업로드된 Spend Report 이후 출시된 모델(`claude-fable-5`, `claude-sonnet-5` 등)을 라이브 `user_cost_report?group_by[]=model`(최근 30일)에서 병합해 지출·요청수로 표시하고, 출처·기간을 캡션으로 명시. Models Used KPI에 포함되며 `shortModel`이 하이픈 `claude-` 접두사도 제거("claude fable 5" 대신 "fable 5").
 
 ### 수정

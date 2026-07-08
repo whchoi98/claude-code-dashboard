@@ -65,7 +65,7 @@ export function inflateUser(f) {
       write_tool_count:               f.cowork_write_tool_count ?? null,
       notebook_edit_tool_count:       f.cowork_notebook_edit_tool_count ?? null,
       sessions_with_file_edits_count: f.cowork_sessions_with_file_edits_count ?? null,
-      skills_used_count: 0, distinct_skills_used_count: 0,
+      skills_used_count: f.cowork_skills_used ?? 0, distinct_skills_used_count: f.cowork_distinct_skills ?? 0,
       connectors_used_count: 0, distinct_connectors_used_count: 0,
     },
     design_metrics: {
@@ -74,6 +74,7 @@ export function inflateUser(f) {
       distinct_projects_created_count: f.design_projects_created ?? 0,
       message_count:                   f.design_messages ?? 0,
     },
+    science_metrics: { skills_used_count: f.science_skills_used ?? 0 },
     web_search_count: f.web_search_count ?? 0,
   }
 }
