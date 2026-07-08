@@ -225,6 +225,15 @@ export function UserSearch() {
     .map((m) => ({ model: m.model, short: shortModel(m.model), spend: m.spend_usd, requests: m.requests }))
     .sort((a, b) => b.spend - a.spend)
 
+  // The bar chart plots SPEND from the live per-model rows so EVERY model the
+  // user ran appears (e.g. Fable 5, absent from the CSV period). Falls back to
+  // the CSV-period per-model spend when the live fetch is empty/unavailable.
+  const modelSpendIsLive = liveUserModels.length > 0
+  const modelSpendBars = (modelSpendIsLive
+    ? liveUserModels.map((m) => ({ short: shortModel(m.model), spend: m.spend_usd }))
+    : modelRowsSorted.map((m) => ({ short: m.short, spend: m.spend }))
+  ).sort((a, b) => b.spend - a.spend)
+
   // Heatmap data: build a 7-rows × N-cols grid for the *entire* known window
   // (we always show the same heatmap shape for orientation; range-preset
   // affects KPIs above, not the heatmap span). Sunday is the top row.
@@ -401,16 +410,23 @@ export function UserSearch() {
               title={t('user_search.model.breakdown')}
               subtitle={t('user_search.model.breakdown.sub')}
             >
-              {modelRowsSorted.length > 0 && (
-                <ResponsiveContainer width="100%" height={Math.max(120, modelRowsSorted.length * 34 + 24)}>
-                  <BarChart data={modelRowsSorted} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="2 4" horizontal={false} />
-                    <XAxis type="number" tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
-                    <YAxis type="category" dataKey="short" width={110} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: number) => fmtCompact(v)} />
-                    <Bar dataKey="tokens" fill="#D97757" radius={[0, 3, 3, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              {modelSpendBars.length > 0 && (
+                <>
+                  <div className="px-4 pt-3 text-[10px] text-ink-400">
+                    {modelSpendIsLive
+                      ? t('user_search.model.spend_chart.live', { start: LIVE_MODEL_START })
+                      : t('user_search.model.spend_chart.csv')}
+                  </div>
+                  <ResponsiveContainer width="100%" height={Math.max(120, modelSpendBars.length * 34 + 24)}>
+                    <BarChart data={modelSpendBars} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="2 4" horizontal={false} />
+                      <XAxis type="number" tickFormatter={(v: number) => `$${fmtCompact(v)}`} tick={{ fontSize: 10 }} />
+                      <YAxis type="category" dataKey="short" width={110} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: number) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}`} />
+                      <Bar dataKey="spend" fill="#D97757" radius={[0, 3, 3, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </>
               )}
               <div className="p-4 space-y-2">
                 {modelRowsSorted.map((m, i) => {
@@ -423,7 +439,7 @@ export function UserSearch() {
                       />
                       <div className="flex-1 font-medium text-ink-700">{m.short}</div>
                       <div className="text-ink-500 tabular-nums">
-                        {fmtCompact(m.input)} {t('user_search.model.in')} · {fmtCompact(m.output)} {t('user_search.model.out')}
+                        {fmtCompact(m.input)} {t('user_search.model.in')} · {fmtCompact(m.output)} {t('user_search.model.out')} · ${m.spend.toLocaleString('en-US', { maximumFractionDigits: 2 })}
                       </div>
                       <div className="w-16 text-right tabular-nums text-ink-700 font-medium">
                         {(share * 100).toFixed(1)}%

@@ -13,7 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No changes yet — next entries land here._
+### Added
+
+- **Per-user spend by model.** The user detail panel (Users / User Productivity) gains a "Spend by model" card — the selected user's live `user_cost_report × model` spend, share and requests over the page window. The User Search model tab's bar chart now plots **live per-model spend** (falling back to CSV-period spend), so every model the user ran appears — including post-CSV releases like Fable 5 — and the CSV token rows show their spend.
+
+### 추가
+
+- **사용자별 모델 지출.** 사용자 상세 패널(Users/사용자별 생산성)에 "모델별 지출" 카드 추가 — 선택 사용자의 페이지 기간 라이브 `user_cost_report × model` 지출·점유율·요청수. 사용자 검색 모델 탭의 막대그래프는 **라이브 모델별 지출** 기준으로 전환(라이브 불가 시 CSV 기간 지출 폴백)해 Fable 5처럼 CSV 이후 출시된 모델까지 사용자가 쓴 모든 모델이 표시되며, CSV 토큰 행에도 지출을 병기.
 
 ## [1.7.0] - 2026-07-08
 

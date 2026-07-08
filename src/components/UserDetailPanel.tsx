@@ -11,9 +11,10 @@ import type { UserRecord } from '../types'
 type DayEntry = { date: string; source: string; data: UserRecord[]; error?: unknown }
 type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
 type ProductRow = { product: string; spend_usd: number; requests: number }
+type ModelRow = { model: string; spend_usd: number; requests: number }
 type CostUsersResp = {
   period?: { starting_date: string; ending_date: string }
-  users: { email: string; net_spend_usd: number; requests: number; by_product?: ProductRow[] }[]
+  users: { email: string; net_spend_usd: number; requests: number; by_product?: ProductRow[]; by_model?: ModelRow[] }[]
 }
 type SkillRow = {
   skill_name: string
@@ -36,6 +37,8 @@ interface Props {
   range?: { startingDate: string; endingDate: string; days: number }
 }
 
+const shortModel = (m: string) =>
+  m.replace(/^claude[-_]/i, '').replace(/_v\d+:\d+$/, '').replace(/[-_]\d{8}$/, '').replace(/[-_]/g, ' ')
 const addDaysIso = (iso: string, n: number) => {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)
@@ -72,6 +75,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
   // delta column as "—", not as every product being "new".
   const [costPrev, setCostPrev] = useState<CostUsersResp | 'failed' | null>(null)
   const [skills, setSkills] = useState<SkillsRangeResp | null>(null)
+  const [costModels, setCostModels] = useState<CostUsersResp | null>(null)
   const [costLoading, setCostLoading] = useState(false)
 
   useEffect(() => {
@@ -102,7 +106,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     if (!email || !pageRange) return
     // Reset so a window/user switch never shows the previous window's cards
     // under the new header while the refetch is in flight.
-    setCostCur(null); setCostPrev(null); setSkills(null)
+    setCostCur(null); setCostPrev(null); setSkills(null); setCostModels(null)
     // The upstream cost family caps spans at 31 days — a longer custom window
     // would 400 on both calls; hide the card instead (the Cost page/CSV covers
     // >31-day analysis). Skills range is server-clamped, so it still runs.
@@ -115,11 +119,13 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
       costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`) : Promise.reject(new Error('window > 31d')),
       cachedGet(`/api/analytics/skills/range?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`),
-    ]).then(([cur, prev, sk]) => {
+      costOk ? cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
+    ]).then(([cur, prev, sk, models]) => {
       if (aborted) return
       setCostCur(cur.status === 'fulfilled' ? cur.value : null)
       setCostPrev(prev.status === 'fulfilled' ? prev.value : 'failed')
       setSkills(sk.status === 'fulfilled' ? sk.value : null)
+      setCostModels(models.status === 'fulfilled' ? models.value : null)
       setCostLoading(false)
     })
     return () => { aborted = true }
@@ -212,6 +218,22 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     const delta = prev && prev.net_spend_usd > 0 ? (cur.net_spend_usd - prev.net_spend_usd) / prev.net_spend_usd : null
     return { spend: cur.net_spend_usd, delta }
   }, [email, costCur, costPrev, hasPrev])
+
+  // Per-model spend for the selected user over the page window (live
+  // user_cost_report × model — same source as the Cost chargeback chart).
+  const modelRows = useMemo(() => {
+    if (!email) return []
+    const cur = costModels?.users?.find((u) => u.email === email)
+    if (!cur?.by_model?.length) return []
+    const total = cur.net_spend_usd || cur.by_model.reduce((s, m) => s + m.spend_usd, 0)
+    return cur.by_model.map((m) => ({
+      model: m.model,
+      short: shortModel(m.model),
+      spend: m.spend_usd,
+      requests: m.requests,
+      share: total > 0 ? m.spend_usd / total : 0,
+    }))
+  }, [email, costModels])
 
   // Org-wide per-skill uses + attributed cost over the window — the Analytics
   // API has no user × skill dimension (see the card caveat). Amounts follow
@@ -404,6 +426,36 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+
+                {/* Spend by model — same page window, live user_cost_report */}
+                {!costLoading && modelRows.length > 0 && (
+                  <div className="rounded-xl border border-ink-100 bg-white p-4">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">{t('detail.models')}</div>
+                      {pageRange && (
+                        <div className="text-[11px] text-ink-400">
+                          {fmtDate(pageRange.startingDate)} – {fmtDate(pageRange.endingDate)}
+                        </div>
+                      )}
+                    </div>
+                    <ResponsiveContainer width="100%" height={Math.max(96, modelRows.length * 30 + 16)}>
+                      <BarChart data={modelRows} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
+                        <XAxis type="number" hide />
+                        <YAxis type="category" dataKey="short" width={112} tick={{ fontSize: 11 }} />
+                        <Tooltip formatter={(v: number) => fmtUsd(v)} />
+                        <Bar dataKey="spend" fill="#1F1E1D" radius={[0, 3, 3, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-1 space-y-0.5">
+                      {modelRows.map((m) => (
+                        <div key={m.model} className="flex items-center justify-between text-[11px] text-ink-500">
+                          <span>{m.short}</span>
+                          <span className="tabular-nums">{fmtUsd(m.spend)} · {fmtPct(m.share)} · {fmtNum(m.requests)} {t('user_search.model.req')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Skills — user surface counts + org-wide per-skill cost/uses */}
                 {!costLoading && (orgSkills.length > 0 || (userSkillUses?.total ?? 0) > 0) && (
