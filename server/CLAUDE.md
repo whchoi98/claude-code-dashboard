@@ -35,8 +35,10 @@ fallback.
     first week; fetching page 1 only was the v1.1.1 monthly-total bug.**),
     `/cost/users` (live per-user USD spend via `user_cost_report`, paginated,
     raw emails, sorted by `net_spend_usd` desc; no per-user token counts.
-    **`?by=model`** → per-user × model breakdown (`users[].by_model[]`) for
-    chargeback),
+    **`?by=model` / `?by=product`** → per-user × model / × product breakdown
+    (`users[].by_model[]` / `by_product[]`, same `userCostToUsers` dim-generalized
+    mapper) — model feeds the Cost chargeback chart, product/model the
+    user-detail panel cards),
     `/cost/groups` (org spend by **RBAC group** — `cost_report` ×
     `rbac_group_id`, reshaped via `aggregateGroupCost`; labels are REAL group
     names from `fetchGroupNames` — the documented `GET /v1/compliance/groups`,
@@ -64,16 +66,17 @@ fallback.
     `utcNextDay`, `resolveUserCostWindow({ starting_date, ending_date }, now?)`
     (window guard for `user_cost_report`: ending clamps to **today** only —
     NOT today−3; see the buffer note below — and an inverted pair pins
-    starting to ending), and `userCostToUsers(data, { byModel })` — ungrouped →
+    starting to ending), and `userCostToUsers(data, { by })` — `by` = `'model' | 'product'`
+    (legacy `byModel` boolean still accepted); ungrouped →
     `{ email, user_id, name, deleted, net_spend_usd, gross_spend_usd, requests }`;
-    `byModel` → per-email `{ email, …, net_spend_usd, requests, by_model[] }`.
+    grouped → per-email `{ email, …, net_spend_usd, requests, by_model[] / by_product[] }`.
     Excludes `api_actor` rows (no email).
   - Closure helper inside `registerAwsRoutes`: `fetchUserReport({
     report, starting_date, ending_date, groupBy })` — paginates a per-user
     analytics report (`report`: `'user_cost_report'` default or
     `'user_usage_report'`; up to 50 pages; `groupBy` appends
-    `group_by[]=<dim>`: `'model'` for chargeback, `'rbac_group_id'` for
-    group-map derivation), resolves its window via `resolveUserCostWindow`
+    `group_by[]=<dim>`: `'model'` for chargeback, `'product'` for the
+    user-detail product card, `'rbac_group_id'` for group-map derivation), resolves its window via `resolveUserCostWindow`
     (exclusive `ending_at` via `utcNextDay`; **the upstream cost family caps
     spans at 31 days** — defaults are `[today−30, today]`, longer selections
     400→502→CSV fallback), returns `{ data, period, data_refreshed_at }`.

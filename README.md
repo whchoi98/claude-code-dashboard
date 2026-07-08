@@ -12,7 +12,7 @@ Enterprise analytics dashboard for Claude Code — engagement, productivity, cos
 
 Click any section below to jump directly to it. Every metric shown on these pages is documented in [`docs/metrics-catalog.md`](./docs/metrics-catalog.md).
 
-**Page index** — [Overview](#overview) · [Executive](#executive) · [Users](#users) · [User Productivity](#user-productivity) · [User Search](#user-search) · [Trends](#trends) · [Claude Code](#claude-code) · [Productivity](#productivity) · [Adoption](#adoption) · [Cost](#cost) · [Audit](#audit) · [Analyze (AI)](#analyze-ai) · [Archive](#archive) · [Changelog](#changelog)
+**Page index** — [Overview](#overview) · [Executive](#executive) · [Users](#users) · [User Productivity](#user-productivity) · [User Search](#user-search) · [Trends](#trends) · [Claude Code](#claude-code) · [Productivity](#productivity) · [Agentic](#agentic) · [Adoption](#adoption) · [Cost](#cost) · [Audit](#audit) · [Analyze (AI)](#analyze-ai) · [Archive](#archive) · [Changelog](#changelog)
 
 ---
 
@@ -33,7 +33,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 **Purpose** — Per-user engagement leaderboard with a slide-in drill-down panel.
 
 - **Columns**: Messages · CC Sessions · LOC Added · Commits · PRs · Tool Acceptance Rate
-- **Interactions**: Click row → 7-day trend charts (LOC/sessions/messages) + per-tool acceptance + daily breakdown table
+- **Interactions**: Click row → drill-down panel following the page date range: activity trend (LOC/sessions/messages) + per-tool acceptance + daily table, plus per-product & per-model spend (share of the user's total, Δ vs the previous equal window) and a skills card (org top skills with $/use — the API has no user × skill dimension)
 - **Privacy**: Every email masked via `maskEmail()` — `ab*****@domain.com`
 - **Data source**: Analytics API `/users` (today)
 
@@ -86,6 +86,17 @@ Click any section below to jump directly to it. Every metric shown on these page
 - **Data source**: Analytics API `/users/range` (S3-first archive)
 
 ![Productivity](./screenshots/productivity.png)
+
+---
+
+### Agentic
+
+**Purpose** — "How agentic is the work?" Actions Claude performs per prompt — higher means the team delegates more.
+
+- **KPIs**: Actions/prompt (Cowork `action_count ÷ message_count`, period average) · Prompts · Actions · CC actions/session (Claude Code proxy — the API exposes no prompt count)
+- **Charts**: Daily actions-per-prompt line over a prompts bar · org-wide total-spend area chart · spend-by-model bars
+- **Table**: Per-user actions/prompt with Δ vs the period average (sortable, group-scoped)
+- **Data source**: Analytics API `/users/range` (cowork + claude_code metrics) · `/api/cost/live` for the spend context
 
 ---
 
@@ -149,7 +160,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **17 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Cowork · Office · Design · Productivity · Adoption · Cost (live per-user spend/tokens, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
+- **18 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
@@ -227,12 +238,12 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # Shared UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 14 routes (incl. Executive + Changelog)
+│   ├── pages/              # 18 routes (incl. Executive, Agentic + Changelog)
 │   ├── lib/                # i18n, useFetch, useDateRange, formatting
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
+│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, /api/chat/stream (Bedrock SSE chatbot), Athena, analytics→CsvResp reshape
 │   └── mock.js             # Deterministic mocks for local dev
 ├── collector/              # Daily Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4 stacks

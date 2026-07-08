@@ -12,11 +12,11 @@ src/
 │   ├── Layout.tsx        # h-screen flex wrapper (sidebar pinned, main scrolls in its own pane); NAV array, language toggle, health badges, version badge → /changelog, static AWS run-rate label
 │   ├── ClaudeIcon.tsx    # animated asterisk mark
 │   ├── KpiCard.tsx · ChartCard.tsx · PageHeader.tsx · LoadingState.tsx
-│   ├── UserDetailPanel.tsx   # right-side slide-in drill-down; follows the page date range (range prop from Users/UserProductivity), adds per-product spend (+prev-period Δ) and skills cards (org top skills $/use — the API has no user×skill dimension)
+│   ├── UserDetailPanel.tsx   # right-side slide-in drill-down; follows the page date range (range prop from Users/UserProductivity), adds per-product AND per-model spend cards (+prev-period Δ on products) and skills cards (org top skills $/use — the API has no user×skill dimension); org-wide cost/skills fetches dedupe per session via module-level panelFetchCache
 │   ├── DateRangeControl.tsx  # 7d/14d/30d/custom popover (maxEnd = today; footnote explains the Analytics 3-day partial-count buffer)
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
 │   ├── GroupTabs.tsx         # per-page group scope tabs (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope. Replaced the former sidebar GroupControl (removed 2026-07) — rendered right after PageHeader on the 10 group-aware pages
-│   ├── GroupScopeNote.tsx    # amber "group scope not applied — org-wide data" banner; self-hides when no group selected; on the 6 org pages
+│   ├── GroupScopeNote.tsx    # amber group-scope banner; self-hides when no group selected. Default = "not applied — org-wide data" (note-only org pages); variant="partial" = "per-user parts scoped, org aggregates stay org-wide" (Cowork · Cost · Agentic)
 │   ├── SortableTh.tsx        # ▲/▼ header cell — pairs with useSortable; click to sort, click again to flip
 │   ├── Markdown.tsx      # react-markdown@10 + remark-gfm for AI output
 │   └── chat/             # tool-use chatbot UI (shared by Analyze page + FloatingChat)

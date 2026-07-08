@@ -85,6 +85,14 @@ Enterprise Analytics API는 5개의 엔드포인트를 제공합니다. 모두 P
 | `claude_code_metrics.distinct_session_skill_used_count` | Claude Code에서 사용된 세션 수 |
 | `office_metrics.{excel,powerpoint,word}.distinct_session_skill_used_count` | Office 앱별 사용 |
 | `cowork_metrics.distinct_session_skill_used_count` | Cowork 사용 |
+| `skill_display_name` | 표시용 스킬 이름 (2026-07 신설, 없으면 `skill_name` 사용) |
+| `invocation_count` | 스킬 호출 횟수 (2026-07 신설 — 사용당 비용의 분모) |
+| `attributed_list_price` | 스킬 사용에 귀속된 list price, 분수 센트 문자열 (2026-07 신설 — /100 = USD) |
+| `estimated_overage_spend` | 스킬 관련 초과 지출 추정치 (2026-07 신설) |
+
+> 사용자×스킬 차원은 **존재하지 않음** — 스킬 행에는 actor/email이 없고, 사용자 행에는
+> 스킬 이름 없이 표면별 사용 횟수(`cowork/office/science skills_used_count`)만 있다.
+> 사용자 상세 패널의 스킬 카드가 조직 기준임을 명시하는 이유.
 
 ### 1.4 `GET /v1/organizations/analytics/connectors?date=`
 
@@ -281,7 +289,42 @@ risk_density = risk_events / total_events
 - 기간 내 전체 이벤트 중 고위험 이벤트(역할 변경·삭제·데이터 export·SSO 토글) 비율.
 - 대시보드는 단순 카운트로 표시하지만 concept 지표로 유용.
 
-### 4.7 Cache Efficiency Hint (Server Proxy)
+### 4.8 Actions per Prompt (Agentic 페이지 — `src/pages/Agentic.tsx`)
+
+```
+actions_per_prompt = sum(cowork_metrics.action_count) / sum(cowork_metrics.message_count)
+```
+
+- **Cowork 전용** — action_count와 message_count(프롬프트)를 모두 제공하는 유일한 표면.
+- 높을수록 팀이 Claude에 더 많이 위임. KPI = 기간 합계 비율(ratio-of-sums), 일별 추이·사용자별 테이블 동일 정의.
+- 그룹 스코프 적용: 선택 그룹 기준으로 재계산 (지출 섹션만 전사 기준).
+
+### 4.9 CC Actions per Session (Agentic 페이지 보조 지표)
+
+```
+cc_actions_per_session = sum(accepted_count 4개 도구) / sum(distinct_session_count)
+```
+
+- Claude Code에는 프롬프트 수 필드가 없어 세션당 **수행된**(accepted만) 작업 수를 위임도 프록시로 사용.
+- rejected는 제외 — 실행되지 않은 제안은 "수행한 작업"이 아님 (Cowork action_count 의미론과 정합).
+
+### 4.10 Skill Cost per Use (사용자 상세 패널 스킬 카드)
+
+```
+cost_per_use = sum(attributed_list_price)/100 / sum(invocation_count)   # 기간 합산, 스킬별
+```
+
+- 조직 전체 기준 (사용자×스킬 차원 부재). 아카이브(구스키마) 일자는 invocation_count가 없어
+  표면별 skill-used 카운트로 폴백 — 카드 캡션에 실제 집계 창을 표기.
+
+### 4.11 사용자별 제품/모델 지출 + 이전 기간 대비 (사용자 상세 패널)
+
+- `user_cost_report × product` / `× model` (라이브, 페이지 창 ≤31일).
+- 점유율 = 해당 제품(모델) 지출 ÷ 사용자 기간 총지출.
+- 이전 기간 Δ = 동일 길이 직전 창과 비교 — `prevEnd = start−1일`, `prevStart = start−days일`.
+  이전 창 조회 실패 시 "신규"가 아니라 "—"로 표시 (비교 불가와 신규를 구분).
+
+### 4.12 Cache Efficiency Hint (Server Proxy)
 
 `/api/analytics/users/range` 응답의 `cache` 객체:
 

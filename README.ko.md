@@ -12,7 +12,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 각 페이지에 표시되는 모든 지표는 [`docs/metrics-catalog.md`](./docs/metrics-catalog.md)에서 확인할 수 있습니다.
 
-**페이지 목차** — [개요](#개요) · [경영 요약](#경영-요약) · [사용자](#사용자) · [사용자별 생산성](#사용자별-생산성) · [사용자 검색](#사용자-검색) · [추세](#추세) · [Claude Code](#claude-code) · [생산성](#생산성) · [도입](#도입) · [비용](#비용) · [감사](#감사) · [AI 분석](#ai-분석) · [아카이브](#아카이브) · [변경 내역](#변경-내역)
+**페이지 목차** — [개요](#개요) · [경영 요약](#경영-요약) · [사용자](#사용자) · [사용자별 생산성](#사용자별-생산성) · [사용자 검색](#사용자-검색) · [추세](#추세) · [Claude Code](#claude-code) · [생산성](#생산성) · [에이전틱](#에이전틱) · [도입](#도입) · [비용](#비용) · [감사](#감사) · [AI 분석](#ai-분석) · [아카이브](#아카이브) · [변경 내역](#변경-내역)
 
 ---
 
@@ -30,10 +30,10 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ### 사용자
 
-**목적** — 사용자별 참여도 랭킹. 행 클릭 시 우측 슬라이드인 패널로 7일치 추이.
+**목적** — 사용자별 참여도 랭킹. 행 클릭 시 우측 슬라이드인 패널로 기간 드릴다운(활동·지출·스킬).
 
 - **칼럼**: 메시지 · CC 세션 · 추가된 LOC · 커밋 · PR · 도구 수락률
-- **상호작용**: 행 클릭 → 7일 추세 차트(LOC/세션/메시지) + 도구별 수락률 + 일별 상세 테이블
+- **상호작용**: 행 클릭 → 페이지 기간을 따르는 드릴다운 패널: 활동 추이(LOC/세션/메시지) + 도구별 수락률 + 일별 테이블, 그리고 제품별·모델별 지출(본인 총액 대비 %, 동일 길이 이전 기간 대비 Δ)과 스킬 카드(조직 주요 스킬 사용당 비용 — API에 사용자×스킬 차원 없음)
 - **개인정보 보호**: 모든 이메일은 `maskEmail()`로 마스킹 처리 — `ab*****@domain.com`
 - **데이터 소스**: Analytics API `/users` (오늘)
 
@@ -86,6 +86,17 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 - **데이터 소스**: Analytics API `/users/range` (S3 아카이브 우선)
 
 ![생산성](./screenshots/productivity.png)
+
+---
+
+### 에이전틱
+
+**목적** — "작업이 얼마나 에이전틱한가요?" 프롬프트당 Claude가 수행하는 작업 수 — 높을수록 팀이 Claude에 더 많이 위임하는 것입니다.
+
+- **KPI**: 프롬프트당 작업 수 (Cowork `action_count ÷ message_count`, 기간 평균) · 프롬프트 · 작업 수 · CC 세션당 작업 수 (Claude Code 보조 지표 — API에 프롬프트 수 없음)
+- **차트**: 일별 프롬프트당 작업 수 라인 + 프롬프트 막대 · 조직 총지출 영역 차트 · 모델별 지출 막대
+- **테이블**: 기간 평균 대비 Δ가 붙은 사용자별 프롬프트당 작업 수 (정렬 가능, 그룹 스코프 적용)
+- **데이터 소스**: Analytics API `/users/range` (cowork + claude_code 지표) · 지출 맥락은 `/api/cost/live`
 
 ---
 
@@ -149,7 +160,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ## 주요 기능
 
-- **17개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · Cowork · Office · Design · 생산성 · 도입 · 비용(라이브 사용자별 지출/토큰, RBAC 그룹 실명 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **변경 내역**(인앱 릴리즈 이력).
+- **18개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 추세 · Claude Code · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입 · 비용(라이브 사용자별 지출/토큰, RBAC 그룹 실명 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **변경 내역**(인앱 릴리즈 이력).
 - **세 개의 API 통합** — Analytics, Admin, Compliance (각각 별도 Secrets Manager 시크릿으로 주입; 모두 선택적이며 키가 없어도 UI는 graceful하게 동작).
 - **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷을 파티셔닝된 NDJSON으로 S3에 저장합니다. 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
 - **AI 자연어 질의** — Amazon Bedrock(Claude Sonnet 4.6 cross-region 프로파일) 기반 SSE 스트리밍. 두 모드: 실시간 스냅샷 직접 분석, 자율 Athena SQL 생성 + 실행.
@@ -227,12 +238,12 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # 공용 UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 14개 라우트 (경영 요약 + 변경 내역 포함)
+│   ├── pages/              # 18개 라우트 (경영 요약 · 에이전틱 · 변경 내역 포함)
 │   ├── lib/                # i18n, useFetch, useDateRange, 포맷팅
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
-│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, Bedrock SSE analyze, Athena, analytics→CsvResp reshape
+│   ├── aws.js              # /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency}, /api/groups, /api/chat/stream (Bedrock SSE 챗봇), Athena, analytics→CsvResp reshape
 │   └── mock.js             # 로컬 개발용 결정론적 목업
 ├── collector/              # 일일 Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4개 스택
