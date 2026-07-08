@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No changes yet — next entries land here._
+
+## [1.7.0] - 2026-07-08
+
+Group scope moves to per-page tabs, a new Agentic (actions-per-prompt) page, and the user detail panel gains product spend + skills. (Deployed to production 2026-07-07/08.)
+
 ### Added
 
 - **Agentic page (new sidebar menu).** "How agentic is the work?" — actions Claude performs per prompt (Cowork `action_count / message_count`; higher = more delegation), with org/period average, daily trend, and a sortable per-user table with Δ vs the average. Claude Code shows actions-per-session as its proxy (the API exposes no prompt count). Includes org-wide total-spend and spend-by-model charts for context. Group tabs + partial-scope note.
@@ -564,7 +570,8 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0
 
 ---
@@ -840,5 +847,6 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0
