@@ -46,6 +46,9 @@ yet" for hours (also undocumented).
 - The 503 flap is absorbed by a per-window **last-good cache** (`stale: true`
   responses) plus an explanatory UI note (`rbac_groups_unavailable`) instead
   of a silently missing card.
+- *(UI amendment 2026-07-07: the scope selector moved from the global sidebar
+  (`GroupControl`, removed) to per-page `GroupTabs` under each PageHeader;
+  sidebar NavLinks re-append `?group=` so the selection survives navigation.)*
 
 ## Consequences
 
