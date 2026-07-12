@@ -28,7 +28,7 @@ src/
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).
-│   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx. Accepts source 'live' (admin CSV) AND 'auto' (server-derived from user_cost_report×rbac_group_id, labels grp-<id suffix>) — both light up the per-page GroupTabs
+│   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx. Any non-'empty' source lights up the per-page GroupTabs: 'live' (admin CSV) · 'members' (real RBAC membership via the Compliance members endpoint) · 'auto' (spend-derived fallback from user_cost_report×rbac_group_id)
 │   ├── useGroupScope.ts  # reads GroupScopeProvider context + ?group= URL state → { group, setGroup, groups, hasMap, loading, inGroup, refetch }. inGroup(email): ''→all · UNMAPPED→not-in-map · else map[email_lower]===group
 │   ├── api.ts            # useFetch<T>(url) — single-URL fetch, exposes refetch + source/reason from response
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types

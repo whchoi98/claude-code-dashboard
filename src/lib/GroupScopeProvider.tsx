@@ -2,15 +2,16 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useFetch } from '../lib/api'
 
 type GroupsResp = {
-  // 'live' = admin-uploaded CSV · 'auto' = derived from user_cost_report ×
-  // rbac_group_id (labels are grp-<id suffix>) · 'empty' = neither available
-  source: 'live' | 'auto' | 'empty'
+  // 'live' = admin-uploaded CSV · 'members' = real RBAC membership from the
+  // Compliance members endpoint · 'auto' = spend-derived fallback from
+  // user_cost_report × rbac_group_id · 'empty' = none available
+  source: 'live' | 'members' | 'auto' | 'empty'
   file: string | null
   groups: string[]
-  // lowercased email → group(s). CSV path sends a single string; the auto
-  // path sends every membership (spend-desc, [0] = max-spend group) because
-  // upstream attribution is any-membership — a single-value collapse dropped
-  // groups that were nobody's top group from the tab list entirely.
+  // lowercased email → group(s). CSV path sends a single string; the
+  // members/auto paths send every membership as an array because filtering
+  // is any-membership — a single-value collapse dropped groups that were
+  // nobody's top group from the tab list entirely.
   map: Record<string, string | string[]>
 }
 
@@ -43,7 +44,9 @@ export function GroupScopeProvider({ children }: { children: ReactNode }) {
     const map = Object.fromEntries(
       Object.entries(data?.map ?? {}).map(([email, g]) => [email, Array.isArray(g) ? g : [g]]),
     )
-    const hasMap = (data?.source === 'live' || data?.source === 'auto') && groups.length > 0
+    // Any non-empty source lights up the tabs — new server-side sources
+    // (e.g. 'members', added 2026-07) must not silently disable the map.
+    const hasMap = !!data && data.source !== 'empty' && groups.length > 0
     return { groups, map, hasMap, loading, refetch }
   }, [data, loading, refetch])
   return <GroupScopeContext.Provider value={value}>{children}</GroupScopeContext.Provider>

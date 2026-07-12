@@ -301,6 +301,36 @@ export function deriveGroupMap(data, nameById = {}) {
   return { map, groups, ids }
 }
 
+// Build the email→groups mapping from AUTHORITATIVE membership: the
+// Compliance groups listing + per-group members rows
+// (GET /v1/compliance/groups/{id}/members — probed live 2026-07-12).
+// Unlike deriveGroupMap (spend-inferred, usage-time attribution) this
+// reflects the org's RBAC state NOW: a group created minutes ago appears
+// immediately and a moved user stops matching their old group — spend rows
+// keep attributing them to it for up to the 31-day window. `groups` covers
+// EVERY listed group (a memberless one still gets a tab); membership arrays
+// are label-sorted — the client filters any-membership, so array order
+// carries no primary-group meaning here. Same contract as deriveGroupMap:
+// { map: email→[labels], groups: [labels], ids: label→group_id }.
+export function deriveMemberGroupMap(groupList, membersByGroupId = {}) {
+  const list = (Array.isArray(groupList) ? groupList : []).filter((g) => g?.id)
+  const nameById = Object.fromEntries(list.filter((g) => g?.name).map((g) => [g.id, g.name]))
+  const labels = resolveGroupLabels(list.map((g) => g.id), nameById)
+  const map = {}
+  for (const g of list) {
+    for (const m of membersByGroupId?.[g.id] || []) {
+      const email = String(m?.email || '').trim().toLowerCase()
+      if (!email) continue
+      const arr = map[email] ?? (map[email] = [])
+      if (!arr.includes(labels[g.id])) arr.push(labels[g.id])
+    }
+  }
+  for (const arr of Object.values(map)) arr.sort()
+  const groups = [...new Set(Object.values(labels))].sort()
+  const ids = Object.fromEntries(Object.entries(labels).map(([id, label]) => [label, id]))
+  return { map, groups, ids }
+}
+
 // Map a user_usage_report `data[]` array (new endpoint, probed 2026-07-04) to
 // per-user TOKEN totals. Input (prompt) collapses uncached + cache_read +
 // cache_creation (1h+5m) — the same convention as analyticsReportsToCostResp,
@@ -1174,47 +1204,137 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   const GROUP_LAST_GOOD_CAP = 20
   function rememberGroupResult(key, payload) {
     groupLastGood.delete(key)                       // refresh insertion order
-    groupLastGood.set(key, payload)
+    // remembered_at rides only the STORED copy (stale responses expose it;
+    // fresh responses return the original payload) — the /groups fallback
+    // picks the fresher of its two entries by this stamp.
+    groupLastGood.set(key, { ...payload, remembered_at: Date.now() })
     if (groupLastGood.size > GROUP_LAST_GOOD_CAP) {
-      groupLastGood.delete(groupLastGood.keys().next().value)  // evict oldest
+      // Evict the oldest WINDOWED entry; the membership keys ('groups:*')
+      // are eviction-immune — a burst of /cost/groups window keys must not
+      // silently drop the map GroupTabs falls back on.
+      const victim = [...groupLastGood.keys()].find((k) => !k.startsWith('groups:'))
+      if (victim) groupLastGood.delete(victim)
     }
   }
   const isRbacUnavailable = (body) =>
     body?.error?.type === 'overloaded_error' ||
     /RBAC group breakdowns .* temporarily unavailable|Team membership data is not ready/i.test(body?.error?.message || '')
 
-  // RBAC group id → display name via the DOCUMENTED Compliance groups
-  // endpoint (GET /v1/compliance/groups — scope read:compliance_org_data,
-  // carried by the Analytics key; verified live 2026-07-04: Security/CXO/
-  // Engineering/Marketing). NOT the undocumented /v1/organizations/rbac_groups
-  // (needs an unprovisionable scope). Cached 1h + last-good: group renames are
-  // rare and every listing emits a group_list_viewed audit event — don't spam
-  // the org's own audit feed.
-  let groupNamesCache = { at: 0, byId: null }
-  async function fetchGroupNames() {
+  // Compliance groups listing via the DOCUMENTED endpoint
+  // (GET /v1/compliance/groups — scope read:compliance_org_data, carried by
+  // the Analytics key). NOT the undocumented /v1/organizations/rbac_groups
+  // (needs an unprovisionable scope). Cached 1h: group edits are rare and
+  // every listing emits audit events (group_list_viewed) into the org's own
+  // feed — don't spam it. Both the name lookup and the members-based mapping
+  // below ride this single cache. Throws on upstream failure; callers decide
+  // whether stale beats missing.
+  let groupsListCache = { at: 0, list: null }
+  const complianceHeaders = () => {
     const KEY = process.env.ANTHROPIC_COMPLIANCE_KEY || process.env.ANTHROPIC_ANALYTICS_KEY
-    if (!KEY) return {}
-    if (groupNamesCache.byId && Date.now() - groupNamesCache.at < 3_600_000) return groupNamesCache.byId
+    if (!KEY) return null
+    return { 'x-api-key': KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
+  }
+  async function fetchComplianceGroups() {
+    const headers = complianceHeaders()
+    if (!headers) { const e = new Error('compliance-scoped key required'); e.code = 'compliance_key_required'; throw e }
+    if (groupsListCache.list && Date.now() - groupsListCache.at < 3_600_000) return groupsListCache.list
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
-    const headers = { 'x-api-key': KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
+    const list = []
+    let page = null
+    let complete = false
+    for (let i = 0; i < 10; i++) {
+      const params = new URLSearchParams({ limit: '100' })
+      if (page) params.set('page', page)
+      const res = await fetch(`${apiUrl}/v1/compliance/groups?${params.toString()}`, { headers })
+      if (!res.ok) throw new Error(`compliance/groups ${res.status}`)
+      const body = await res.json()
+      list.push(...(body?.data || []).filter((g) => g?.id))
+      if (!body?.next_page) { complete = true; break }
+      page = body.next_page
+    }
+    // A partial listing must never be cached or served — silently dropping
+    // groups 1001+ would strip their tabs and mislabel their spend rows.
+    if (!complete) throw new Error('compliance/groups page cap (10×100) hit with next_page remaining — refusing partial listing')
+    groupsListCache = { at: Date.now(), list }
+    return list
+  }
+
+  // RBAC group id → display name, riding the cached listing. Never throws:
+  // stale names beat no names, and {} degrades to grp-<id suffix> labels.
+  async function fetchGroupNames() {
     try {
       const byId = {}
-      let page = null
-      for (let i = 0; i < 10; i++) {
-        const params = new URLSearchParams({ limit: '100' })
-        if (page) params.set('page', page)
-        const res = await fetch(`${apiUrl}/v1/compliance/groups?${params.toString()}`, { headers })
-        if (!res.ok) throw new Error(`compliance/groups ${res.status}`)
-        const body = await res.json()
-        for (const g of body?.data || []) if (g?.id && g?.name) byId[g.id] = g.name
-        if (!body?.next_page) break
-        page = body.next_page
-      }
-      groupNamesCache = { at: Date.now(), byId }
+      for (const g of await fetchComplianceGroups()) if (g?.name) byId[g.id] = g.name
       return byId
     } catch (err) {
       console.warn('[groups] name lookup unavailable, using id-suffix labels:', err?.message || err)
-      return groupNamesCache.byId || {}   // stale names beat no names; {} → grp- fallback
+      const stale = groupsListCache.list || []
+      return Object.fromEntries(stale.filter((g) => g?.name).map((g) => [g.id, g.name]))
+    }
+  }
+
+  // Authoritative per-group membership rows
+  // (GET /v1/compliance/groups/{id}/members — probed live 2026-07-12:
+  // { user_id, email } rows, next_page cursor like the listing).
+  async function fetchGroupMembers(groupId) {
+    const headers = complianceHeaders()
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const members = []
+    let page = null
+    let complete = false
+    for (let i = 0; i < 50; i++) {
+      const params = new URLSearchParams({ limit: '100' })
+      if (page) params.set('page', page)
+      const res = await fetch(`${apiUrl}/v1/compliance/groups/${groupId}/members?${params.toString()}`, { headers })
+      if (!res.ok) throw new Error(`compliance/groups/${groupId}/members ${res.status}`)
+      const body = await res.json()
+      members.push(...(body?.data || []))
+      if (!body?.next_page) { complete = true; break }
+      page = body.next_page
+    }
+    // Honor the all-or-nothing contract below: a silently truncated group
+    // would dump its overflow members into Unmapped. Throw → route falls
+    // back to spend-derive / last-good instead. (No emails in the message.)
+    if (!complete) throw new Error(`compliance/groups/${groupId}/members page cap (50×100) hit — refusing partial membership`)
+    return members
+  }
+
+  // email→groups from REAL membership. All-or-nothing: a partially fetched
+  // org (one group's members call failing) would silently dump that group's
+  // users into Unmapped, so any failure throws and the caller falls back to
+  // spend-derive / last-good. Cached 1h — a group edit in the Console lands
+  // within the hour instead of waiting days for spend to accrue under the
+  // new attribution. Guard rails: concurrent cold requests share ONE build
+  // (in-flight singleton), a failure fails fast for 5 minutes (no per-group
+  // re-burst on every SPA load while upstream flaps), and the fan-out is
+  // chunked so a many-group org can't blow the shared 60 rpm org budget.
+  let memberMapCache = { at: 0, out: null }
+  let memberMapInflight = null
+  let memberMapFailedAt = 0
+  async function fetchMemberGroupMap() {
+    if (memberMapCache.out && Date.now() - memberMapCache.at < 3_600_000) return memberMapCache.out
+    if (Date.now() - memberMapFailedAt < 300_000) throw new Error('members mapping in failure cooldown')
+    if (memberMapInflight) return memberMapInflight
+    memberMapInflight = (async () => {
+      const list = await fetchComplianceGroups()
+      const membersByGroupId = {}
+      for (let i = 0; i < list.length; i += 5) {
+        await Promise.all(list.slice(i, i + 5).map(async (g) => { membersByGroupId[g.id] = await fetchGroupMembers(g.id) }))
+      }
+      const out = deriveMemberGroupMap(list, membersByGroupId)
+      // Expire with the LISTING the map was built from, not the build time —
+      // stamping build time compounds the two 1h TTLs into ~2h worst-case
+      // staleness for group creates/deletes (moves always refetch live).
+      memberMapCache = { at: groupsListCache.at || Date.now(), out }
+      return out
+    })()
+    try {
+      return await memberMapInflight
+    } catch (err) {
+      memberMapFailedAt = Date.now()
+      throw err
+    } finally {
+      memberMapInflight = null
     }
   }
 
@@ -1758,12 +1878,13 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     })
   })
 
-  // ── Group mapping (admin email→group CSV in S3) ─────────────────────────
-  // The Analytics API's rbac_group_id / claude_project_id group dimensions
-  // return HTTP 400 ("not yet supported") and user records carry no group
-  // field, so groups come from an admin-uploaded `email,group` CSV stored
-  // latest-wins at s3://<archive>/group-map/. Reuses the spend-report upload
-  // infra (uploadSingle multer wrapper, s3 client, parseCsv, parseGroupMap).
+  // ── Group mapping (CSV override > compliance members > spend-derive) ────
+  // An admin-uploaded `email,group` CSV (latest-wins at
+  // s3://<archive>/group-map/) overrides everything — it carries intent
+  // (custom groupings). Without one, /api/groups serves REAL membership from
+  // the Compliance members endpoint, then spend-derived attribution as the
+  // fallback (see the route comment). Upload reuses the spend-report infra
+  // (uploadSingle multer wrapper, s3 client, parseCsv, parseGroupMap).
   const GROUP_MAP_REQUIRED_COLUMNS = ['email', 'group']
 
   // POST /api/groups/upload (multipart, field "file") — validate + store latest-wins.
@@ -1800,11 +1921,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   })
 
   // GET /api/groups — latest mapping under group-map/ → { source, file, groups, map }.
-  // No CSV uploaded → AUTO-DERIVE the mapping from live user_cost_report ×
-  // rbac_group_id (default 31-day window): each user maps to their max-spend
-  // RBAC group, labeled with REAL names via fetchGroupNames (grp- fallback).
-  // An uploaded CSV still wins — it carries admin-chosen names and intent.
-  // Nothing derivable either → { source:'empty', groups:[], map:{} } (200).
+  // No CSV uploaded → source chain (first that yields groups wins):
+  //   1. 'members' — REAL membership via /v1/compliance/groups/{id}/members
+  //      (authoritative NOW: new groups + moves land within the 1h cache).
+  //   2. 'auto' — spend-derive from user_cost_report × rbac_group_id
+  //      (usage-time attribution; lags moves by up to the 31-day window).
+  //   3. last-good of either, marked stale — absorbs upstream flaps.
+  // An uploaded CSV still wins over all of these — it carries admin-chosen
+  // names and intent. Nothing anywhere → { source:'empty', ... } (200).
   router.get('/groups', async (_req, res) => {
     // The bucket is only needed for the CSV path — auto-derive works without
     // it (local dev has no ARCHIVE_S3_BUCKET but does have the Analytics key).
@@ -1822,6 +1946,34 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       }
       if (objects.length === 0) {
         try {
+          const derived = await fetchMemberGroupMap()
+          if (derived.groups.length > 0) {
+            const out = {
+              source: 'members', file: null,
+              groups: derived.groups, map: derived.map, group_ids: derived.ids,
+            }
+            rememberGroupResult('groups:members', out)
+            return res.json(out)
+          }
+          // Authoritative zero groups: the org simply has none. Persist the
+          // observation (a later outage then serves stale-EMPTY instead of a
+          // pre-deletion map) and don't fall through to spend-derive — it
+          // could only resurrect deleted groups from old usage-time
+          // attribution.
+          const empty = { source: 'empty', file: null, groups: [], map: {} }
+          groupLastGood.delete('groups:auto')
+          rememberGroupResult('groups:members', empty)
+          return res.json(empty)
+        } catch (err) {
+          console.warn('[groups] members mapping unavailable, trying spend-derive:', err?.message || err)
+        }
+        // Same rule under an outage: if the LAST authoritative observation
+        // was "no groups", spend-derive must not resurrect the deleted ones.
+        const lastMembers = groupLastGood.get('groups:members')
+        if (lastMembers && (lastMembers.groups?.length ?? 0) === 0) {
+          return res.json({ ...lastMembers, stale: true })
+        }
+        try {
           const live = await fetchUserReport({ groupBy: 'rbac_group_id' })
           const derived = deriveGroupMap(live.data, await fetchGroupNames())
           if (derived.groups.length > 0) {
@@ -1834,13 +1986,18 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           }
         } catch (err) {
           // rbac_group_id flaps upstream (503 "Team membership data is not
-          // ready yet") — serve the last successful derivation if we have one.
-          const stale = groupLastGood.get('groups:auto')
-          if (stale) {
-            console.warn('[groups] auto-derive upstream failure; serving last-good map:', err?.message || err)
-            return res.json({ ...stale, stale: true })
-          }
-          console.warn('[groups] auto-derive unavailable, falling back to empty:', err?.message || err)
+          // ready yet") — fall through to last-good below.
+          console.warn('[groups] spend-derive also failed:', err?.message || err)
+        }
+        // Both live sources failed (or spend-derive found nothing while the
+        // members endpoint was down) — the freshest last-good beats empty
+        // (rememberGroupResult stamps remembered_at on the stored copy).
+        const m = groupLastGood.get('groups:members')
+        const a = groupLastGood.get('groups:auto')
+        const stale = m && a ? ((m.remembered_at ?? 0) >= (a.remembered_at ?? 0) ? m : a) : (m || a)
+        if (stale) {
+          console.warn('[groups] serving last-good map; live membership sources unavailable')
+          return res.json({ ...stale, stale: true })
         }
         return res.json({ source: 'empty', file: null, groups: [], map: {} })
       }

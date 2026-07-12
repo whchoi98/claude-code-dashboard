@@ -80,21 +80,27 @@ fallback.
     (exclusive `ending_at` via `utcNextDay`; **the upstream cost family caps
     spans at 31 days** — defaults are `[today−30, today]`, longer selections
     400→502→CSV fallback), returns `{ data, period, data_refreshed_at }`.
-    Sibling closure `fetchGroupNames()` — RBAC group id→name via the
-    documented `GET /v1/compliance/groups` (compliance-or-analytics key), 1h
-    cache + last-good.
-  - Group helpers (pure, tested in `tests/server/test-group-cost.mjs`):
+    Sibling closures: `fetchComplianceGroups()` — the documented
+    `GET /v1/compliance/groups` listing (compliance-or-analytics key), 1h
+    cache shared by `fetchGroupNames()` (id→name, never throws, stale beats
+    missing) and `fetchMemberGroupMap()` (per-group
+    `GET /v1/compliance/groups/{id}/members` → real email→groups map,
+    all-or-nothing + 1h cache — see ADR-0014).
+  - Group helpers (pure, tested in `tests/server/test-group-cost.mjs` +
+    `test-group-members.mjs`):
     `labelGroupIds(ids)` (`grp-<last-6>` labels, collision-extended),
     `resolveGroupLabels(ids, nameById)` (real names over grp- fallbacks,
     duplicate names id-suffixed), `aggregateGroupCost(costBody, nameById?)`
     (per-group totals + daily; null group id = genuinely-ungrouped remainder,
-    accumulated not dropped), `deriveGroupMap(data, nameById?)`
-    (user_cost_report×rbac_group_id → email→label**s** map — ARRAY of every
-    membership per email, spend-desc, `[0]` = max-spend group; a single-value
-    collapse dropped groups that were nobody's top group — + `ids`
-    label→group_id lookup). `GET /groups` serves the admin CSV
-    when uploaded, else **auto-derives** the map this way (`source:'auto'`;
-    works without `ARCHIVE_S3_BUCKET`).
+    accumulated not dropped), `deriveMemberGroupMap(groupList,
+    membersByGroupId)` (authoritative membership → email→label**s** map,
+    label-sorted arrays; memberless groups still listed) and
+    `deriveGroupMap(data, nameById?)` (spend fallback:
+    user_cost_report×rbac_group_id → arrays spend-desc; usage-time
+    attribution lags moves by up to the 31-day window). `GET /groups` source
+    chain: admin CSV (`source:'live'`) > real membership (`'members'`) >
+    spend-derive (`'auto'`) > last-good (`stale:true`) > `'empty'`; works
+    without `ARCHIVE_S3_BUCKET`.
   - Per-user report mappers (pure, tested in `tests/server/test-user-usage.mjs`):
     `userUsageToUsers(data)` (input = uncached + cache_read + cache_creation
     1h+5m, reconciles with upstream `total_tokens`) and
