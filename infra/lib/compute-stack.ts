@@ -280,6 +280,10 @@ export class ComputeStack extends cdk.Stack {
     const albOrigin = new origins.LoadBalancerV2Origin(alb, {
       protocolPolicy: cf.OriginProtocolPolicy.HTTP_ONLY,
       httpPort: 80,
+      // Default 30s cut off cold /cost/groups fetches (the rbac dimension
+      // runs 12.8–30s upstream). The keep-warm cache makes these rare, but a
+      // genuinely cold 30-day window must be allowed to finish.
+      readTimeout: cdk.Duration.seconds(60),
     })
     const baseBehavior: cf.BehaviorOptions = {
       origin: albOrigin,

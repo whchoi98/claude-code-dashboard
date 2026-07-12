@@ -140,6 +140,23 @@ const now = () => clock
   ok('distinct keys fetch independently', a.v === 1 && b.v === 2 && calls === 2)
 }
 
+// ── topUp: refreshes unless the entry is younger than minAgeMs ──────────────
+{
+  clock = 0
+  const cached = makeTtlCache({ ttlMs: 1000, now })
+  let calls = 0
+  const fetcher = async () => ({ v: ++calls })
+  await cached('k', fetcher)                       // v1 at t=0
+  clock = 200
+  const fresh = await cached.topUp('k', fetcher, 300)   // age 200 < 300 → skip
+  clock = 400
+  const forced = await cached.topUp('k', fetcher, 300)  // age 400 ≥ 300 → refetch
+  ok('topUp skips young entries and refreshes older ones',
+    fresh.v === 1 && forced.v === 2 && calls === 2)
+  const after = await cached('k', fetcher)
+  ok('topUp result lands in the cache as a fresh entry', after.v === 2 && calls === 2)
+}
+
 // ── fetchAllReportPages passes a per-page abort signal (hung-fetch guard) ───
 {
   const seen = []

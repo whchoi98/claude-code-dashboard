@@ -693,7 +693,7 @@ export function makeTtlCache({ ttlMs = 600_000, cap = 40, maxAgeMs = ttlMs * 6, 
     }
     return p
   }
-  return async function cached(key, fetcher) {
+  async function cached(key, fetcher) {
     const hit = entries.get(key)
     const age = hit ? now() - hit.at : 0
     if (hit && age < ttlMs) return hit.out
@@ -706,6 +706,16 @@ export function makeTtlCache({ ttlMs = 600_000, cap = 40, maxAgeMs = ttlMs * 6, 
     if (hit) entries.delete(key)   // too old to serve silently
     return start(key, fetcher)
   }
+  // Refresh unless the entry is younger than minAgeMs (in-flight dedup
+  // still applies). The keep-warm loop uses this at < TTL intervals so hot
+  // keys never expire under real users, without re-fetching keys that
+  // foreground traffic just refreshed.
+  cached.topUp = (key, fetcher, minAgeMs = 0) => {
+    const hit = entries.get(key)
+    if (hit && now() - hit.at < minAgeMs) return Promise.resolve(hit.out)
+    return start(key, fetcher)
+  }
+  return cached
 }
 
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
@@ -958,9 +968,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // best-effort rollups: fetchAllReportPages returns { ok:false } (never rejects)
     // on a network error, so a failure leaves them empty without breaking the
     // primary product×model cost view.
-    const [cost, usage, ct, tt] = await Promise.all([
+    // Two waves of 2 instead of 4-wide: halves the instantaneous burst per
+    // key — matters because the keep-warm loop refreshes many windows and
+    // the 60 rpm org budget is shared with real traffic + other prewarms.
+    const [cost, usage] = await Promise.all([
       fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report'), headers),
       fetchAllReportPages(buildUrl('/v1/organizations/analytics/usage_report'), headers),
+    ])
+    const [ct, tt] = await Promise.all([
       fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type']), headers),
       fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['token_type']), headers),
     ])
@@ -994,7 +1009,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // new upstream endpoint, probed 2026-07-04). `groupBy` appends a group_by[]
   // dimension: 'model' (per-user × model chargeback) or 'rbac_group_id'
   // (per-user group membership derivation).
-  async function fetchUserReport({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}) {
+  // Cached front for fetchUserReportUncached — ONE cache entry per
+  // (report, window, dim) serves /cost/users, /cost/user-tokens, the
+  // /cost/efficiency spend join AND the /api/groups spend-derive fallback.
+  // Raw opts key: identical raw opts resolve to the identical window
+  // (resolveUserCostWindow is deterministic within a UTC day).
+  const fetchUserReport = (opts = {}) => cachedWarm(
+    `user_report:${opts.report || 'user_cost_report'}:${opts.starting_date || ''}:${opts.ending_date || ''}:${opts.groupBy || ''}`,
+    () => fetchUserReportUncached(opts),
+  )
+  async function fetchUserReportUncached({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}) {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) { const e = new Error('ANTHROPIC_ANALYTICS_KEY is required for per-user cost.'); e.code = 'analytics_key_required'; throw e }
     // Window resolution (incl. why there is NO today-3 clamp anymore) lives in
@@ -1012,7 +1036,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, limit: '1000' })
       if (groupBy) params.append('group_by[]', groupBy)
       if (page) params.set('page', page)
-      const res = await fetch(`${apiUrl}/v1/organizations/analytics/${report}?${params.toString()}`, { headers })
+      // Same per-page timeout as fetchAllReportPages/fetchSpendLimits — this
+      // fetcher sits behind the TTL cache's in-flight dedup, so a hung
+      // connection here would pin every waiting caller for undici's ~300s.
+      const res = await fetch(`${apiUrl}/v1/organizations/analytics/${report}?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { const e = new Error(`${report} ${res.status}`); e.code = 'upstream_error'; e.upstream = body; throw e }
       if (Array.isArray(body.data)) all.push(...body.data)
@@ -1247,7 +1274,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       : null
     const cacheKey = `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId || 'org'}`
     try {
-      const out = await cachedCost(cacheKey, async () => {
+      const out = await cachedWarm(cacheKey, async () => {
         const fresh = await fetchCostSummary({
           starting_date: req.query.starting_date, ending_date: req.query.ending_date,
           rbac_group_id: rbacGroupId,
@@ -1280,11 +1307,13 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   router.get('/cost/users', async (req, res) => {
     try {
       const by = req.query.by === 'model' ? 'model' : req.query.by === 'product' ? 'product' : null
-      const { data, period, data_refreshed_at } = await fetchUserReport({
+      const { data, period, data_refreshed_at, stale } = await fetchUserReport({
         starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: by,
       })
       const users = userCostToUsers(data, { by }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
-      res.json({ source: 'live', period, data_refreshed_at, grouped: by, users })
+      // stale rides through from the cache's degraded-serve contract — an
+      // upstream flap must not hide behind unmarked cached data.
+      res.json({ source: 'live', period, data_refreshed_at, grouped: by, ...(stale && { stale: true }), users })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
@@ -1301,10 +1330,36 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // successful payload (`stale: true`) instead of blanking the group card.
   const groupLastGood = new Map()
   const GROUP_LAST_GOOD_CAP = 20
-  // Success cache for the slow cost routes (/cost/live, /cost/groups):
-  // 10-min TTL + stale-while-revalidate + in-flight dedup (see makeTtlCache).
-  // Well inside the upstream's ~4h data_refreshed_at watermark.
+  // Success cache for the cost routes (/cost/live, /cost/groups, the
+  // fetchUserReport family, /cost/spend-limits): 10-min TTL +
+  // stale-while-revalidate + in-flight dedup (see makeTtlCache). Well inside
+  // the upstream's ~4h data_refreshed_at watermark.
   const cachedCost = makeTtlCache({ ttlMs: 600_000, cap: 40 })
+  // Keep-warm: every cachedWarm key self-registers with its fetcher, and an
+  // 8-min loop (< the 10-min TTL) re-refreshes keys accessed within the last
+  // 6h — so under real usage the cache never goes cold OR SWR-stale, on
+  // EVERY Fargate task (caches are per-task; ALB round-robin means a warm
+  // task next door doesn't help). warmCycle() below also seeds the UI's
+  // four preset windows at startup, covering the post-deploy cold start.
+  const keepWarm = new Map()   // key → { fetcher, lastAccess }
+  // 12 preset keys are re-tracked each cycle; the rest is headroom for
+  // user-driven keys (scoped groups, custom windows) so a burst of distinct
+  // windows can't evict the presets between cycles.
+  const KEEP_WARM_CAP = 32
+  // 90 min: long enough that anyone actively using the dashboard never sees
+  // a cold key, short enough that a once-glanced custom window doesn't burn
+  // upstream budget for hours. Preset keys never idle out — warmCycle
+  // re-tracks them every cycle (and prunes the prior UTC day's generation).
+  const KEEP_WARM_IDLE_MS = 90 * 60_000
+  function trackWarm(key, fetcher) {
+    keepWarm.delete(key)
+    keepWarm.set(key, { fetcher, lastAccess: Date.now() })
+    if (keepWarm.size > KEEP_WARM_CAP) keepWarm.delete(keepWarm.keys().next().value)
+  }
+  const cachedWarm = (key, fetcher) => {
+    trackWarm(key, fetcher)
+    return cachedCost(key, fetcher)
+  }
   function rememberGroupResult(key, payload) {
     groupLastGood.delete(key)                       // refresh insertion order
     // remembered_at rides only the STORED copy (stale responses expose it;
@@ -1441,14 +1496,45 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   }
 
+  // Group-spend fetcher shared by GET /cost/groups and the keep-warm loop.
+  // Throws with .status/.upstream attached on failure — callers decide
+  // between last-good, the flap 503, and a generic 502.
+  async function fetchGroupCost(starting, ending) {
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+    const params = new URLSearchParams({
+      starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
+    })
+    params.append('group_by[]', 'rbac_group_id')
+    const r = await fetchAllReportPages(
+      `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
+      { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
+    )
+    if (!r.ok) {
+      const e = new Error(`cost_report(rbac_group_id) ${r.status}`)
+      e.status = r.status
+      e.upstream = r.body
+      throw e
+    }
+    const fresh = {
+      source: 'live',
+      period: { starting_date: starting, ending_date: ending },
+      data_refreshed_at: r.body.data_refreshed_at ?? null,
+      ...aggregateGroupCost(r.body, await fetchGroupNames()),
+    }
+    rememberGroupResult(`cost/groups:${starting}:${ending}`, fresh)
+    return fresh
+  }
+
   // GET /api/cost/groups — org spend by RBAC group over the selected range.
   // cost_report × rbac_group_id shipped upstream (probed 2026-07-03; was 400
   // "not yet supported" before). Labels are REAL group names via
   // fetchGroupNames (grp-<id suffix> fallback when the lookup is down).
   // Window matches /cost/live semantics (full range, buffer days included).
   // SLOW upstream (rbac dimension: measured 12.8s for 1d, 30s for 30d) →
-  // successes ride the 10-min TTL cache (stale-while-revalidate); the
-  // groupLastGood entry remains the FAILURE fallback beyond that.
+  // successes ride the 10-min TTL cache (stale-while-revalidate + keep-warm);
+  // the groupLastGood entry remains the FAILURE fallback beyond that.
   router.get('/cost/groups', async (req, res) => {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) {
@@ -1459,34 +1545,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     })
     const cacheKey = `cost/groups:${starting}:${ending}`
     try {
-      const out = await cachedCost(cacheKey, async () => {
-        const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
-        const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-        const params = new URLSearchParams({
-          starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
-        })
-        params.append('group_by[]', 'rbac_group_id')
-        const r = await fetchAllReportPages(
-          `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
-          { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
-        )
-        if (!r.ok) {
-          // Throw with the upstream body attached — the route catch decides
-          // between last-good, the flap 503, and a generic 502.
-          const e = new Error(`cost_report(rbac_group_id) ${r.status}`)
-          e.status = r.status
-          e.upstream = r.body
-          throw e
-        }
-        const fresh = {
-          source: 'live',
-          period: { starting_date: starting, ending_date: ending },
-          data_refreshed_at: r.body.data_refreshed_at ?? null,
-          ...aggregateGroupCost(r.body, await fetchGroupNames()),
-        }
-        rememberGroupResult(cacheKey, fresh)
-        return fresh
-      })
+      const out = await cachedWarm(cacheKey, () => fetchGroupCost(starting, ending))
       res.json(out)
     } catch (err) {
       const stale = groupLastGood.get(cacheKey)
@@ -1507,11 +1566,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // same window rules as /cost/users (31-day span cap, buffer served partial).
   router.get('/cost/user-tokens', async (req, res) => {
     try {
-      const { data, period, data_refreshed_at } = await fetchUserReport({
+      const { data, period, data_refreshed_at, stale } = await fetchUserReport({
         report: 'user_usage_report',
         starting_date: req.query.starting_date, ending_date: req.query.ending_date,
       })
-      res.json({ source: 'live', period, data_refreshed_at, users: userUsageToUsers(data) })
+      res.json({ source: 'live', period, data_refreshed_at, ...(stale && { stale: true }), users: userUsageToUsers(data) })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
@@ -1525,31 +1584,40 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // read:spend_limits scope, which the provisioned key carries). No date
   // params: `period_to_date_spend` is always the current monthly period
   // (resets 00:00 UTC on the 1st). Cursor pagination via next_page.
+  // Shared by GET /cost/spend-limits and the keep-warm loop. Throws with
+  // .upstream attached on failure.
+  async function fetchSpendLimits() {
+    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
+    const all = []
+    let page = null
+    for (let i = 0; i < 20; i++) {
+      const params = new URLSearchParams({ limit: '100' })
+      if (page) params.set('page', page)
+      const r = await fetch(`${apiUrl}/v1/organizations/spend_limits/effective?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        const e = new Error(`spend_limits/effective ${r.status}`)
+        e.upstream = body
+        throw e
+      }
+      if (Array.isArray(body.data)) all.push(...body.data)
+      if (!body.next_page) break
+      page = body.next_page
+    }
+    return { source: 'live', period: 'monthly', members: spendLimitsToMembers(all) }
+  }
+
   router.get('/cost/spend-limits', async (_req, res) => {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) {
       return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY (with read:spend_limits) is required.' })
     }
-    const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
-    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
     try {
-      const all = []
-      let page = null
-      for (let i = 0; i < 20; i++) {
-        const params = new URLSearchParams({ limit: '100' })
-        if (page) params.set('page', page)
-        const r = await fetch(`${apiUrl}/v1/organizations/spend_limits/effective?${params.toString()}`, { headers })
-        const body = await r.json().catch(() => ({}))
-        if (!r.ok) {
-          return res.status(502).json({ error: 'upstream_error', message: `spend_limits/effective ${r.status}`, upstream: body })
-        }
-        if (Array.isArray(body.data)) all.push(...body.data)
-        if (!body.next_page) break
-        page = body.next_page
-      }
-      res.json({ source: 'live', period: 'monthly', members: spendLimitsToMembers(all) })
+      res.json(await cachedWarm('spend-limits', fetchSpendLimits))
     } catch (err) {
-      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
+      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }
   })
 
@@ -1737,9 +1805,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     if (starting && starting > ending) starting = ending
 
     let liveUsers = []
+    let spendStale = false   // cache served a degraded (post-flap) payload
     try {
       const live = await fetchUserReport({ starting_date: starting, ending_date: ending })
       liveUsers = userCostToUsers(live.data)
+      spendStale = live.stale === true
       starting = live.period.starting_date
       ending = live.period.ending_date
       csvPeriod = { starting_date: starting, ending_date: ending }
@@ -1973,6 +2043,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     res.json({
       score_version: '3.0',
       source,
+      ...(spendStale && { stale: true }),
       period: csvPeriod,
       user_count: scored.length,
       totals: {
@@ -2091,6 +2162,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           if (derived.groups.length > 0) {
             const out = {
               source: 'auto', file: null, period: live.period,
+              ...(live.stale && { stale: true }),
               groups: derived.groups, map: derived.map, group_ids: derived.ids,
             }
             rememberGroupResult('groups:auto', out)
@@ -2123,6 +2195,74 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       res.status(500).json({ error: 'groups_read_failed', message: err?.message || String(err) })
     }
   })
+
+  // ── Cost cache keep-warm loop ─────────────────────────────────────────
+  // Seeds the UI's four preset windows (matching useDateRange's math:
+  // '1d' = [today−3, today−3] — the most recent finalized day and the Cost
+  // page default; 7d/14d/30d end at today) plus the '1d' per-user reports
+  // the Cost page requests on mount, then force-refreshes every registered
+  // key (preset + anything users actually requested, ≤6h idle) every 8 min
+  // — under the 10-min TTL, so hot keys never expire or serve SWR-stale.
+  // Runs per task: both Fargate tasks warm themselves, closing the
+  // round-robin cold-task gap and the post-deploy cold start.
+  let lastPresetKeys = new Set()
+  async function warmCycle() {
+    const minus = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
+    const today = minus(0)
+    const presets = [
+      [minus(3), minus(3)],            // '1d' (Cost page default)
+      [minus(6), today], [minus(13), today], [minus(29), today],
+    ]
+    const currentPresetKeys = new Set()
+    const preset = (key, fetcher) => { currentPresetKeys.add(key); trackWarm(key, fetcher) }
+    // Registration order = refresh order (Map iteration): everything the
+    // Cost page requests on a default open goes FIRST, so the crucial keys
+    // are warm within ~90s of task boot; the wider windows follow.
+    const [s1, e1] = presets[0]
+    preset(`cost/live:${s1}:${e1}:org`, () => fetchCostSummary({ starting_date: s1, ending_date: e1 }))
+    preset(`cost/groups:${s1}:${e1}`, () => fetchGroupCost(s1, e1))
+    preset(`user_report:user_cost_report:${s1}:${e1}:model`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1, groupBy: 'model' }))
+    preset(`user_report:user_cost_report:${s1}:${e1}:`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1 }))
+    preset(`user_report:user_usage_report:${s1}:${e1}:`, () => fetchUserReportUncached({ report: 'user_usage_report', starting_date: s1, ending_date: e1 }))
+    preset('spend-limits', fetchSpendLimits)
+    for (const [s, e] of presets.slice(1)) {
+      preset(`cost/live:${s}:${e}:org`, () => fetchCostSummary({ starting_date: s, ending_date: e }))
+      preset(`cost/groups:${s}:${e}`, () => fetchGroupCost(s, e))
+    }
+    // Prune the PREVIOUS UTC day's preset generation — the dated keys change
+    // identity at midnight and no client ever recomputes yesterday's window,
+    // so without this they'd burn upstream budget until the idle expiry.
+    for (const k of lastPresetKeys) if (!currentPresetKeys.has(k)) keepWarm.delete(k)
+    lastPresetKeys = currentPresetKeys
+
+    const startedAt = Date.now()
+    let ok = 0, skipped = 0, failed = 0
+    for (const [key, entry] of [...keepWarm]) {
+      if (Date.now() - entry.lastAccess > KEEP_WARM_IDLE_MS) { keepWarm.delete(key); continue }
+      try {
+        // topUp skips entries foreground traffic refreshed < 5 min ago, and
+        // the inter-key sleep spreads the paginated fan-out (a 30d live key
+        // is ~20 upstream requests) across the cycle instead of bursting the
+        // shared 60 rpm org budget.
+        const before = Date.now()
+        await cachedCost.topUp(key, entry.fetcher, 300_000)
+        if (Date.now() - before < 5) skipped++; else ok++
+      } catch (err) {
+        failed++
+        console.warn(`[keep-warm] refresh failed for ${key}:`, err?.message || err)
+      }
+      await new Promise((r) => setTimeout(r, 15_000).unref?.())
+    }
+    console.log(`[keep-warm] ${ok} refreshed, ${skipped} fresh-skipped, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
+  }
+  if (process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY) {
+    // Random start offset de-phases the two Fargate tasks (they boot within
+    // seconds of each other on every deploy) so their cycles don't burst the
+    // org rate budget in the same minute.
+    const first = setTimeout(() => { warmCycle().catch((err) => console.warn('[keep-warm] cycle error:', err?.message || err)) }, 5_000 + Math.floor(Math.random() * 120_000))
+    const loop = setInterval(() => { warmCycle().catch((err) => console.warn('[keep-warm] cycle error:', err?.message || err)) }, 8 * 60_000)
+    first.unref?.(); loop.unref?.()   // never keep a one-off script alive
+  }
 
   app.use('/api', router)
 }

@@ -25,11 +25,21 @@ fallback.
   `tests/server/test-flatten-inflate.mjs`.
 - **`aws.js`** — AWS integrations registered via
   `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
-  - Cost routes — `/cost/live` and `/cost/groups` ride a **10-min success TTL
-    cache** (`makeTtlCache`: stale-while-revalidate + in-flight dedup, keyed
-    by window+group; the rbac dimension runs 12–30s upstream, measured
-    2026-07-12; distinct from `groupLastGood`, which serves FAILURE fallbacks
-    only): `GET /cost/live` (Analytics `cost_report` + `usage_report`,
+  - Cost routes — `/cost/live`, `/cost/groups`, `/cost/spend-limits` and the
+    whole `fetchUserReport` family (`/cost/users`, `/cost/user-tokens`, the
+    `/cost/efficiency` spend join, `/api/groups` spend-derive) ride a
+    **10-min success TTL cache** (`makeTtlCache`: stale-while-revalidate,
+    `stale:true`-marked degraded serves propagated to every consumer,
+    maxAge 6×TTL foreground fallback, in-flight dedup + 45s per-page
+    AbortSignals, `.topUp(key, fetcher, minAge)`; distinct from
+    `groupLastGood`, which serves FAILURE fallbacks only). A **keep-warm
+    loop** (per task: start-jittered ≤2 min, then every 8 min) re-registers
+    the UI's 4 preset windows (pruning yesterday's generation at UTC
+    rollover), then `topUp`s every registered key (user-driven keys idle out
+    after 90 min) with a 15s inter-key sleep — pacing the shared 60 rpm org
+    budget while keeping both Fargate tasks hot (caches are per-task; the
+    rbac dimension runs 12–30s upstream, measured 2026-07-12):
+    `GET /cost/live` (Analytics `cost_report` + `usage_report`,
     reshaped via `analyticsReportsToCostResp`; also attaches `data_refreshed_at`,
     `by_cost_type` (tokens/web_search/code_execution), `by_token_type` +
     `token_tiers` (cache-hit ratio) from best-effort secondary `cost_report`
