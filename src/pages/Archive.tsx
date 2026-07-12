@@ -39,7 +39,7 @@ export function Archive() {
         title={t('archive.title')}
         subtitle={t('archive.subtitle')}
       />
-      <div className="p-8 space-y-5">
+      <div className="p-4 lg:p-8 print:p-8 space-y-5">
         <div className="rounded-xl border border-ink-100 bg-white shadow-card p-5">
           <label className="text-[11px] uppercase tracking-wider text-ink-500 font-medium">{t('archive.athena_sql')}</label>
           <textarea

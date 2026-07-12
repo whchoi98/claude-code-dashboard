@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClaudeIcon } from './ClaudeIcon'
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/user-search',       key: 'user_search',       badge: '🔍' },
   { to: '/trends',            key: 'trends',            badge: '📈' },
   { to: '/claude-code',       key: 'claude_code',       badge: '💻' },
+  { to: '/claude-chat',       key: 'claude_chat',       badge: '💬' },
   { to: '/cowork',            key: 'cowork',            badge: '🤝' },
   { to: '/office',            key: 'office',            badge: '📑' },
   { to: '/design',            key: 'design',            badge: '🎨' },
@@ -35,6 +37,16 @@ const NAV = [
 export function Layout() {
   const health = useHealth()
   const { t, locale, setLocale } = useI18n()
+  // Mobile: the sidebar becomes a slide-in drawer behind a hamburger button
+  // (< lg). Closed on every navigation so a menu tap always lands on content.
+  const [navOpen, setNavOpen] = useState(false)
+  // Escape closes the open drawer (keyboard parity with the backdrop tap).
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
   // Carry ONLY the group scope across sidebar navigation (?group=), so the
   // per-page GroupTabs selection survives page switches. Date-range params
   // stay per-page on purpose — each page has its own default window.
@@ -48,7 +60,28 @@ export function Layout() {
     // while the main pane scrolls independently. Without this, scrolling
     // the page moved the whole flex container — sidebar included.
     <div className="grain h-screen flex">
-      <aside className="w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col">
+      {/* Mobile drawer backdrop */}
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-ink-900/40 lg:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        id="app-nav"
+        className={clsx(
+          'w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/95 lg:bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col',
+          // Drawer on mobile, static column on lg+. z-auto on lg — a z-index
+          // on a flex item creates a stacking context even when static, which
+          // would float the desktop sidebar above the UserDetailPanel
+          // backdrop. `invisible` when closed removes the offscreen drawer
+          // from the tab order and the accessibility tree (transforms alone
+          // don't); lg:visible keeps the desktop column untouched.
+          'fixed inset-y-0 left-0 z-40 lg:z-auto transform transition-[transform,visibility] duration-200 lg:static lg:translate-x-0',
+          navOpen ? 'translate-x-0 visible' : '-translate-x-full invisible lg:visible',
+        )}
+      >
         <div className="flex items-center gap-3 mb-8">
           <ClaudeIcon size={36} animate />
           <div className="leading-tight flex-1 min-w-0">
@@ -70,6 +103,7 @@ export function Layout() {
               key={n.to}
               to={withGroup(n.to)}
               end={n.to === '/'}
+              onClick={() => setNavOpen(false)}
               className={({ isActive }) =>
                 clsx(
                   'group flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors',
@@ -180,9 +214,36 @@ export function Layout() {
       </aside>
 
       <main className="flex-1 min-w-0 h-full overflow-y-auto">
+        {/* Mobile top bar — hamburger + product identity (hidden on lg+) */}
+        <div className="lg:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-ink-100 bg-paper-muted/90 backdrop-blur px-4 py-3">
+          <button
+            onClick={() => setNavOpen(true)}
+            aria-label={t('nav.open_menu')}
+            aria-expanded={navOpen}
+            aria-controls="app-nav"
+            className="rounded-lg border border-ink-200 bg-white p-2 text-ink-600 hover:border-claude-500"
+          >
+            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 5h14M3 10h14M3 15h14" />
+            </svg>
+          </button>
+          <ClaudeIcon size={24} />
+          <span className="text-sm font-semibold text-ink-800 truncate">{t('product.name')}</span>
+          <Link
+            to="/changelog"
+            className="ml-auto rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+          >
+            v{APP_VERSION}
+          </Link>
+        </div>
         <Outlet />
       </main>
-      <FloatingChat />
+      {/* Hidden (not unmounted — keeps the conversation) while the mobile
+          drawer is open: both are z-40 fixed and the chat pill overlaps the
+          drawer's footer, stealing taps. */}
+      <div className={navOpen ? 'max-lg:hidden' : undefined}>
+        <FloatingChat />
+      </div>
     </div>
   )
 }

@@ -364,7 +364,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
             {!loading && totals && (
               <>
                 {/* Aggregate tiles */}
-                <div className="grid grid-cols-4 gap-2 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
                   <Tile label={t('detail.chat')}     value={fmtNum(totals.messages)} />
                   <Tile label={t('detail.sessions')} value={fmtNum(totals.sessions)} />
                   <Tile label={t('detail.loc')}      value={fmtCompact(totals.loc)} accent />
@@ -502,7 +502,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                         </div>
                       )}
                     </div>
-                    <div className="grid grid-cols-4 gap-2 text-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
                       <Tile label={t('detail.cache.hit_rate')} value={cacheStats.hitRate != null ? fmtPct(cacheStats.hitRate) : '—'} accent />
                       <Tile label={t('detail.cache.read')}     value={fmtCompact(cacheStats.cacheRead)} />
                       <Tile label={t('detail.cache.creation')} value={fmtCompact(cacheStats.cacheCreation)} />
@@ -571,7 +571,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                 )}
 
                 {/* Daily table */}
-                <div className="rounded-xl border border-ink-100 bg-white overflow-hidden">
+                <div className="rounded-xl border border-ink-100 bg-white overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-paper-muted/60 text-ink-500">
                       <tr>

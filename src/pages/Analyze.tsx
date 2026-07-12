@@ -44,7 +44,7 @@ export function Analyze() {
       <div className="print-hide">
         <PageHeader title={t('analyze.title')} subtitle={t('analyze.subtitle')} right={<ClaudeIcon size={28} animate />} />
       </div>
-      <div className="p-8 max-w-5xl">
+      <div className="p-4 lg:p-8 print:p-8 max-w-5xl">
         {messages.length > 0 && (
           <div className="flex justify-end gap-2 mb-4 print-hide">
             <button onClick={exportMarkdown} title={t('analyze.export.md.hint')} className="text-[12px] px-3 py-1.5 rounded-lg border border-ink-200 bg-white text-ink-600 hover:bg-paper-muted/40 hover:border-claude-200 hover:text-ink-800 transition inline-flex items-center gap-1.5">

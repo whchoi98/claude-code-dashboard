@@ -25,7 +25,7 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 claude-code-dashboard/
 ├── src/                    React SPA (Vite)
 │   ├── components/         Shared UI (Layout, ClaudeIcon, KpiCard, ChartCard, PageHeader, LoadingState, UserDetailPanel, DateRangeControl, CsvUploader, Markdown, SortableTh). Layout pins the sidebar to the viewport via h-screen + per-pane overflow-y-auto so scrolling moves only the main pane; it also renders the version badge (links to /changelog) and the static AWS run-rate label.
-│   ├── pages/              18 routes (Overview, Executive, Users, UserProductivity, UserSearch, Trends, ClaudeCode, Cowork, Office, Design, Productivity, Agentic, Adoption, Cost, Compliance, Analyze, Archive, Changelog). Default date range is 7d. The DateRangeControl now allows today as the end date (engagement endpoints clamp to the 3-day buffer server-side; the cost family serves recent days with partial data).
+│   ├── pages/              19 routes (Overview, Executive, Users, UserProductivity, UserSearch, Trends, ClaudeCode, ClaudeChat, Cowork, Office, Design, Productivity, Agentic, Adoption, Cost, Compliance, Analyze, Archive, Changelog). Default date range is 7d. The DateRangeControl now allows today as the end date (engagement endpoints clamp to the 3-day buffer server-side; the cost family serves recent days with partial data).
 │   ├── lib/                i18n (ko/en), useDateRange, useFetch, useHealth, useSortable, format (masking, number, date)
 │   ├── types.ts            Analytics API schema types
 │   ├── App.tsx             Router

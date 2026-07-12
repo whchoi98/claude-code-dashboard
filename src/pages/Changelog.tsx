@@ -33,7 +33,7 @@ export function Changelog() {
         title={t('changelog.title')}
         subtitle={t('changelog.subtitle', { version: APP_VERSION })}
       />
-      <div className="p-8">
+      <div className="p-4 lg:p-8 print:p-8">
         <div className="rounded-xl border border-ink-100 bg-white px-6 py-5 shadow-card max-w-4xl">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-ink-100">
             <div className="flex items-center gap-3">

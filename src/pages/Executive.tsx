@@ -236,7 +236,7 @@ export function Executive() {
         />
       </div>
       <GroupScopeNote />
-      <div className="p-8 space-y-6 print-export">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6 print-export">
         <div className="flex items-center justify-end gap-2 print-hide">
           <button
             onClick={exportPdf}
@@ -251,7 +251,7 @@ export function Executive() {
         {/* Row 1 — People */}
         <div>
           <div className="text-[11px] uppercase tracking-widest text-ink-400 font-medium mb-2">{t('exec.section.people')}</div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
             <KpiCard accent label={t('exec.kpi.active_devs')} value={fmtNum(snapshot.activeDevs)}
               hint={t('exec.kpi.active_devs.hint', { n: fmtNum(snapshot.seats), days: snapshot.nDays })} />
             <KpiCard label={t('exec.kpi.dau_avg')} value={fmtNum(Math.round(snapshot.avgDau))}
@@ -267,7 +267,7 @@ export function Executive() {
         {/* Row 2 — Productivity */}
         <div>
           <div className="text-[11px] uppercase tracking-widest text-ink-400 font-medium mb-2">{t('exec.section.productivity')}</div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
             <KpiCard label={t('exec.kpi.loc')} value={fmtCompact(snapshot.totalLoc)}
               hint={t('exec.kpi.loc.hint', { commits: fmtNum(snapshot.totalCommits), prs: fmtNum(snapshot.totalPrs) })} />
             <KpiCard label={t('exec.kpi.accept')} value={snapshot.acceptanceRate != null ? fmtPct(snapshot.acceptanceRate) : '—'}
@@ -281,7 +281,7 @@ export function Executive() {
         {/* Row 3 — Cost & Risk */}
         <div>
           <div className="text-[11px] uppercase tracking-widest text-ink-400 font-medium mb-2">{t('exec.section.cost')}</div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
             <KpiCard accent label={t('exec.kpi.spend')} value={fmtUsd(snapshot.spend)}
               hint={t('exec.kpi.spend.hint', { perDev: snapshot.costPerDevPerDay != null ? fmtUsd(snapshot.costPerDevPerDay, 2) + '/dev/day' : '—' })} />
             <KpiCard label={t('exec.kpi.proj30d')} value={snapshot.proj30d != null ? fmtUsd(snapshot.proj30d) : '—'}
@@ -311,7 +311,7 @@ export function Executive() {
           })}
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
           <ChartCard title={t('exec.chart.dau')} subtitle={t('exec.chart.dau.sub')}>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={snapshot.dauSeries} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>

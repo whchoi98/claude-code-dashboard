@@ -152,19 +152,19 @@ export function UserProductivity() {
         subtitle={t('user_prod.subtitle', { days: range.days })}
         source={rangeResp.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <DateRangeControl />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={t('users.search')}
-              className="text-sm px-3 py-1.5 rounded-lg border border-ink-200 bg-white focus:border-claude-500 focus:outline-none w-56"
+              className="text-sm px-3 py-1.5 rounded-lg border border-ink-200 bg-white focus:border-claude-500 focus:outline-none w-full sm:w-56"
             />
           </div>
         }
       />
       <GroupTabs />
-      <div className="p-8 space-y-6">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
         {rows.length > 0 && (
           <ChartCard title={t('user_prod.top10')} subtitle={t('user_prod.top10.sub')}>
             <ResponsiveContainer width="100%" height={Math.max(240, chartData.length * 30)}>
@@ -182,7 +182,7 @@ export function UserProductivity() {
         {rows.length === 0 ? (
           <EmptyState title={t('users.empty')} hint={t('users.empty.hint')} />
         ) : (
-          <div className="rounded-xl border border-ink-100 bg-white shadow-card overflow-hidden">
+          <div className="rounded-xl border border-ink-100 bg-white shadow-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-paper-muted/60">
                 <tr>

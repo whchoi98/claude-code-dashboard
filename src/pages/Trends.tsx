@@ -45,7 +45,7 @@ export function Trends() {
         right={<DateRangeControl />}
       />
       <GroupScopeNote />
-      <div className="p-8 space-y-6">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <ChartCard title={t('trends.active_users')}>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
@@ -62,7 +62,7 @@ export function Trends() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
           <ChartCard title={t('trends.seats_vs_mau')}>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={rows} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>

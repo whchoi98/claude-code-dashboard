@@ -94,8 +94,8 @@ export function Office() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
-      <div className="p-8 space-y-6">
-        <div className="grid grid-cols-4 gap-4">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('office.kpi.active_users')} value={fmtNum(agg.activeUsers)} hint={t('office.kpi.active_users.hint')} />
           <KpiCard label={t('office.kpi.sessions')} value={fmtCompact(agg.sessionsTotal)} />
           <KpiCard label={t('office.kpi.messages')} value={fmtCompact(agg.messagesTotal)} />
@@ -153,7 +153,7 @@ function OfficeUserTable({ rows, t }: { rows: OfficeRow[]; t: Tt }) {
   )
   if (rows.length === 0) return <div className="px-4 py-2"><EmptyState title={t('office.top.empty')} /></div>
   return (
-    <div className="px-2">
+    <div className="px-2 overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-ink-100 text-ink-500">

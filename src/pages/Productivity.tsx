@@ -135,8 +135,8 @@ export function Productivity() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
-      <div className="p-8 space-y-6">
-        <div className="grid grid-cols-5 gap-4">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 print:grid-cols-5 gap-4">
           <ScoreCard score={score} t={t} />
           <KpiCard label={t('prod.avg_loc')}     value={fmtCompact(Math.round(aggregate.locPerDevPerDay))}     hint={`${fmtCompact(aggregate.locTotal)} total`} />
           <KpiCard label={t('prod.avg_sess')}    value={aggregate.sessionsPerDevPerDay.toFixed(1)}              hint={`${fmtNum(aggregate.sessionsTotal)} total`} />
@@ -164,7 +164,7 @@ export function Productivity() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
           <ChartCard title={t('prod.commits_prs')}>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={daily} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>

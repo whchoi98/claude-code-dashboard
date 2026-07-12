@@ -10,7 +10,7 @@ type Props = {
 
 export function PageHeader({ title, subtitle, right, source, reason }: Props) {
   return (
-    <div className="px-8 pt-8 pb-6 border-b border-ink-100 flex items-start justify-between gap-6">
+    <div className="px-4 lg:px-8 pt-6 lg:pt-8 pb-6 border-b border-ink-100 flex flex-col sm:flex-row items-start justify-between gap-4 lg:gap-6">
       <div>
         <h1 className="text-2xl font-semibold text-ink-800 tracking-tight">{title}</h1>
         {subtitle && <p className="text-sm text-ink-500 mt-1 max-w-2xl">{subtitle}</p>}

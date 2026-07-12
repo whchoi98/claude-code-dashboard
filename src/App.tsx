@@ -5,6 +5,7 @@ import { Overview } from './pages/Overview'
 import { Users } from './pages/Users'
 import { Trends } from './pages/Trends'
 import { ClaudeCode } from './pages/ClaudeCode'
+import { ClaudeChat } from './pages/ClaudeChat'
 import { Productivity } from './pages/Productivity'
 import { UserProductivity } from './pages/UserProductivity'
 import { Adoption } from './pages/Adoption'
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="users" element={<Users />} />
           <Route path="trends" element={<Trends />} />
           <Route path="claude-code" element={<ClaudeCode />} />
+          <Route path="claude-chat" element={<ClaudeChat />} />
           <Route path="cowork" element={<Cowork />} />
           <Route path="agentic" element={<Agentic />} />
           <Route path="office" element={<Office />} />

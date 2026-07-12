@@ -212,7 +212,7 @@ export function Compliance() {
         right={<DateRangeControl />}
       />
       <GroupScopeNote />
-      <div className="p-8 space-y-6">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
         {data?.stop_reason === 'max' && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
             {t('audit.cap.warning', {
@@ -222,14 +222,14 @@ export function Compliance() {
             })}
           </div>
         )}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('audit.kpi.total')} value={fmtNum(derived.total)} hint={t('audit.kpi.total.hint')} />
           <KpiCard       label={t('audit.kpi.risk')}  value={fmtNum(derived.risk)}  hint={t('audit.kpi.risk.hint')} />
           <KpiCard       label={t('audit.kpi.login')} value={fmtNum(derived.login)} hint={t('audit.kpi.login.hint')} />
           <KpiCard       label={t('audit.kpi.actors')} value={fmtNum(derived.uniqueActors)} hint={`${derived.apiCalls} api calls`} />
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
           <ChartCard title={t('audit.top_types')}>
             <ResponsiveContainer width="100%" height={Math.max(240, derived.topTypes.length * 26)}>
               <BarChart data={derived.topTypes} layout="vertical" margin={{ top: 8, right: 16, left: 80, bottom: 8 }}>

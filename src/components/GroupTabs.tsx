@@ -43,7 +43,7 @@ export function GroupTabs() {
   ]
 
   return (
-    <div className="px-8 pt-4 pb-3">
+    <div className="px-4 lg:px-8 pt-4 pb-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-1 text-xs font-medium text-ink-600">{t('group.label')}</span>
         {tabs.map((tab) => (

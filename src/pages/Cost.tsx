@@ -532,7 +532,7 @@ export function Cost() {
         <div>
           <PageHeader title={t('cost.title')} subtitle={t('cost.subtitle')} />
           <GroupTabs />
-          <div className="p-8">
+          <div className="p-4 lg:p-8 print:p-8">
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[12px] text-amber-900">
               <b className="text-amber-800">{t('cost.scope.unavailable.title', { group: label })}</b>
               <p className="mt-1">{t('cost.scope.unavailable.body')}</p>
@@ -552,7 +552,7 @@ export function Cost() {
       return (
         <div>
           <PageHeader title={t('cost.title')} subtitle={t('cost.subtitle')} />
-          <div className="p-8 space-y-4">
+          <div className="p-4 lg:p-8 print:p-8 space-y-4">
             <EmptyState title={t('cost.empty')} hint={t('cost.empty.hint')} />
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[12px] text-amber-900">
               <b className="text-amber-800">{t('cost.csv_upload.title')}</b>
@@ -615,7 +615,7 @@ export function Cost() {
         }
       />
       <GroupTabs />
-      <div className="p-8 space-y-6 print-export">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6 print-export">
         {/* Inside .print-export so the scope indicator survives Save-as-PDF —
             the per-user tables below ARE group-filtered and a printout must
             say so. Self-hides when no group is selected. */}
@@ -658,7 +658,7 @@ export function Cost() {
         {refreshing && (
           <div className="text-[10px] text-ink-400 animate-pulse">{t('cost.refreshing')}</div>
         )}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard
             accent
             label={t('cost.kpi.total')}
@@ -689,7 +689,7 @@ export function Cost() {
         {/* Forecast / per-developer KPIs (always shown; forecast columns
             only render when live mode supplies a daily series). */}
         {insights && (
-          <div className={`grid gap-4 ${insights.projection30d != null ? 'grid-cols-3' : 'grid-cols-1'}`}>
+          <div className={`grid gap-4 ${insights.projection30d != null ? 'grid-cols-1 sm:grid-cols-3 print:grid-cols-3' : 'grid-cols-1'}`}>
             <KpiCard
               label={t('cost.kpi.per_dev')}
               value={insights.costPerDev != null ? fmtUsd(insights.costPerDev) : '—'}
@@ -781,7 +781,7 @@ export function Cost() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
           <ChartCard title={t('cost.product_share')} subtitle={t('cost.product_share.sub')}>
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
@@ -829,7 +829,7 @@ export function Cost() {
         </ChartCard>
 
         <ChartCard title={t('cost.model_cost')} subtitle={t('cost.model_cost.sub')}>
-          <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+          <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3">
             <table className="w-full text-sm">
               <thead className="bg-paper-muted/60 text-ink-500">
                 <tr>
@@ -924,7 +924,7 @@ export function Cost() {
             {!hasPerUserTokens && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">{t('cost.top.live_caveat')}</p>
             )}
-            <div className={hasPerUserTokens ? 'grid grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6 max-w-md'}>
+            <div className={hasPerUserTokens ? 'grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6 max-w-md'}>
               <TopTable title={t('cost.top_cost')} rows={topSpend} metric="spend" formatter={fmtUsd} accent t={t} />
               {hasPerUserTokens && (
                 <>
@@ -1040,7 +1040,7 @@ export function Cost() {
           if (members.length === 0) return null
           return (
             <ChartCard title={t('cost.limits.title')} subtitle={t('cost.limits.sub')}>
-              <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+              <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3">
                 <table className="w-full text-sm">
                   <thead className="bg-paper-muted/60 text-ink-500">
                     <tr>
@@ -1150,7 +1150,7 @@ function EconomicProductivitySection({ data, t, range, scoped = false }: {
       </p>
       <p className="text-xs text-ink-500 mb-4">{t('econ.subtitle')}</p>
 
-        <div className="grid grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 mb-5">
           <KpiCard accent label={t('econ.kpi.score')}      value={topScore[0]?.economic_productivity_score ?? '—'}  hint={maskEmail(topScore[0]?.email ?? '')} />
           <KpiCard       label={t('econ.kpi.cost_loc')}    value={data.totals.avg_cost_per_loc != null ? `$${data.totals.avg_cost_per_loc.toFixed(4)}` : '—'}    hint={t(scoped ? 'econ.kpi.avg_group' : 'econ.kpi.avg_org')} />
           <KpiCard       label={t('econ.kpi.cost_commit')} value={data.totals.avg_cost_per_commit != null ? fmtUsd(data.totals.avg_cost_per_commit) : '—'} hint={t(scoped ? 'econ.kpi.avg_group' : 'econ.kpi.avg_org')} />
@@ -1185,7 +1185,7 @@ function EconomicProductivitySection({ data, t, range, scoped = false }: {
           </ResponsiveContainer>
         </ChartCard>
 
-        <div className="grid grid-cols-2 gap-6 mt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6 mt-6">
           <ChartCard title={t('econ.top_score')}>
             <ResponsiveContainer width="100%" height={Math.max(260, topScore.length * 26)}>
               <BarChart data={topScore.map((u) => ({ name: maskEmail(u.email), score: u.economic_productivity_score }))}
@@ -1200,7 +1200,7 @@ function EconomicProductivitySection({ data, t, range, scoped = false }: {
           </ChartCard>
 
           <ChartCard title={t('econ.most_efficient')} subtitle={t('econ.most_efficient.sub')}>
-            <div className="rounded-lg border border-ink-100 overflow-hidden mx-3 max-h-72 overflow-y-auto">
+            <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3 max-h-72 overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="bg-paper-muted/60 text-ink-500 sticky top-0">
                   <tr>
@@ -1322,7 +1322,7 @@ function TopTable({
 }) {
   return (
     <ChartCard title={title}>
-      <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+      <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3">
         <table className="w-full text-sm">
           <thead className="bg-paper-muted/60 text-ink-500">
             <tr>

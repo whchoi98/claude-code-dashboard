@@ -132,8 +132,8 @@ export function Agentic() {
       <GroupTabs />
       {/* Spend section below is org-level cost_report data — flag it. */}
       <GroupScopeNote variant="partial" />
-      <div className="p-8 space-y-6">
-        <div className="grid grid-cols-4 gap-4">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('agentic.kpi.app')} value={agg.avgApp != null ? agg.avgApp.toFixed(1) : '—'} hint={t('agentic.kpi.app.hint')} />
           <KpiCard label={t('agentic.kpi.prompts')} value={fmtNum(agg.promptsTotal)} hint={t('agentic.kpi.prompts.hint')} />
           <KpiCard label={t('agentic.kpi.actions')} value={fmtNum(agg.actionsTotal)} hint={t('agentic.kpi.actions.hint')} />
@@ -221,7 +221,7 @@ function AgenticUserTable({ rows, avgApp, t }: { rows: UserRow[]; avgApp: number
   )
   if (rows.length === 0) return <div className="px-4 py-2"><EmptyState title={t('agentic.empty')} /></div>
   return (
-    <div className="px-2">
+    <div className="px-2 overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-ink-100 text-ink-500">

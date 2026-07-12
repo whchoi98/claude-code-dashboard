@@ -130,7 +130,7 @@ export function Adoption() {
       />
       <GroupTabs />
       <GroupScopeNote />
-      <div className="p-8 space-y-6">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>
           <ResponsiveContainer width="100%" height={Math.max(220, skillRows.length * 32)}>
             <BarChart data={skillRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
@@ -199,7 +199,7 @@ function ProjectTable({ rows, t }: { rows: ProjectRow[]; t: (k: any, p?: any) =>
     <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
   )
   return (
-    <div className="rounded-lg border border-ink-100 overflow-hidden mx-3">
+    <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3">
       <table className="w-full text-sm">
         <thead className="bg-paper-muted/60">
           <tr>

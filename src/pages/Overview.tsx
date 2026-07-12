@@ -94,14 +94,14 @@ export function Overview() {
         right={<DateRangeControl />}
       />
       <GroupScopeNote />
-      <div className="p-8 space-y-6">
-        <div className="grid grid-cols-4 gap-4">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('kpi.dau')} value={fmtNum(kpis.dau)} trend={kpis.dauTrend} hint={t('kpi.seats', { n: fmtNum(kpis.seats) })} />
           <KpiCard label={t('kpi.wau')}  value={fmtNum(kpis.wau)} hint={t('kpi.rolling7')} />
           <KpiCard label={t('kpi.mau')}  value={fmtNum(kpis.mau)} hint={t('kpi.rolling30')} />
           <KpiCard label={t('kpi.adoption')} value={fmtPct(kpis.adoption)} hint={t('kpi.monthly_api')} />
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard label={t('kpi.loc')}         value={fmtCompact(kpis.loc)}      hint={t('kpi.added_today')} />
           <KpiCard label={t('kpi.cc_sessions')} value={fmtNum(kpis.ccSessions)}   hint={t('kpi.distinct_sess')} />
           <KpiCard label={t('kpi.commits_prs')} value={`${fmtNum(kpis.commits)} / ${fmtNum(kpis.prs)}`} hint={t('kpi.by_cc')} />

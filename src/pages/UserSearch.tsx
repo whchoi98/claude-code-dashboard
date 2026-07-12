@@ -275,7 +275,7 @@ export function UserSearch() {
         reason={`CSV · ${csv.data!.file ?? ''}`}
       />
       <GroupTabs />
-      <div className="p-8 space-y-6">
+      <div className="p-4 lg:p-8 print:p-8 space-y-6">
         {/* ── User selector + range toggle ───────────────────────────── */}
         <div className="rounded-xl border border-ink-100 bg-white p-5">
           <div className="flex flex-wrap items-center gap-3">
@@ -337,13 +337,13 @@ export function UserSearch() {
         {/* ── Overview tab ───────────────────────────────────────────── */}
         {tab === 'overview' && (
           <>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
               <KpiCard accent label={t('user_search.kpi.sessions')}     value={fmtNum(sessionsInWindow)} hint={t('user_search.kpi.sessions.hint')} />
               <KpiCard       label={t('user_search.kpi.messages')}     value={fmtNum(messagesInWindow)} hint={t('user_search.kpi.messages.hint')} />
               <KpiCard       label={t('user_search.kpi.total_tokens')} value={fmtCompact(tokensInWindow)} hint={t('user_search.kpi.total_tokens.hint')} />
               <KpiCard       label={t('user_search.kpi.active_days')}  value={fmtNum(activeDates.length)} hint={t('user_search.kpi.active_days.hint')} />
             </div>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
               <KpiCard label={t('user_search.kpi.current_streak')}    value={`${currentStreak}${t('user_search.kpi.streak_unit')}`} hint={t('user_search.kpi.current_streak.hint')} />
               <KpiCard label={t('user_search.kpi.longest_streak')}    value={`${longestStreak}${t('user_search.kpi.streak_unit')}`} hint={t('user_search.kpi.longest_streak.hint')} />
               <KpiCard label={t('user_search.kpi.peak_dow')}          value={peakDowLabel} hint={t('user_search.kpi.peak_dow.hint')} />
@@ -393,7 +393,7 @@ export function UserSearch() {
               title={t('user_search.cost.title')}
               subtitle={t('user_search.cost.subtitle', { start: effectiveRange.start, end: effectiveRange.end })}
             >
-              <div className="grid grid-cols-4 gap-4 p-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 p-4">
                 <KpiCard accent label={t('user_search.cost.spend')}    value={`$${spendInWindow.toFixed(2)}`} hint={`× ${(ratio * 100).toFixed(1)}%`} />
                 <KpiCard       label={t('user_search.cost.requests')} value={fmtNum(Math.round(requestsInWindow))} hint={t('user_search.cost.requests.hint')} />
                 <KpiCard       label={t('user_search.cost.csv_total_spend')} value={`$${csvTotalSpend.toFixed(2)}`} hint={t('user_search.cost.csv_total_hint')} />
