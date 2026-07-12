@@ -11,6 +11,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-07-12
+
+A new Claude Chat page, per-user cache efficiency everywhere, richer Users columns, a Claude Code per-user table — and the whole dashboard now works on mobile. (Deployed to production 2026-07-12.)
+
+### Added
+
+- **Claude Chat page (new sidebar menu, 19th route).** Period usage & activity for claude.ai conversations: active users, messages (with extended-thinking count), conversations, artifacts, projects created, skill/connector uses and web searches as KPIs, two daily-trend charts (messages × conversations; artifacts/projects/web), and a sortable per-user table. Fully group-scoped like the other surface pages.
+- **Per-user Cache Efficiency.** The user detail panel gains a Cache Efficiency card (hit rate + cache read / cache write / uncached input tiers from `user_usage_report`, same `cache_read ÷ input` convention as the Cost page org KPI), and the Users table gains a sortable **Cache Hit** column — window-aligned with the engagement columns (both end at today−3) so one row never mixes two date regimes.
+- **Users table surface columns.** New **Cowork** (sessions + action sub-count) and **Design** (sessions) columns alongside the existing chat/CC metrics.
+- **Claude Code per-user table.** The Claude Code page gains a sortable per-user activity table (sessions, LOC, commits, PRs, tool-accept rate) below the Top Contributors chart, mirroring the Cowork/Design pattern.
+
+### Changed
+
+- **Mobile support.** Below `lg` the sidebar becomes a slide-in drawer behind a hamburger top bar (backdrop tap / Escape / nav tap all close it; the closed drawer is removed from the tab order and accessibility tree). KPI grids stack to 2-up, chart pairs stack vertically, tables scroll horizontally inside their cards, page padding tightens, and header controls wrap. Verified at 375px across the main pages with zero horizontal overflow.
+
+### Fixed
+
+- **Desktop sidebar floated above the user-detail panel backdrop** (a mobile z-index leaked through — z-index on a flex item creates a stacking context even when static). Now `lg:z-auto`.
+- **PDF export layout survived the responsive sweep** — `lg:` classes don't apply on A4 portrait, so `print:` grid fallbacks keep Save-as-PDF on Cost/Executive/Analyze multi-column.
+- **FloatingChat no longer overlaps the open mobile drawer**, and the chat `get_cost_summary` tool keeps its org-wide contract.
+
+### 추가
+
+- **Claude Chat 페이지 (신규 사이드바 메뉴, 19번째 라우트).** claude.ai 대화의 기간별 사용량·활동: 활성 사용자·메시지(확장 사고 병기)·대화·아티팩트·생성 프로젝트·스킬/커넥터 사용·웹 검색 KPI, 일별 추이 차트 2종(메시지×대화; 아티팩트/프로젝트/웹), 사용자별 정렬 테이블. 다른 표면 페이지처럼 그룹 완전 스코프.
+- **사용자별 캐시 효율.** 사용자 상세 패널에 캐시 효율 카드(적중률 + 캐시 읽기/생성/비캐시 계층, `user_usage_report` 기반 — Cost 페이지 조직 KPI와 동일한 `cache_read ÷ input` 기준) 추가, Users 테이블에 정렬 가능한 **캐시 적중** 컬럼 추가 — 엔게이지먼트 컬럼과 기간 정렬(둘 다 today−3 종료)로 한 행에 두 기간이 섞이지 않음.
+- **Users 테이블 표면 컬럼.** 기존 채팅/CC 지표에 **Cowork**(세션+작업 수)·**Design**(세션) 컬럼 추가.
+- **Claude Code 사용자별 테이블.** 상위 기여자 차트 아래에 Cowork/Design 패턴의 정렬 테이블(세션·LOC·커밋·PR·수락률) 추가.
+
+### 변경
+
+- **모바일 지원.** `lg` 미만에서 사이드바가 햄버거 상단 바 뒤의 슬라이드 드로어로 전환(백드롭 탭/Escape/메뉴 탭으로 닫힘; 닫힌 드로어는 탭 순서·접근성 트리에서 제외). KPI 그리드 2열 스택, 차트 쌍 세로 스택, 테이블은 카드 내 가로 스크롤, 페이지 패딩 축소, 헤더 컨트롤 줄바꿈. 주요 페이지 375px에서 가로 넘침 0 검증.
+
+### 수정
+
+- **데스크톱 사이드바가 사용자 상세 패널 백드롭 위로 부상** (모바일용 z-index 누출 — flex 아이템의 z-index는 static이어도 스태킹 컨텍스트 생성). `lg:z-auto`로 해결.
+- **PDF 내보내기 레이아웃 보존** — `lg:` 클래스는 A4 세로에 적용되지 않으므로 `print:` 그리드 폴백으로 Cost/Executive/Analyze의 다열 인쇄 유지.
+- **FloatingChat이 열린 모바일 드로어와 겹치지 않음**, 챗봇 `get_cost_summary` 도구의 전사 기준 계약 유지.
+
 ## [1.8.0] - 2026-07-12
 
 Group membership goes fully automatic (Compliance members endpoint), the Cost page becomes truly group-scoped, and five performance rounds make every menu open instantly (TTL caches + keep-warm + compression + edge caching). (Deployed to production 2026-07-12.)
