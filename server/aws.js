@@ -1342,9 +1342,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // task next door doesn't help). warmCycle() below also seeds the UI's
   // four preset windows at startup, covering the post-deploy cold start.
   const keepWarm = new Map()   // key → { fetcher, lastAccess }
-  // 12 preset keys are re-tracked each cycle; the rest is headroom for
-  // user-driven keys (scoped groups, custom windows) so a burst of distinct
-  // windows can't evict the presets between cycles.
+  // Preset keys (12 org/window + up to 8 group-scoped '1d') are re-tracked
+  // each cycle; the rest is headroom for user-driven keys (custom windows,
+  // non-default scoped windows) so a burst of distinct windows can't evict
+  // the presets between cycles.
   const KEEP_WARM_CAP = 32
   // 90 min: long enough that anyone actively using the dashboard never sees
   // a cold key, short enough that a once-glanced custom window doesn't burn
@@ -2225,6 +2226,28 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     preset(`user_report:user_cost_report:${s1}:${e1}:`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1 }))
     preset(`user_report:user_usage_report:${s1}:${e1}:`, () => fetchUserReportUncached({ report: 'user_usage_report', starting_date: s1, ending_date: e1 }))
     preset('spend-limits', fetchSpendLimits)
+    // GROUP-SCOPED live for the default window: clicking a group tab fires
+    // /cost/live?rbac_group_id=<id>, and that filter rides the slow
+    // membership backend (~12s cold) — without prewarming, every tab's first
+    // visit (per task, per 90-min idle window) stalled the whole page while
+    // the org view stayed instant. One key per group, default window only
+    // (other windows self-register via cachedWarm once visited); capped so a
+    // group-heavy org can't blow the cycle budget. Deleted groups drop out
+    // via the preset-generation pruning below.
+    try {
+      const groupList = await fetchComplianceGroups()
+      for (const g of groupList.slice(0, 8)) {
+        const key = `cost/live:${s1}:${e1}:${g.id}`
+        preset(key, async () => {
+          const fresh = await fetchCostSummary({ starting_date: s1, ending_date: e1, rbac_group_id: g.id })
+          rememberGroupResult(key, fresh)   // same bookkeeping as the route's fetcher
+          return fresh
+        })
+      }
+      if (groupList.length > 8) console.warn(`[keep-warm] scoped prewarm capped at 8 of ${groupList.length} groups`)
+    } catch (err) {
+      console.warn('[keep-warm] group list unavailable for scoped prewarm:', err?.message || err)
+    }
     for (const [s, e] of presets.slice(1)) {
       preset(`cost/live:${s}:${e}:org`, () => fetchCostSummary({ starting_date: s, ending_date: e }))
       preset(`cost/groups:${s}:${e}`, () => fetchGroupCost(s, e))
@@ -2251,7 +2274,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         failed++
         console.warn(`[keep-warm] refresh failed for ${key}:`, err?.message || err)
       }
-      await new Promise((r) => setTimeout(r, 15_000).unref?.())
+      // 10s (was 15s): the scoped-group keys grew the set to ~17 — this
+      // keeps the full cycle comfortably inside the 8-min interval while
+      // still spreading the paginated fan-out across the cycle.
+      await new Promise((r) => setTimeout(r, 10_000).unref?.())
     }
     // /cost/efficiency joins the (cached) user_cost_report with users/range
     // productivity via index.js's OWN 10-min analytics cache — warm that half
