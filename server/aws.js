@@ -352,14 +352,22 @@ export function userUsageToUsers(data) {
     const u = byEmail.get(email) ?? {
       email, user_id: r?.actor?.user_id || null, name: r?.actor?.name || null,
       input_tokens: 0, output_tokens: 0, total_tokens: 0, requests: 0,
+      uncached_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0,
     }
     u.input_tokens += input
     u.output_tokens += r?.output_tokens ?? 0
     u.total_tokens = u.input_tokens + u.output_tokens
     u.requests += Number(r?.requests || 0)
+    // Per-user token tiers (drives the user-detail Cache Efficiency card).
+    u.uncached_tokens += r?.uncached_input_tokens ?? 0
+    u.cache_read_tokens += r?.cache_read_input_tokens ?? 0
+    u.cache_creation_tokens += (cc.ephemeral_1h_input_tokens ?? 0) + (cc.ephemeral_5m_input_tokens ?? 0)
     byEmail.set(email, u)
   }
-  return [...byEmail.values()].sort((a, b) => b.total_tokens - a.total_tokens)
+  return [...byEmail.values()]
+    // Same convention as the org-wide token_tiers KPI: cache_read ÷ total input.
+    .map((u) => ({ ...u, cache_hit_rate: u.input_tokens > 0 ? Number((u.cache_read_tokens / u.input_tokens).toFixed(4)) : null }))
+    .sort((a, b) => b.total_tokens - a.total_tokens)
 }
 
 // Map spend_limits/effective `data[]` (Spend Limits API, new 2026-07) to

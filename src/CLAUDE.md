@@ -12,7 +12,7 @@ src/
 │   ├── Layout.tsx        # h-screen flex wrapper (sidebar pinned, main scrolls in its own pane); NAV array, language toggle, health badges, version badge → /changelog, static AWS run-rate label
 │   ├── ClaudeIcon.tsx    # animated asterisk mark
 │   ├── KpiCard.tsx · ChartCard.tsx · PageHeader.tsx · LoadingState.tsx
-│   ├── UserDetailPanel.tsx   # right-side slide-in drill-down; follows the page date range (range prop from Users/UserProductivity), adds per-product AND per-model spend cards (+prev-period Δ on products) and skills cards (org top skills $/use — the API has no user×skill dimension); org-wide cost/skills fetches dedupe per session via module-level panelFetchCache
+│   ├── UserDetailPanel.tsx   # right-side slide-in drill-down; follows the page date range (range prop from Users/UserProductivity), adds per-product AND per-model spend cards (+prev-period Δ on products), a Cache Efficiency card (per-user hit rate + read/write/uncached tiers from /api/cost/user-tokens — same cache_read÷input convention as the Cost page org KPI) and skills cards (org top skills $/use — the API has no user×skill dimension); org-wide cost/skills fetches dedupe per session via module-level panelFetchCache
 │   ├── DateRangeControl.tsx  # 7d/14d/30d/custom popover (maxEnd = today; footnote explains the Analytics 3-day partial-count buffer)
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
 │   ├── GroupTabs.tsx         # per-page group scope tabs (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope. Replaced the former sidebar GroupControl (removed 2026-07) — rendered right after PageHeader on the 10 group-aware pages

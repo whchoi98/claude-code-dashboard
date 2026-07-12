@@ -38,6 +38,17 @@ const bU = users.find((u) => u.email === 'b@x.com')
 ok('missing cache tiers treated as 0', bU.input_tokens === 60 && bU.output_tokens === 5)
 ok('sorted by total_tokens desc', users[0].email === 'a@x.com')
 ok('empty / non-array → []', userUsageToUsers(null).length === 0 && userUsageToUsers([]).length === 0)
+// Per-user token tiers + cache hit rate (drives the user-detail Cache
+// Efficiency card; same convention as the org token_tiers KPI).
+ok('token tiers accumulate per email',
+   a.uncached_tokens === 81265631 + 100 &&
+   a.cache_read_tokens === 6933208704 &&
+   a.cache_creation_tokens === 185569768 + 70423441)
+ok('cache_hit_rate = cache_read / input_total',
+   a.cache_hit_rate === Number((6933208704 / a.input_tokens).toFixed(4)) &&
+   bU.cache_hit_rate === Number((20 / 60).toFixed(4)))
+ok('cache_hit_rate null when no input tokens',
+   userUsageToUsers([{ actor: { email: 'z@x.com' }, output_tokens: 5, requests: 1 }])[0].cache_hit_rate === null)
 
 // ── spendLimitsToMembers ───────────────────────────────────────────────────
 // amount / period_to_date_spend are decimal strings in MINOR units (cents) —

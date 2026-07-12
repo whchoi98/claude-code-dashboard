@@ -16,6 +16,21 @@ type CostUsersResp = {
   period?: { starting_date: string; ending_date: string }
   users: { email: string; net_spend_usd: number; requests: number; by_product?: ProductRow[]; by_model?: ModelRow[] }[]
 }
+// /api/cost/user-tokens (user_usage_report) — per-user token tiers; the
+// server computes cache_hit_rate as cache_read ÷ total input, the same
+// convention as the Cost page's org-wide cache-hit KPI.
+type UserTokensResp = {
+  users: {
+    email: string
+    input_tokens: number
+    output_tokens: number
+    requests: number
+    uncached_tokens?: number
+    cache_read_tokens?: number
+    cache_creation_tokens?: number
+    cache_hit_rate?: number | null
+  }[]
+}
 type SkillRow = {
   skill_name: string
   skill_display_name?: string
@@ -76,6 +91,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
   const [costPrev, setCostPrev] = useState<CostUsersResp | 'failed' | null>(null)
   const [skills, setSkills] = useState<SkillsRangeResp | null>(null)
   const [costModels, setCostModels] = useState<CostUsersResp | null>(null)
+  const [userTokens, setUserTokens] = useState<UserTokensResp | null>(null)
   const [costLoading, setCostLoading] = useState(false)
 
   useEffect(() => {
@@ -106,7 +122,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     if (!email || !pageRange) return
     // Reset so a window/user switch never shows the previous window's cards
     // under the new header while the refetch is in flight.
-    setCostCur(null); setCostPrev(null); setSkills(null); setCostModels(null)
+    setCostCur(null); setCostPrev(null); setSkills(null); setCostModels(null); setUserTokens(null)
     // The upstream cost family caps spans at 31 days — a longer custom window
     // would 400 on both calls; hide the card instead (the Cost page/CSV covers
     // >31-day analysis). Skills range is server-clamped, so it still runs.
@@ -120,12 +136,14 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`) : Promise.reject(new Error('window > 31d')),
       cachedGet(`/api/analytics/skills/range?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`),
       costOk ? cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
-    ]).then(([cur, prev, sk, models]) => {
+      costOk ? cachedGet(`/api/cost/user-tokens?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
+    ]).then(([cur, prev, sk, models, tokens]) => {
       if (aborted) return
       setCostCur(cur.status === 'fulfilled' ? cur.value : null)
       setCostPrev(prev.status === 'fulfilled' ? prev.value : 'failed')
       setSkills(sk.status === 'fulfilled' ? sk.value : null)
       setCostModels(models.status === 'fulfilled' ? models.value : null)
+      setUserTokens(tokens.status === 'fulfilled' ? tokens.value : null)
       setCostLoading(false)
     })
     return () => { aborted = true }
@@ -234,6 +252,22 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       share: total > 0 ? m.spend_usd / total : 0,
     }))
   }, [email, costModels])
+
+  // Per-user cache efficiency over the page window (user_usage_report token
+  // tiers). Hidden when the user has no input tokens in the window — a
+  // hit-rate over zero input is meaningless, not zero.
+  const cacheStats = useMemo(() => {
+    if (!email) return null
+    const u = userTokens?.users?.find((x) => x.email === email)
+    if (!u || !(u.input_tokens > 0)) return null
+    return {
+      hitRate: u.cache_hit_rate ?? null,
+      cacheRead: u.cache_read_tokens ?? 0,
+      cacheCreation: u.cache_creation_tokens ?? 0,
+      uncached: u.uncached_tokens ?? 0,
+      input: u.input_tokens,
+    }
+  }, [email, userTokens])
 
   // Org-wide per-skill uses + attributed cost over the window — the Analytics
   // API has no user × skill dimension (see the card caveat). Amounts follow
@@ -454,6 +488,27 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Cache efficiency — per-user token tiers (user_usage_report) */}
+                {!costLoading && cacheStats && (
+                  <div className="rounded-xl border border-ink-100 bg-white p-4">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">{t('detail.cache.title')}</div>
+                      {pageRange && (
+                        <div className="text-[11px] text-ink-400">
+                          {fmtDate(pageRange.startingDate)} – {fmtDate(pageRange.endingDate)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-sm">
+                      <Tile label={t('detail.cache.hit_rate')} value={cacheStats.hitRate != null ? fmtPct(cacheStats.hitRate) : '—'} accent />
+                      <Tile label={t('detail.cache.read')}     value={fmtCompact(cacheStats.cacheRead)} />
+                      <Tile label={t('detail.cache.creation')} value={fmtCompact(cacheStats.cacheCreation)} />
+                      <Tile label={t('detail.cache.uncached')} value={fmtCompact(cacheStats.uncached)} />
+                    </div>
+                    <div className="mt-2 text-[10px] text-ink-400">{t('detail.cache.hint')}</div>
                   </div>
                 )}
 
