@@ -620,6 +620,17 @@ export function Cost() {
             the per-user tables below ARE group-filtered and a printout must
             say so. Self-hides when no group is selected. */}
         <GroupScopeNote variant={groupScoped ? 'scoped' : 'partial'} />
+        {/* Upstream cost attribution rides a slow membership SNAPSHOT — a
+            newly created group (or fresh member moves) keeps attributing to
+            the users' prior groups for up to ~a day (verified live
+            2026-07-12: 14h-old moves still attributed to the old groups
+            while data_refreshed_at was current). Say so instead of showing a
+            silent $0 wall. */}
+        {groupScoped && data.totals.net_spend_usd === 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800">
+            {t('cost.scope.zero_attribution', { group: group === UNMAPPED ? t('group.unmapped') : group })}
+          </div>
+        )}
         {group && (usersByModel.data?.users?.length ?? 0) > 0 && liveUserRows === null && (
           <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500">
             {t('group.scoped_empty', { group: group === UNMAPPED ? t('group.unmapped') : group })}
