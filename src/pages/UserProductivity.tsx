@@ -173,7 +173,7 @@ export function UserProductivity() {
                 <XAxis type="number" domain={[0, 100]} />
                 <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v: number, n: string) => n === 'score' ? `${v}/100` : fmtNum(v)} />
-                <Bar dataKey="score" fill="#D97757" radius={[0, 4, 4, 0]} name="Productivity" />
+                <Bar dataKey="score" fill="#D97757" radius={[0, 4, 4, 0]} name={t('user_prod.metric.score')} />
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -234,7 +234,9 @@ export function UserProductivity() {
         <div className="rounded-xl border border-ink-100 bg-paper-muted/40 px-5 py-3 text-[11px] text-ink-500 leading-relaxed">
           <b className="text-ink-700">{t('user_prod.score_formula')}</b>
           <br />
-          Score = 30% · (LOC/day ÷ 200) + 25% · Tool Acceptance + 20% · (Commits/day ÷ 1.5) + 15% · (Active-day share ÷ 0.4) + 10% · (Sessions/day ÷ 3). Each component capped at 100%.
+          {t('user_prod.score_formula.body')}
+          <br />
+          <span className="text-ink-400">{t('user_prod.score_note')}</span>
         </div>
       </div>
 

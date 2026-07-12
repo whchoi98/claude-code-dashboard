@@ -1161,9 +1161,9 @@ function EconomicProductivitySection({ data, t, range, scoped = false }: {
           <ResponsiveContainer width="100%" height={320}>
             <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 24 }}>
               <CartesianGrid strokeDasharray="2 4" />
-              <XAxis type="number" dataKey="x" name="Spend" unit="$" tickFormatter={(v: number) => `$${v}`} />
-              <YAxis type="number" dataKey="y" name="Output" tickFormatter={(v: number) => fmtCompact(v)} />
-              <ZAxis type="number" dataKey="z" range={[40, 400]} name="Score" />
+              <XAxis type="number" dataKey="x" name={t('econ.axis.spend')} unit="$" tickFormatter={(v: number) => `$${v}`} />
+              <YAxis type="number" dataKey="y" name={t('econ.axis.output')} tickFormatter={(v: number) => fmtCompact(v)} />
+              <ZAxis type="number" dataKey="z" range={[40, 400]} name={t('econ.axis.score')} />
               <Tooltip
                 cursor={{ strokeDasharray: '3 3' }}
                 content={({ active, payload }: any) => {
