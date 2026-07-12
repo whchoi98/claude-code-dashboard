@@ -16,7 +16,7 @@ src/
 │   ├── DateRangeControl.tsx  # 7d/14d/30d/custom popover (maxEnd = today; footnote explains the Analytics 3-day partial-count buffer)
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
 │   ├── GroupTabs.tsx         # per-page group scope tabs (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope. Replaced the former sidebar GroupControl (removed 2026-07) — rendered right after PageHeader on the 10 group-aware pages
-│   ├── GroupScopeNote.tsx    # amber group-scope banner; self-hides when no group selected. Default = "not applied — org-wide data" (note-only org pages); variant="partial" = "per-user parts scoped, org aggregates stay org-wide" (Cowork · Cost · Agentic)
+│   ├── GroupScopeNote.tsx    # group-scope banner; self-hides when no group selected. Amber default = "not applied — org-wide data" (note-only org pages); amber variant="partial" = "per-user parts scoped, org aggregates stay org-wide" (Cowork · Agentic, and Cost in CSV/UNMAPPED mode); neutral variant="scoped" = Cost in live mode with a group id (org KPIs genuinely filtered upstream; explains any-membership/usage-time attribution)
 │   ├── SortableTh.tsx        # ▲/▼ header cell — pairs with useSortable; click to sort, click again to flip
 │   ├── Markdown.tsx      # react-markdown@10 + remark-gfm for AI output
 │   └── chat/             # tool-use chatbot UI (shared by Analyze page + FloatingChat)
@@ -24,12 +24,12 @@ src/
 │       ├── MessageList.tsx   # message bubbles, typing dots, tool-call badges (running/done/error), markdown rendering
 │       ├── ChatComposer.tsx  # textarea + Send / Stop buttons; Enter to send, Shift-Enter for newline
 │       └── FloatingChat.tsx  # fixed-position launcher button + modal panel; mounted globally in Layout.tsx
-├── pages/                # one file per route — 19 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained; Agentic.tsx = actions-per-prompt delegation metrics + org spend context)
+├── pages/                # one file per route — 19 total (Analyze.tsx rebuilt as a chatbot page around ChatPanel; MD/PDF export toolbar retained; Agentic.tsx = actions-per-prompt delegation metrics + org spend context; ClaudeChat.tsx = claude.ai conversation usage/activity — 8 KPIs, 2 daily charts, sortable per-user table; UserProductivity's score is the ACTIVITY score (cost not a factor, cross-referenced to Cost's cost-efficiency score))
 ├── lib/
 │   ├── i18n.tsx          # en/ko toggle + dictionary
 │   ├── useDateRange.ts   # URL-synced state (?range=7d|14d|30d|custom, ?start=, ?end=). Default preset = 7d. maxEnd = today (UTC).
 │   ├── GroupScopeProvider.tsx # fetches the email→group map (/api/groups) ONCE, shares it via context; wraps <Routes> in App.tsx. Any non-'empty' source lights up the per-page GroupTabs: 'live' (admin CSV) · 'members' (real RBAC membership via the Compliance members endpoint) · 'auto' (spend-derived fallback from user_cost_report×rbac_group_id)
-│   ├── useGroupScope.ts  # reads GroupScopeProvider context + ?group= URL state → { group, setGroup, groups, hasMap, loading, inGroup, refetch }. inGroup(email): ''→all · UNMAPPED→not-in-map · else map[email_lower]===group
+│   ├── useGroupScope.ts  # reads GroupScopeProvider context + ?group= URL state → { group, groupId, setGroup, groups, hasMap, loading, inGroup, refetch }. inGroup(email): ''→all · UNMAPPED→not-in-map · else map[email_lower].includes(group). groupId = rbac_group_id of the selected group (members/auto sources; null on CSV/UNMAPPED) — pages pass it to cost endpoints for the upstream rbac_group_ids[] filter
 │   ├── api.ts            # useFetch<T>(url) — single-URL fetch, exposes refetch + source/reason from response
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types
 │   ├── useHealth.ts

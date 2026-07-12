@@ -265,9 +265,9 @@ score = 0.35 · N(output_per_dollar)           ← output_score ÷ spend_usd
 - `N(x)` = 조직 내 최대값 대비 정규화 후 [0,1] 클램프.
 - 단위 비용 지표도 함께 계산: `cost_per_LOC`, `cost_per_commit`, `cost_per_PR`, `cost_per_session`, `output_per_dollar`, `tokens_per_LOC`.
 
-### 4.5 User Productivity Score (Analytics only — `src/pages/UserProductivity.tsx`)
+### 4.5 User Activity Score (Analytics only — `src/pages/UserProductivity.tsx`)
 
-CSV 없이 Analytics 데이터만으로 계산 (기간 기반):
+UI 표기: **"활동 점수(Activity Score)"** (2026-07-12 개칭 — §4.4 경제 생산성 점수와의 혼동 방지; 화면에 "(비용 미반영)"과 비용 메뉴 상호 참조 명시). CSV 없이 Analytics 데이터만으로 계산 (기간 기반):
 
 ```
 score = 0.30 · N(LOC_added_per_day / 200)
@@ -335,6 +335,16 @@ cost_per_use = sum(attributed_list_price)/100 / sum(invocation_count)   # 기간
 - 14일 요청 중 14일이 S3 archive에서 즉시 응답.
 - `live_calls`가 크면 아카이브가 최신이 아니라는 신호 → Collector 재실행 권장.
 
+### 4.13 사용자별 Cache Hit Rate (`/api/cost/user-tokens` — user_usage_report)
+
+```
+cache_hit_rate = cache_read_input_tokens / (uncached + cache_read + cache_creation_1h + cache_creation_5m)
+```
+
+- 서버(`userUsageToUsers`)가 사용자별 토큰 계층(`uncached_tokens`, `cache_read_tokens`, `cache_creation_tokens`)과 함께 산출. 입력 토큰 0이면 `null`.
+- Cost 페이지의 조직 `token_tiers.cache_hit_rate`와 동일 기준(분모 = 전체 입력)이라 조직↔사용자 비교 가능.
+- 표시 위치: 사용자 상세 패널 "캐시 효율" 카드(적중률 + 계층 타일), Users 테이블 "캐시 적중" 컬럼(엔게이지먼트 컬럼과 동일하게 today−3 종료로 기간 정렬; 31일 초과 창은 '—').
+
 ---
 
 ## 5. 대시보드 페이지별 매핑
@@ -344,10 +354,11 @@ cost_per_use = sum(attributed_list_price)/100 / sum(invocation_count)   # 기간
 | 페이지 | 1차 소스 | 표시 지표 |
 |---|---|---|
 | **Overview** | Analytics `/summaries` + `/users` | DAU/WAU/MAU, adoption_rate, 총 LOC, CC 세션, 커밋/PR, 도구 수락률 |
-| **Users** | Analytics `/users` | 사용자별 메시지/세션/LOC/커밋/PR/수락률, 행 클릭 시 7일 Drill-down |
-| **User Productivity** | Analytics `/users/range` | User Productivity Score (§4.5), 기간별 랭킹 |
+| **Users** | Analytics `/users/range` + `/api/cost/user-tokens` | 사용자별 메시지/세션/LOC/커밋/PR/Cowork(세션·작업)/Design(세션)/수락률/캐시 적중(§4.13), 행 클릭 시 기간 Drill-down(제품·모델 지출, 스킬, 캐시 효율 카드) |
+| **User Productivity** | Analytics `/users/range` | 활동 점수 (§4.5, 비용 미반영), 기간별 랭킹 |
+| **Claude Chat** | Analytics `/users/range` (`chat_metrics`) | 활성 사용자·메시지(확장 사고)·대화·아티팩트·프로젝트·스킬/커넥터 사용·웹 검색, 일별 추이 2종, 사용자별 테이블 |
 | **Trends** | Analytics `/summaries` | DAU/WAU/MAU 라인, seat vs MAU, daily adoption_rate |
-| **Claude Code** | Analytics `/users` | LOC/commits/PRs 총합, 도구별 수락 스택, 수락률 radial, Top contributors |
+| **Claude Code** | Analytics `/users` | LOC/commits/PRs 총합, 도구별 수락 스택, 수락률 radial, Top contributors + 사용자별 정렬 테이블(세션·LOC·커밋·PR·수락률) |
 | **Productivity** | Analytics `/users/range` | Organization Productivity Score (§4.3), LOC/commits/PRs/수락률 시계열 |
 | **Adoption** | Analytics `/skills` + `/connectors` + `/apps/chat/projects` | 스킬/커넥터별 사용자, Top 프로젝트 메시지 수 |
 | **Cost** | Analytics `cost_report`+`usage_report`(헤드라인) · `user_cost_report`(사용자별 지출·모델별) · `user_usage_report`(사용자별 토큰) · `cost_report×rbac_group_id`(그룹별) · Spend Limits API(월 한도/누적) · CSV는 31일 초과·장애 폴백 · `/users/range`(효율 조인) | Total spend, 모델별 점유(pie), product × model 스택, **그룹별 비용(실명)**, Top 10 (total/input/output/spend — 선택 기간 라이브), **Spend Limits 소진율**, **경제 생산성 점수** (§4.4) |

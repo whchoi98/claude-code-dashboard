@@ -11,6 +11,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Activity Score vs Cost-Efficiency Score disambiguation.** The User Productivity score column is now labeled "Activity Score" with an explicit "(cost is not a factor)" formula note and a cross-reference to the Cost menu's Cost Efficiency section; the Cost Efficiency subtitle states it is intentionally different from the Activity Score. Four hardcoded English chart/formula strings were moved into en/ko i18n.
+
+### 변경
+
+- **활동 점수와 비용 효율 점수 구분 명확화.** 사용자별 생산성의 점수 컬럼을 "활동 점수"로 표기하고 공식에 "(비용 미반영)"과 비용 메뉴 상호 참조를 명시; 비용 효율 부제에 활동 점수와 의도적으로 다른 지표임을 명시. 하드코딩된 영어 차트/공식 문자열 4건을 en/ko i18n으로 전환.
+
 ## [1.9.0] - 2026-07-12
 
 A new Claude Chat page, per-user cache efficiency everywhere, richer Users columns, a Claude Code per-user table — and the whole dashboard now works on mobile. (Deployed to production 2026-07-12.)
@@ -644,7 +654,9 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0
 
@@ -921,6 +933,8 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
 [0.1.0]: https://github.com/whchoi98/claude-code-dashboard/releases/tag/v0.1.0

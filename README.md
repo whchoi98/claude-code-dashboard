@@ -160,7 +160,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **18 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history).
+- **19 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down incl. per-user cache hit rate + Cowork/Design columns) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code (incl. per-user table) · **Claude Chat** (conversation usage & activity) · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, group-scoped org KPIs, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history). Mobile-ready: hamburger drawer navigation + responsive layouts below `lg`.
 - **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
@@ -238,7 +238,7 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # Shared UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 18 routes (incl. Executive, Agentic + Changelog)
+│   ├── pages/              # 19 routes (incl. Executive, Agentic, Claude Chat + Changelog)
 │   ├── lib/                # i18n, useFetch, useDateRange, formatting
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations
