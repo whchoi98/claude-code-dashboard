@@ -11,15 +11,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-07-12
+
+Group membership goes fully automatic (Compliance members endpoint), the Cost page becomes truly group-scoped, and five performance rounds make every menu open instantly (TTL caches + keep-warm + compression + edge caching). (Deployed to production 2026-07-12.)
 
 ### Added
 
+- **Automatic group membership from the Compliance members endpoint (ADR-0014).** `/api/groups` now serves REAL point-in-time RBAC membership via `GET /v1/compliance/groups/{id}/members` — a group created in the Console (and every member move) appears in the GroupTabs within an hour, with zero admin action. Source chain: admin CSV (`live`, intent override) > real membership (`members`) > spend-derived (`auto`) > freshest last-good (`stale: true`) > `empty`. Guard rails: page-cap exhaustion throws instead of silently truncating, per-group fetches are all-or-nothing with a 5-min failure cooldown + chunked fan-out, the map cache expires with the listing it was built from, an authoritative zero-group listing is persisted so outages can't resurrect deleted groups, and the two membership last-good keys are eviction-immune.
+- **Group-scoped Cost page.** Selecting a group tab now scopes the org-level cost KPIs, daily trend and product/model charts to that group via the documented `rbac_group_ids[]` filter on `cost_report`/`usage_report` (verified: filtered totals equal the grouped-by slice exactly) — ending the v1.7.0 "partial scope" caveat in live mode. The client only trusts a scope the server echoes back (rolling-deploy skew protection); a scoped-empty result no longer falls back to the org-wide CSV; scoped upstream failures get a per-(window, group) last-good, a 503 `rbac_scope_unavailable`, and a dedicated recovery panel instead of the CSV-upload empty state. Per-dev KPI and the Economic Productivity $/LOC · $/Commit averages recompute for the scoped cohort; a neutral scope note explains the any-membership / as-of-usage-time attribution. CSV-mapping and Unmapped scopes keep the partial behavior.
 - **Per-user spend by model.** The user detail panel (Users / User Productivity) gains a "Spend by model" card — the selected user's live `user_cost_report × model` spend, share and requests over the page window. The User Search model tab's bar chart now plots **live per-model spend** (falling back to CSV-period spend), so every model the user ran appears — including post-CSV releases like Fable 5 — and the CSV token rows show their spend.
+
+### Performance
+
+- **Cost routes ride a 10-min success TTL cache** (`makeTtlCache`: stale-while-revalidate, `stale: true`-marked degraded serves, 6×TTL max-age foreground fallback, in-flight dedup, 45s per-page upstream timeouts) — `/cost/live`, `/cost/groups`, `/cost/spend-limits` and the whole `fetchUserReport` family. The rbac dimension runs 12–30s upstream; warm hits are ~1 ms.
+- **Keep-warm loops keep every Fargate task hot**: an 8-min cost cycle re-registers the UI's preset windows AND every group's default-window scoped key (tab clicks are instant; deleted groups drop out automatically), start-jittered to de-phase the tasks and paced (10s inter-key sleeps, `topUp` skips fresh entries) against the shared 60 rpm org budget; a 5-min analytics cycle warms the engagement endpoints every menu boots on (`users/range` powers 11 pages — day-granular, so one 30d warm covers every preset sub-range) plus `summaries` 7/14/30d and the `/cost/efficiency` join.
+- **Transfer layer**: gzip compression middleware (SPA bundle 1.12 MB → ~324 KB, API JSON ~95% smaller; the SSE chat stream is exempt via `no-transform`) and a dedicated CloudFront `/assets/*` behavior (CACHING_OPTIMIZED + brotli — content-hashed filenames, Cognito check-auth still runs on every request). CloudFront origin readTimeout 30 → 60s so a genuinely cold 30-day group window can finish.
+- **Client stale-while-revalidate**: a same-scope refetch (range change / manual refetch) keeps rendering the last settled data under a "Refreshing latest data…" pulse instead of a full-page loading veil; scope changes keep the veil so another group's numbers never render under the wrong tab.
+
+### Fixed
+
+- **Alias domains lost their TLS certificate after an infra deploy** (`ERR_CERT_COMMON_NAME_INVALID` on `c4e.whchoi.net`). The CloudFront alternate domain names and the `*.whchoi.net` ACM certificate had been added in the console only; the first deploy that touched the distribution reverted them. Both are now declared in the CDK source (`domainNames` + `certificate`), so deploys can no longer strip them.
+- **Chat `get_cost_summary` tool input is allowlisted** — the model-controlled tool arguments can no longer reach the new `rbac_group_ids[]` filter; the tool stays unconditionally org-wide as its spec promises.
 
 ### 추가
 
+- **Compliance members 엔드포인트 기반 그룹 멤버십 자동화 (ADR-0014).** `/api/groups`가 `GET /v1/compliance/groups/{id}/members`의 **실제 현재 시점 RBAC 멤버십**을 서빙 — 콘솔에서 그룹을 만들거나 멤버를 이동하면 관리자 조치 없이 1시간 내 GroupTabs에 반영. 소스 체인: 관리자 CSV(`live`, 의도 오버라이드) > 실제 멤버십(`members`) > 지출 파생(`auto`) > 더 신선한 last-good(`stale: true`) > `empty`. 가드레일: 페이지 캡 도달 시 무경고 절단 대신 throw, 그룹별 조회는 all-or-nothing + 실패 5분 쿨다운 + 청크 fan-out, 맵 캐시는 기반 리스팅 시각으로 만료, 그룹 0개의 확정 관측을 지속화해 장애 중 삭제 그룹 부활 차단, 멤버십 last-good 키 2종은 축출 면제.
+- **비용 페이지 그룹 스코프.** 그룹 탭 선택 시 조직 레벨 비용 KPI·일별 추이·제품/모델 차트가 문서화된 `rbac_group_ids[]` 필터로 해당 그룹 기준으로 전환(검증: 필터 합계 = grouped-by 슬라이스 정확 일치) — v1.7.0의 "부분 스코프" 제약을 라이브 모드에서 해소. 서버가 적용 그룹 id를 echo한 경우에만 스코프로 신뢰(롤링 배포 스큐 보호); 스코프 빈 결과는 전사 CSV로 폴백하지 않음; 스코프 업스트림 실패는 (기간,그룹)별 last-good + 503 `rbac_scope_unavailable` + 전용 복구 패널로 처리. per-dev KPI와 경제 생산성 $/LOC·$/Commit 평균은 스코프 코호트로 재계산; any-membership·사용 시점 귀속을 중립 톤 안내문으로 설명. CSV 매핑·Unmapped 스코프는 기존 partial 동작 유지.
 - **사용자별 모델 지출.** 사용자 상세 패널(Users/사용자별 생산성)에 "모델별 지출" 카드 추가 — 선택 사용자의 페이지 기간 라이브 `user_cost_report × model` 지출·점유율·요청수. 사용자 검색 모델 탭의 막대그래프는 **라이브 모델별 지출** 기준으로 전환(라이브 불가 시 CSV 기간 지출 폴백)해 Fable 5처럼 CSV 이후 출시된 모델까지 사용자가 쓴 모든 모델이 표시되며, CSV 토큰 행에도 지출을 병기.
+
+### 성능
+
+- **비용 라우트 10분 TTL 캐시** (`makeTtlCache`: stale-while-revalidate, 열화 서빙 `stale: true` 마킹, 6×TTL 초과 시 포그라운드 폴백, in-flight dedup, 페이지당 45초 업스트림 타임아웃) — `/cost/live`·`/cost/groups`·`/cost/spend-limits`·`fetchUserReport` 계열 전체. rbac 차원은 업스트림에서 12–30초; 웜 응답은 ~1ms.
+- **keep-warm 루프로 전 Fargate 태스크 상시 웜**: 8분 비용 사이클이 UI 프리셋 창과 **모든 그룹의 기본 창 스코프 키**를 재등록(그룹 탭 즉시 응답, 삭제 그룹 자동 탈락)하고 시작 지터로 태스크 위상을 분리, 키 간 10초 간격 + `topUp`으로 공유 60rpm 예산을 페이싱; 5분 analytics 사이클이 전 메뉴 공통 엔게이지먼트 엔드포인트(`users/range`=11페이지, 일 단위 캐시라 30d 1회로 전 프리셋 커버)와 `summaries` 7/14/30d, `/cost/efficiency` 조인을 워밍.
+- **전송 계층**: gzip 압축 미들웨어(SPA 번들 1.12MB → ~324KB, API JSON ~95% 감소; SSE 챗 스트림은 `no-transform`으로 제외) + CloudFront `/assets/*` 전용 동작(CACHING_OPTIMIZED + brotli — 콘텐츠 해시 파일명, Cognito check-auth는 매 요청 유지). CloudFront origin readTimeout 30→60초로 콜드 30일 그룹 창 완주 허용.
+- **클라이언트 stale-while-revalidate**: 동일 스코프 재조회(기간 변경·수동 refetch)는 전체 로딩 화면 대신 이전 정착 데이터 + "최신 데이터 갱신 중…" 표시로 처리; 스코프 변경은 로딩 유지(다른 그룹 수치가 잘못된 탭 아래 렌더되지 않도록).
+
+### 수정
+
+- **인프라 배포 후 별칭 도메인 TLS 인증서 소실** (`c4e.whchoi.net`에서 `ERR_CERT_COMMON_NAME_INVALID`). CloudFront 대체 도메인과 `*.whchoi.net` ACM 인증서가 콘솔에서만 추가돼 있어, 배포판을 건드린 첫 배포가 이를 원복. 이제 CDK 소스에 `domainNames` + `certificate`로 선언되어 배포가 지울 수 없음.
+- **챗봇 `get_cost_summary` 도구 입력 allowlist** — 모델이 제어하는 도구 인자가 신규 `rbac_group_ids[]` 필터에 도달할 수 없게 차단; 도구 스펙대로 항상 전사 기준 유지.
 
 ## [1.7.0] - 2026-07-08
 
