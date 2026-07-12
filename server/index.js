@@ -1,4 +1,5 @@
 import express from 'express'
+import compression from 'compression'
 import dotenv from 'dotenv'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,6 +53,12 @@ async function readUsersFromS3(date) {
 const keyClass = (key) =>
   !key ? 'none' : key.startsWith('sk-ant-admin') ? 'admin' : key.startsWith('sk-ant-api') ? 'analytics' : 'unknown'
 
+// Compress everything compressible (API JSON + the ~1.1 MB SPA bundle →
+// ~324 KB): CloudFront can't do it for us — its compression rides the cache
+// policy, and every dynamic behavior here runs CACHING_DISABLED. The SSE
+// chat stream is safe: it sets Cache-Control no-transform, which this
+// middleware honors (no buffering of the event stream).
+app.use(compression())
 app.use(express.json())
 
 // Simple in-memory cache: key → { t, data }.

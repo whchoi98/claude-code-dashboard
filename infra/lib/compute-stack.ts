@@ -305,6 +305,13 @@ export class ComputeStack extends cdk.Stack {
         '/parseauth':   { ...baseBehavior, ...asVR(parseAuth) },
         '/refreshauth': { ...baseBehavior, ...asVR(refreshAuth) },
         '/signout':     { ...baseBehavior, ...asVR(signOut) },
+        // Vite assets are content-hashed (index-<hash>.js) — edge-cache them
+        // (CACHING_OPTIMIZED also enables gzip/brotli, which the
+        // CACHING_DISABLED policy on the dynamic behaviors cannot do). The
+        // check-auth viewer function still runs on every request, so caching
+        // does not bypass Cognito. A deploy mints new hashes = new URLs, so
+        // stale-asset invalidation is never needed for this path.
+        '/assets/*':    { ...baseBehavior, ...asVR(checkAuth), cachePolicy: cf.CachePolicy.CACHING_OPTIMIZED },
       },
       // Alias domains + the us-east-1 *.whchoi.net ACM cert MUST live here in
       // CDK: they were originally added in the console, and the 2026-07-12

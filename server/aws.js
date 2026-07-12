@@ -2253,6 +2253,18 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       }
       await new Promise((r) => setTimeout(r, 15_000).unref?.())
     }
+    // /cost/efficiency joins the (cached) user_cost_report with users/range
+    // productivity via index.js's OWN 10-min analytics cache — warm that half
+    // through the route itself (same self-fetch pattern as the compliance
+    // prewarm) so the default window stays end-to-end warm.
+    try {
+      await fetch(
+        `http://127.0.0.1:${Number(process.env.PORT) || 5174}/api/cost/efficiency?starting_date=${s1}&ending_date=${e1}`,
+        { signal: AbortSignal.timeout(60_000) },
+      )
+    } catch (err) {
+      console.warn('[keep-warm] efficiency self-warm failed:', err?.message || err)
+    }
     console.log(`[keep-warm] ${ok} refreshed, ${skipped} fresh-skipped, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
   }
   if (process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY) {
