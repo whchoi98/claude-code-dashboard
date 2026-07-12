@@ -3,6 +3,7 @@ import { Construct } from 'constructs'
 import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as ecs from 'aws-cdk-lib/aws-ecs'
 import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets'
+import * as acm from 'aws-cdk-lib/aws-certificatemanager'
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2'
 import * as cf from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
@@ -305,6 +306,17 @@ export class ComputeStack extends cdk.Stack {
         '/refreshauth': { ...baseBehavior, ...asVR(refreshAuth) },
         '/signout':     { ...baseBehavior, ...asVR(signOut) },
       },
+      // Alias domains + the us-east-1 *.whchoi.net ACM cert MUST live here in
+      // CDK: they were originally added in the console, and the 2026-07-12
+      // readTimeout deploy's CloudFormation update silently stripped them
+      // (ERR_CERT_COMMON_NAME_INVALID on c4e.whchoi.net). Everything CFN
+      // manages must be declared in the template, or the next deploy reverts
+      // it — same trap as the Cognito callback URLs noted in infra/CLAUDE.md.
+      domainNames: ['ccdashboard.whchoi.net', 'c4e.whchoi.net'],
+      certificate: acm.Certificate.fromCertificateArn(
+        this, 'AliasCert',
+        'arn:aws:acm:us-east-1:061525506239:certificate/7d53182a-2a2a-4225-a319-4f94030561b7',
+      ),
       minimumProtocolVersion: cf.SecurityPolicyProtocol.TLS_V1_2_2021,
       httpVersion: cf.HttpVersion.HTTP2_AND_3,
       comment: 'Claude Code Dashboard',
