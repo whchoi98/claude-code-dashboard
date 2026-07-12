@@ -25,7 +25,11 @@ fallback.
   `tests/server/test-flatten-inflate.mjs`.
 - **`aws.js`** — AWS integrations registered via
   `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
-  - Cost routes: `GET /cost/live` (Analytics `cost_report` + `usage_report`,
+  - Cost routes — `/cost/live` and `/cost/groups` ride a **10-min success TTL
+    cache** (`makeTtlCache`: stale-while-revalidate + in-flight dedup, keyed
+    by window+group; the rbac dimension runs 12–30s upstream, measured
+    2026-07-12; distinct from `groupLastGood`, which serves FAILURE fallbacks
+    only): `GET /cost/live` (Analytics `cost_report` + `usage_report`,
     reshaped via `analyticsReportsToCostResp`; also attaches `data_refreshed_at`,
     `by_cost_type` (tokens/web_search/code_execution), `by_token_type` +
     `token_tiers` (cache-hit ratio) from best-effort secondary `cost_report`

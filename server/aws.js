@@ -628,7 +628,12 @@ export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, m
     const url = page ? `${baseUrl}&page=${encodeURIComponent(page)}` : baseUrl
     let res
     try {
-      res = await fetchImpl(url, { headers })
+      // Per-page timeout: without it a black-holed connection pends on
+      // undici's ~300s default, and the TTL cache's in-flight dedup would
+      // pin every retry to that hung fetch. An abort lands in this catch →
+      // { ok:false } → the routes' normal failure paths, and the in-flight
+      // slot frees so the next request starts a fresh attempt.
+      res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(45_000) })
     } catch {
       return { ok: false, status: 0, body: { data, data_refreshed_at: refreshedAt } }
     }
@@ -642,6 +647,65 @@ export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, m
     if (i === maxPages - 1) console.warn(`[cost/live] fetchAllReportPages hit ${maxPages}-page cap; total may be truncated`)
   }
   return { ok: true, status, body: { data, data_refreshed_at: refreshedAt } }
+}
+
+// Success-TTL cache with stale-while-revalidate + in-flight dedup, for the
+// slow cost routes (rbac_group_id reports run 12–30s upstream and every
+// dashboard visit re-paid them while burning the shared 60 rpm org budget).
+// Semantics (payloads must be plain objects — both consumers' are):
+//   fresh hit (< ttl)      → cached value, no upstream call
+//   expired hit (< maxAge) → cached value IMMEDIATELY + one deduped
+//                            background refresh. If a refresh has FAILED
+//                            since expiry, the served copy carries
+//                            `stale: true` — an upstream flap must not be
+//                            hidden behind unmarked cached data (the stale
+//                            badge / groupLastGood contract downstream).
+//                            A later successful refresh clears the flag.
+//   expired hit (≥ maxAge) → entry dropped; fetch in the FOREGROUND so a
+//                            persistent failure reaches the route's catch
+//                            (stale:true last-good / flap 503 / 502 — the
+//                            pre-cache degradation semantics).
+//   miss                   → fetch, concurrent misses share ONE in-flight
+//                            call.
+// `cap` bounds memory via oldest-insertion eviction. Distinct from the
+// groupLastGood map, which only serves FAILURE fallbacks (stale: true).
+export function makeTtlCache({ ttlMs = 600_000, cap = 40, maxAgeMs = ttlMs * 6, now = Date.now } = {}) {
+  const entries = new Map()   // key → { at, out, failedAt? }
+  const inflight = new Map()  // key → Promise<out>
+  const remember = (key, out) => {
+    entries.delete(key)       // refresh insertion order for eviction
+    entries.set(key, { at: now(), out })   // fresh entry: no failedAt
+    if (entries.size > cap) entries.delete(entries.keys().next().value)
+  }
+  const start = (key, fetcher) => {
+    let p = inflight.get(key)
+    if (!p) {
+      p = Promise.resolve()
+        .then(fetcher)
+        .then((out) => { remember(key, out); return out })
+        .catch((err) => {
+          const hit = entries.get(key)
+          if (hit) hit.failedAt = now()   // degrade the surviving entry
+          throw err
+        })
+        .finally(() => inflight.delete(key))
+      inflight.set(key, p)
+    }
+    return p
+  }
+  return async function cached(key, fetcher) {
+    const hit = entries.get(key)
+    const age = hit ? now() - hit.at : 0
+    if (hit && age < ttlMs) return hit.out
+    if (hit && age < maxAgeMs) {
+      start(key, fetcher).catch((err) => {
+        console.warn(`[cost-cache] background refresh failed for ${key}:`, err?.message || err)
+      })
+      return hit.failedAt ? { ...hit.out, stale: true } : hit.out
+    }
+    if (hit) entries.delete(key)   // too old to serve silently
+    return start(key, fetcher)
+  }
 }
 
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
@@ -1181,12 +1245,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const scopedKey = rbacGroupId
       ? `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId}`
       : null
+    const cacheKey = `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId || 'org'}`
     try {
-      const out = await fetchCostSummary({
-        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
-        rbac_group_id: rbacGroupId,
+      const out = await cachedCost(cacheKey, async () => {
+        const fresh = await fetchCostSummary({
+          starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+          rbac_group_id: rbacGroupId,
+        })
+        if (scopedKey) rememberGroupResult(scopedKey, fresh)
+        return fresh
       })
-      if (scopedKey) rememberGroupResult(scopedKey, out)
       res.json(out)
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
@@ -1233,6 +1301,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // successful payload (`stale: true`) instead of blanking the group card.
   const groupLastGood = new Map()
   const GROUP_LAST_GOOD_CAP = 20
+  // Success cache for the slow cost routes (/cost/live, /cost/groups):
+  // 10-min TTL + stale-while-revalidate + in-flight dedup (see makeTtlCache).
+  // Well inside the upstream's ~4h data_refreshed_at watermark.
+  const cachedCost = makeTtlCache({ ttlMs: 600_000, cap: 40 })
   function rememberGroupResult(key, payload) {
     groupLastGood.delete(key)                       // refresh insertion order
     // remembered_at rides only the STORED copy (stale responses expose it;
@@ -1374,6 +1446,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // "not yet supported" before). Labels are REAL group names via
   // fetchGroupNames (grp-<id suffix> fallback when the lookup is down).
   // Window matches /cost/live semantics (full range, buffer days included).
+  // SLOW upstream (rbac dimension: measured 12.8s for 1d, 30s for 30d) →
+  // successes ride the 10-min TTL cache (stale-while-revalidate); the
+  // groupLastGood entry remains the FAILURE fallback beyond that.
   router.get('/cost/groups', async (req, res) => {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) {
@@ -1384,39 +1459,45 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     })
     const cacheKey = `cost/groups:${starting}:${ending}`
     try {
-      const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
-      const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-      const params = new URLSearchParams({
-        starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
+      const out = await cachedCost(cacheKey, async () => {
+        const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
+        const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
+        const params = new URLSearchParams({
+          starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
+        })
+        params.append('group_by[]', 'rbac_group_id')
+        const r = await fetchAllReportPages(
+          `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
+          { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
+        )
+        if (!r.ok) {
+          // Throw with the upstream body attached — the route catch decides
+          // between last-good, the flap 503, and a generic 502.
+          const e = new Error(`cost_report(rbac_group_id) ${r.status}`)
+          e.status = r.status
+          e.upstream = r.body
+          throw e
+        }
+        const fresh = {
+          source: 'live',
+          period: { starting_date: starting, ending_date: ending },
+          data_refreshed_at: r.body.data_refreshed_at ?? null,
+          ...aggregateGroupCost(r.body, await fetchGroupNames()),
+        }
+        rememberGroupResult(cacheKey, fresh)
+        return fresh
       })
-      params.append('group_by[]', 'rbac_group_id')
-      const r = await fetchAllReportPages(
-        `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
-        { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
-      )
-      if (!r.ok) {
-        const stale = groupLastGood.get(cacheKey)
-        if (stale) {
-          console.warn(`[cost/groups] upstream ${r.status}; serving last-good for ${cacheKey}`)
-          return res.json({ ...stale, stale: true })
-        }
-        if (isRbacUnavailable(r.body)) {
-          return res.status(503).json({ error: 'rbac_groups_unavailable', message: r.body?.error?.message || 'RBAC group data temporarily unavailable upstream.' })
-        }
-        return res.status(502).json({ error: 'upstream_error', message: `cost_report(rbac_group_id) ${r.status}`, upstream: r.body })
-      }
-      const out = {
-        source: 'live',
-        period: { starting_date: starting, ending_date: ending },
-        data_refreshed_at: r.body.data_refreshed_at ?? null,
-        ...aggregateGroupCost(r.body, await fetchGroupNames()),
-      }
-      rememberGroupResult(cacheKey, out)
       res.json(out)
     } catch (err) {
       const stale = groupLastGood.get(cacheKey)
-      if (stale) return res.json({ ...stale, stale: true })
-      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
+      if (stale) {
+        console.warn(`[cost/groups] upstream failure; serving last-good for ${cacheKey}:`, err?.message || err)
+        return res.json({ ...stale, stale: true })
+      }
+      if (isRbacUnavailable(err?.upstream)) {
+        return res.status(503).json({ error: 'rbac_groups_unavailable', message: err.upstream?.error?.message || 'RBAC group data temporarily unavailable upstream.' })
+      }
+      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }
   })
 

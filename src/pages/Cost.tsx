@@ -215,12 +215,24 @@ export function useCostData(range: { startingDate: string; endingDate: string },
   // group-tab/range change is in flight flashed org-wide CSV numbers (or the
   // no-CSV empty state) for the duration of every refetch.
   const useCsv = !live.loading && !liveUsable
-  const data = live.loading ? null : (useCsv ? csv.data : live.data)
+
+  // Stale-while-revalidate: useFetch keeps the previous response while a new
+  // URL is in flight, so a SAME-SCOPE refetch (range change, manual refetch)
+  // can keep rendering it under a "refreshing" badge instead of a full-page
+  // loading veil. A SCOPE change never reuses it — old-scope numbers under a
+  // new group tab would mislead — so those transitions keep the veil (the
+  // server's 10-min cost cache makes returns to a recent scope near-instant).
+  const swrData = live.loading && live.data != null
+    && (live.data.rbac_group_id ?? null) === (rbacGroupId ?? null)
+    && ((live.data.rows.length ?? 0) > 0 || !!rbacGroupId)
+    ? live.data : null
+  const data = live.loading ? swrData : (useCsv ? csv.data : live.data)
+  const refreshing = live.loading && swrData != null
   const source: CostSource = useCsv ? 'csv' : 'live'
 
-  // Loading: live in flight (stale-scope data must not render), or nothing
-  // usable yet while CSV is still in flight.
-  const loading = live.loading || (data == null && csv.loading)
+  // Loading: live in flight with nothing safely renderable (scope-changed
+  // stale data must not render), or nothing usable yet while CSV loads.
+  const loading = (live.loading && swrData == null) || (data == null && csv.loading)
   // Errors surface only after settle. With a scope requested, a live failure
   // surfaces as-is — the org-wide CSV must not silently replace a scoped
   // view. Otherwise (org-wide), CSV's error only matters once we actually
@@ -232,7 +244,7 @@ export function useCostData(range: { startingDate: string; endingDate: string },
     async () => { await live.refetch(); await csv.refetch() },
     [live.refetch, csv.refetch],
   )
-  return { data, loading, error, source, refetch, csvData: csv.data }
+  return { data, loading, error, source, refetch, refreshing, csvData: csv.data }
 }
 
 export function Cost() {
@@ -246,7 +258,7 @@ export function Cost() {
   const { group, groupId, setGroup, inGroup } = useGroupScope()
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
-  const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range, groupId)
+  const { data, loading, error, refetch, refreshing, source: dataSource, csvData } = useCostData(range, groupId)
   // True when the org-level numbers on this page reflect ONLY the selected
   // group — requires the server's echo, not just the client's request (see
   // useCostData). False → per-user surfaces still scope, org aggregates are
@@ -642,6 +654,9 @@ export function Cost() {
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
             {t('cost.live.caveat.30day')}
           </div>
+        )}
+        {refreshing && (
+          <div className="text-[10px] text-ink-400 animate-pulse">{t('cost.refreshing')}</div>
         )}
         <div className="grid grid-cols-4 gap-4">
           <KpiCard

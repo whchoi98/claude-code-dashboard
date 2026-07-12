@@ -43,6 +43,11 @@ src/
 │                         # trends and product/model charts then reflect the group only. While the
 │                         # filter is set, an EMPTY live result is legitimate (new group, no
 │                         # attributed spend yet) and must NOT trigger the org-wide CSV fallback.
+│                         # SWR: a SAME-scope refetch (range change / manual refetch) keeps rendering
+│                         # the previous settled response with `refreshing: true` (Cost shows a
+│                         # "Refreshing…" pulse line); a SCOPE change keeps the loading veil — old-
+│                         # scope numbers must never render under a new tab (server 10-min cost cache
+│                         # makes returns to a recent scope near-instant).
 │                         # exposes csvData separately so per-user token tables can use CSV in live mode.
 │                         # The per-user "Top by Cost" table is live and covers the SAME window as the
 │                         # headline KPIs: it sources liveUserRows from /api/cost/users?by=model (full
