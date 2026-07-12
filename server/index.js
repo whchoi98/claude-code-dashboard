@@ -598,4 +598,41 @@ app.listen(PORT, () => {
     setTimeout(() => { prewarm().catch(() => {}) }, 1000)
     setInterval(() => { prewarm().catch(() => {}) }, 300_000)
   }
+  // Analytics prewarm: every menu boots on the same engagement endpoints
+  // (users/range powers 11 pages, summaries 4, the other /range fan-outs the
+  // rest) behind the 10-min fetchJson cache. The range routes are
+  // DAY-granular (S3-first + per-day upstream cache), so ONE 30d warm covers
+  // every preset sub-range (1d/7d/14d/30d) on every page. 2s gaps pace the
+  // shared 60 rpm org budget; refresh every 5 min (TTL 10 min — one window
+  // of overlap, same math as the audit prewarm above).
+  if (ANALYTICS_KEY) {
+    const analyticsPrewarm = async () => {
+      const startedAt = Date.now()
+      const end = todayUtc(0)
+      const d30 = todayUtc(-29)
+      const targets = [
+        `/api/analytics/users/range?starting_date=${d30}&ending_date=${end}`,
+        `/api/analytics/skills/range?starting_date=${d30}&ending_date=${end}`,
+        `/api/analytics/connectors/range?starting_date=${d30}&ending_date=${end}`,
+        `/api/analytics/projects/range?starting_date=${d30}&ending_date=${end}`,
+        `/api/analytics/users?date=${todayUtc(-3)}`,
+        `/api/analytics/summaries?starting_date=${todayUtc(-6)}&ending_date=${end}`,
+        `/api/analytics/summaries?starting_date=${todayUtc(-13)}&ending_date=${end}`,
+        `/api/analytics/summaries?starting_date=${todayUtc(-29)}&ending_date=${end}`,
+      ]
+      let ok = 0, failed = 0
+      for (const path of targets) {
+        try {
+          const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { signal: AbortSignal.timeout(60_000) })
+          r.ok ? ok++ : failed++
+        } catch {
+          failed++
+        }
+        await new Promise((r2) => setTimeout(r2, 2_000).unref?.())
+      }
+      console.log(`\x1b[36m[prewarm]\x1b[0m analytics: ${ok} warmed, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
+    }
+    setTimeout(() => { analyticsPrewarm().catch(() => {}) }, 3_000)
+    setInterval(() => { analyticsPrewarm().catch(() => {}) }, 300_000)
+  }
 })
