@@ -2,7 +2,7 @@
 
 ## Role
 
-Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`. Runs on an EventBridge rule at 14:00 UTC, or can be invoked manually with a `{ date, summariesStart, summariesEnd }` payload.
+Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`, plus a **raw sidecar** of the unflattened upstream records to `s3://<archive>/raw/<table>/date=YYYY-MM-DD/` (since 2026-07-12). Runs on an EventBridge rule at 14:00 UTC, or can be invoked manually with a `{ date, summariesStart, summariesEnd }` payload.
 
 ## Files
 
@@ -14,6 +14,7 @@ Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJS
 ## Conventions
 
 - **Field names must match `flattenUser` → `inflateUser` contract**. Whenever the Analytics API schema changes, update both `collector/flatten.js` (write side) and `server/inflate.js` (read side) — plus the Glue columns in `infra/lib/storage-stack.ts`. A mismatch silently writes zeros.
+- **Raw sidecar = retroactive recovery.** flatten.js maps fields EXPLICITLY, so new upstream fields are dropped from the columnar tables until a column is added. The `raw/<table>/` sidecar keeps the pristine records (no `snapshot_date` stamp), so a later column addition can re-flatten history from S3 instead of re-calling the API (~365-day lookback). Deliberately no Glue table over `raw/` — recovery safety net, not a query surface. Partitions written before 2026-07-12 have no raw sidecar unless backfilled.
 - **NDJSON** (one JSON object per line). Athena/Glue are configured via `JsonSerDe`.
 - **Partition dates** use the `date=YYYY-MM-DD` Hive convention. Glue projections cover 2026-01-01 → NOW.
 - **`summariesStart`/`summariesEnd` are exclusive upper bound** — the Analytics API rejects ranges where `starting_date == ending_date`. Default behavior pulls the last 14 days of summaries.

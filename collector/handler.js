@@ -86,6 +86,24 @@ async function writePartition(prefix, date, body) {
   return `s3://${BUCKET}/${key}`
 }
 
+// Raw sidecar: alongside every flattened partition, archive the UNFLATTENED
+// upstream records under raw/<table>/. flatten.js maps fields explicitly, so
+// anything the Analytics API adds later is silently dropped from the columnar
+// tables — the sidecar makes those fields recoverable retroactively (add the
+// column, re-flatten from raw) instead of depending on the API's ~365-day
+// lookback. Deliberately NO Glue table points at raw/ — it is a recovery
+// safety net, not a query surface. Pristine records: no snapshot_date stamp.
+async function writeRaw(prefix, date, records) {
+  const key = `raw/${prefix}/date=${date}/${prefix}-${date}.json`
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: toNdjson(records),
+    ContentType: 'application/x-ndjson',
+  }))
+  return `s3://${BUCKET}/${key}`
+}
+
 export const handler = async (event = {}) => {
   if (!BUCKET) throw new Error('ARCHIVE_S3_BUCKET is not configured')
   await resolveAnalyticsKey() // fail fast if the secret is not reachable
@@ -102,29 +120,34 @@ export const handler = async (event = {}) => {
   const users = await fetchAllPages('/v1/organizations/analytics/users', { date })
   results.users = await writePartition('users', date,
     toNdjson(users.map(flattenUser), { snapshot_date: date }))
+  results.users_raw = await writeRaw('users', date, users)
 
   const summaries = await fetchJson('/v1/organizations/analytics/summaries', {
     starting_date: summariesStart,
     ending_date:   summariesEnd,
   })
   // Summaries API returns {summaries: [...]} — normalize.
-  results.summaries = await writePartition('summaries', date,
-    toNdjson(summaries.summaries || summaries.data || []))
+  const summaryRows = summaries.summaries || summaries.data || []
+  results.summaries = await writePartition('summaries', date, toNdjson(summaryRows))
+  results.summaries_raw = await writeRaw('summaries', date, summaryRows)
 
   const skills = await fetchAllPages('/v1/organizations/analytics/skills', { date })
   results.skills = await writePartition('skills', date,
     toNdjson(skills.map(flattenSkill), { snapshot_date: date }))
+  results.skills_raw = await writeRaw('skills', date, skills)
 
   const connectors = await fetchAllPages('/v1/organizations/analytics/connectors', { date })
   results.connectors = await writePartition('connectors', date,
     toNdjson(connectors.map(flattenConnector), { snapshot_date: date }))
+  results.connectors_raw = await writeRaw('connectors', date, connectors)
 
   const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date })
   results.projects = await writePartition('projects', date,
     toNdjson(projects.map(flattenProject), { snapshot_date: date }))
+  results.projects_raw = await writeRaw('projects', date, projects)
 
   return { ok: true, date, writes: results, counts: {
-    users: users.length, summaries: (summaries.data||[]).length,
+    users: users.length, summaries: summaryRows.length,
     skills: skills.length, connectors: connectors.length, projects: projects.length,
   }}
 }

@@ -20,7 +20,7 @@
 | Component | Purpose |
 |-----------|---------|
 | Express proxy (`server/index.js` + `server/aws.js`) | Per-request fan-out to Analytics / Admin / Compliance APIs with a 10-minute in-memory cache, gzip compression (SSE exempt), and three keep-warm schedulers: compliance audit windows (5-min), analytics engagement endpoints (5-min — one 30d day-granular warm covers every preset), and the cost cache (8-min, jittered per task: preset windows + every group's scoped key; `makeTtlCache` = 10-min TTL + stale-while-revalidate + failure marking + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints into partitioned NDJSON on S3 |
+| Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints into partitioned NDJSON on S3, plus a raw sidecar of the unflattened records under `raw/<table>/` (retroactive recovery for fields the explicit flatten mapping doesn't carry yet) |
 | Spend Report uploader (manual) | Claude Console CSV dropped into `s3://<archive>/spend-reports/` for the Cost page |
 
 ### Storage
@@ -186,7 +186,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 구성요소 | 역할 |
 |---------|------|
 | Express 프록시 (`server/index.js` + `server/aws.js`) | Analytics / Admin / Compliance API 요청 fan-out, 10분 in-memory 캐시, gzip 압축(SSE 제외), keep-warm 스케줄러 3종: compliance 감사 창(5분), analytics 엔게이지먼트(5분 — 30d 일 단위 워밍 1회로 전 프리셋 커버), 비용 캐시(태스크별 지터 8분: 프리셋 창 + 전 그룹 스코프 키; `makeTtlCache` = 10분 TTL + stale-while-revalidate + 실패 마킹 + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 |
+| Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 + 비평탄화 원본 사이드카(`raw/<table>/` — flatten 매핑에 없는 신규 필드의 소급 복구용) |
 | Spend Report 업로더 (수동) | Claude Console CSV를 `s3://<archive>/spend-reports/`에 투입, 비용 페이지 입력 |
 
 ### Storage (저장)
