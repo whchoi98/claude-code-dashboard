@@ -13,17 +13,22 @@ type GroupsResp = {
   // is any-membership — a single-value collapse dropped groups that were
   // nobody's top group from the tab list entirely.
   map: Record<string, string | string[]>
+  // label → rbac_group_id (members/auto sources only — a CSV mapping carries
+  // admin-chosen custom groups with no upstream id). Lets pages pass the id
+  // to cost endpoints for the upstream rbac_group_ids[] filter.
+  group_ids?: Record<string, string>
 }
 
 export type GroupScopeData = {
   groups: string[]
   map: Record<string, string[]>   // normalized: always arrays
+  groupIds: Record<string, string>  // label → rbac_group_id ({} on the CSV path)
   hasMap: boolean
   loading: boolean
   refetch: () => Promise<void>
 }
 
-const EMPTY: GroupScopeData = { groups: [], map: {}, hasMap: false, loading: false, refetch: async () => {} }
+const EMPTY: GroupScopeData = { groups: [], map: {}, groupIds: {}, hasMap: false, loading: false, refetch: async () => {} }
 
 const GroupScopeContext = createContext<GroupScopeData>(EMPTY)
 
@@ -47,7 +52,7 @@ export function GroupScopeProvider({ children }: { children: ReactNode }) {
     // Any non-empty source lights up the tabs — new server-side sources
     // (e.g. 'members', added 2026-07) must not silently disable the map.
     const hasMap = !!data && data.source !== 'empty' && groups.length > 0
-    return { groups, map, hasMap, loading, refetch }
+    return { groups, map, groupIds: data?.group_ids ?? {}, hasMap, loading, refetch }
   }, [data, loading, refetch])
   return <GroupScopeContext.Provider value={value}>{children}</GroupScopeContext.Provider>
 }

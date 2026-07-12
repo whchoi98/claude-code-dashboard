@@ -203,7 +203,12 @@ export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary
         return { ok: true, data: maskEmailsDeep({ columns, rows: capped, row_count: rows.length }), rowCount: rows.length }
       }
       if (name === 'get_cost_summary') {
-        return { ok: true, data: maskEmailsDeep(await fetchCostSummary(input)) }
+        // Allowlist the schema-declared fields — fetchCostSummary now also
+        // accepts rbac_group_id (the /cost/live route shape-validates it),
+        // and the model-controlled input must not reach that filter: this
+        // tool's contract is unconditionally org-wide.
+        const { starting_date, ending_date } = input || {}
+        return { ok: true, data: maskEmailsDeep(await fetchCostSummary({ starting_date, ending_date })) }
       }
       return { ok: false, data: { error: `Unknown tool: ${name}` } }
     } catch (err) {

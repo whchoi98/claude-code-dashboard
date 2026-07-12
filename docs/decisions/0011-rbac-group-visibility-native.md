@@ -49,6 +49,23 @@ yet" for hours (also undocumented).
 - *(UI amendment 2026-07-07: the scope selector moved from the global sidebar
   (`GroupControl`, removed) to per-page `GroupTabs` under each PageHeader;
   sidebar NavLinks re-append `?group=` so the selection survives navigation.)*
+- *(Amended 2026-07-12: the Cost page's org-level aggregates — KPIs, trends,
+  product/model charts — now scope to the selected group via the documented
+  `rbac_group_ids[]` filter on cost_report/usage_report (verified live:
+  filtered totals equal the grouped-by slice exactly), ending the
+  "partial scope" caveat in live mode. `/api/groups` exposes `group_ids`
+  (label→id) for this; a scoped-empty live result no longer falls back to
+  the org-wide CSV. CSV-mapping and UNMAPPED scopes stay partial (no
+  upstream id to filter on). Membership itself now comes from the
+  Compliance members endpoint — see ADR-0014. Guard rails from the
+  pre-deploy adversarial review: the client trusts a scope only when the
+  server echoes the applied id (rolling-deploy skew protection); scoped
+  windows keep a per-(window,group) last-good + a 503
+  `rbac_scope_unavailable` on flap; the CSV fallback engages only after the
+  live fetch settles (no org-wide flash mid-switch); per-dev KPI and the
+  Economic Productivity $/LOC·$/Commit averages recompute for the scoped
+  cohort; the chat get_cost_summary tool allowlists its inputs and stays
+  org-wide.)*
 
 ## Consequences
 

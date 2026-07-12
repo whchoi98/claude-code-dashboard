@@ -38,6 +38,13 @@ type CsvResp = {
   file: string | null
   last_modified: string
   data_refreshed_at?: string | null
+  // Echo of the applied upstream rbac_group_ids[] filter — the client only
+  // trusts a scope the server confirms (guards rolling-deploy skew where an
+  // old task ignores the param and serves org-wide data).
+  rbac_group_id?: string
+  // Set when the server serves a per-(window,group) last-good payload
+  // because the scoped upstream is flapping.
+  stale?: boolean
   by_cost_type?: { cost_type: string; spend_usd: number }[]
   by_token_type?: { token_type: string; spend_usd: number }[]
   token_tiers?: {
@@ -181,26 +188,45 @@ type CostSource = 'live' | 'csv'
  * back to /api/cost/csv. Both queries fire in parallel (cheap due to S3+cache
  * on the CSV path); the active one is selected here.
  *
+ * `rbacGroupId` (optional) scopes the live path to one RBAC group via the
+ * upstream `rbac_group_ids[]` filter. While it is set, an EMPTY live result
+ * is a legitimate answer (no spend attributed to that group in-window) and
+ * must NOT trigger the CSV fallback — the CSV is org-wide and would silently
+ * misrepresent the scope.
+ *
  * `csvData` is exposed separately so the page can still render per-user TOKEN
  * widgets from CSV. Per-user USD spend is now live via `user_cost_report` (see
  * /cost/efficiency + ADR-0009); the CSV is a complementary layer for per-user
  * token counts (not exposed live) and old-date reconciliation.
  */
-export function useCostData(range: { startingDate: string; endingDate: string }) {
+export function useCostData(range: { startingDate: string; endingDate: string }, rbacGroupId?: string | null) {
   const liveUrl = `/api/cost/live?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
+    + (rbacGroupId ? `&rbac_group_id=${encodeURIComponent(rbacGroupId)}` : '')
   const live = useFetch<CsvResp>(liveUrl)
   const csv  = useFetch<CsvResp>('/api/cost/csv')
 
-  const liveOk = !live.loading && !live.error && (live.data?.rows.length ?? 0) > 0
-  const useCsv = !liveOk
-  const data = useCsv ? csv.data : live.data
+  // A requested scope counts only when the server ECHOES the id back —
+  // during a rolling deploy an old task ignores the param and serves
+  // org-wide data, which must not pass as "scoped" (nor may its rows=[]
+  // suppress the CSV fallback).
+  const scopeConfirmed = !!rbacGroupId && live.data?.rbac_group_id === rbacGroupId
+  const liveUsable = !live.error && ((live.data?.rows.length ?? 0) > 0 || scopeConfirmed)
+  // Fall back to CSV only once the live fetch has SETTLED — flipping while a
+  // group-tab/range change is in flight flashed org-wide CSV numbers (or the
+  // no-CSV empty state) for the duration of every refetch.
+  const useCsv = !live.loading && !liveUsable
+  const data = live.loading ? null : (useCsv ? csv.data : live.data)
   const source: CostSource = useCsv ? 'csv' : 'live'
 
-  // Loading: at least one channel is loading and no usable data yet
-  const loading = data == null && (live.loading || csv.loading)
-  // Error: only surface CSV's error if we've actually fallen back to CSV.
-  // Live errors are silent — they trigger the fallback, not a user-visible error.
-  const error = useCsv ? csv.error : null
+  // Loading: live in flight (stale-scope data must not render), or nothing
+  // usable yet while CSV is still in flight.
+  const loading = live.loading || (data == null && csv.loading)
+  // Errors surface only after settle. With a scope requested, a live failure
+  // surfaces as-is — the org-wide CSV must not silently replace a scoped
+  // view. Otherwise (org-wide), CSV's error only matters once we actually
+  // fell back to it; live errors just trigger the fallback.
+  const error = live.loading ? null
+    : (rbacGroupId && live.error ? live.error : (useCsv ? csv.error : null))
 
   const refetch = useCallback(
     async () => { await live.refetch(); await csv.refetch() },
@@ -212,13 +238,20 @@ export function useCostData(range: { startingDate: string; endingDate: string })
 export function Cost() {
   const t = useT()
   const { range } = useDateRange('1d')
-  // Group scope: per-user tables/charts below honor the selected group; the
-  // org-level cost_report aggregates (KPIs, pies, trends) cannot — the
-  // partial-variant GroupScopeNote says so when a group is active.
-  const { group, inGroup } = useGroupScope()
+  // Group scope. Per-user tables/charts filter by email (inGroup). The
+  // org-level aggregates (KPIs, pies, trends) scope via the upstream
+  // rbac_group_ids[] filter when the selected group's id is known (members/
+  // auto mapping + live mode) — `groupScoped` below. CSV mode and UNMAPPED
+  // can't be filtered upstream → partial-variant note, as before.
+  const { group, groupId, setGroup, inGroup } = useGroupScope()
   // Live API (Claude Code only) with automatic CSV fallback.
   // The CSV path also handles the >30-day reconciliation use case.
-  const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range)
+  const { data, loading, error, refetch, source: dataSource, csvData } = useCostData(range, groupId)
+  // True when the org-level numbers on this page reflect ONLY the selected
+  // group — requires the server's echo, not just the client's request (see
+  // useCostData). False → per-user surfaces still scope, org aggregates are
+  // org-wide (partial note).
+  const groupScoped = dataSource === 'live' && !!groupId && data?.rbac_group_id === groupId
   const effUrl = `/api/cost/efficiency?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
   const eff = useFetch<EfficiencyResp>(effUrl)
   // Per-user × model spend (chargeback) — wires the /cost/users route with by=model.
@@ -269,11 +302,18 @@ export function Cost() {
   const insights = useMemo(() => {
     if (!data) return null
     const totalSpend = data.totals.net_spend_usd
-    const activeDevs =
-      eff.data?.user_count ||
-      csvData?.totals?.distinct_users ||
-      data.totals.distinct_users
-    const costPerDev = activeDevs > 0 ? totalSpend / activeDevs : 0
+    // Under an active upstream group scope the numerator is group-only, so
+    // the denominator must be too — count the group's members from the
+    // per-user efficiency rows. null = "don't know yet" (eff still loading
+    // or errored): render a placeholder, never $0.00 against real spend.
+    const activeDevs: number | null = groupScoped
+      ? (eff.data ? eff.data.users.filter((u) => inGroup(u.email)).length : null)
+      : (eff.data?.user_count ||
+         csvData?.totals?.distinct_users ||
+         data.totals.distinct_users)
+    const costPerDev = activeDevs
+      ? totalSpend / activeDevs
+      : (totalSpend > 0 ? null : 0)
 
     let projection30d: number | null = null
     let avg7d: number | null = null
@@ -288,7 +328,7 @@ export function Cost() {
       }
     }
     return { costPerDev, activeDevs, projection30d, avg7d }
-  }, [data, eff.data, csvData])
+  }, [data, eff.data, csvData, groupScoped, inGroup])
 
   const agg = useMemo(() => {
     if (!data?.rows) return null
@@ -304,8 +344,10 @@ export function Cost() {
     const matrix = new Map<string, Map<string, number>>()
 
     for (const r of rows) {
-      // per-user rows honor the group scope; the org-level aggregations
-      // below (model/product/matrix) intentionally stay org-wide
+      // per-user rows honor the group scope; the model/product/matrix
+      // aggregations below follow whatever the rows already are — org-wide
+      // normally, group-only when the upstream rbac_group_ids[] filter is
+      // active (groupScoped)
       if (inGroup(r.user_email)) {
         const u = byUser.get(r.user_email) ?? { spend: 0, input: 0, output: 0, requests: 0, products: new Set<string>(), models: new Set<string>() }
         u.spend += r.total_net_spend_usd; u.input += r.total_prompt_tokens; u.output += r.total_completion_tokens
@@ -467,6 +509,32 @@ export function Cost() {
 
   if (loading) return <LoadingState />
   if (error) {
+    // A failed GROUP-SCOPED live fetch must not degrade into the org-wide
+    // CSV flow (misrepresents the scope) or the raw error page. Offer the
+    // honest way out: retry later or drop back to All groups. The server
+    // already absorbs flaps with a per-(window,group) last-good, so this is
+    // the cold-cache-during-flap path only.
+    if (groupId) {
+      const label = group === UNMAPPED ? t('group.unmapped') : group
+      return (
+        <div>
+          <PageHeader title={t('cost.title')} subtitle={t('cost.subtitle')} />
+          <GroupTabs />
+          <div className="p-8">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[12px] text-amber-900">
+              <b className="text-amber-800">{t('cost.scope.unavailable.title', { group: label })}</b>
+              <p className="mt-1">{t('cost.scope.unavailable.body')}</p>
+              <button
+                onClick={() => setGroup('')}
+                className="mt-2 rounded-full border border-amber-300 bg-white px-3 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+              >
+                {t('cost.scope.view_all')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
     // Check if it's just a missing spend report (404) — show a friendly empty state
     if (error.includes('no_spend_report') || error.includes('404')) {
       return (
@@ -539,7 +607,7 @@ export function Cost() {
         {/* Inside .print-export so the scope indicator survives Save-as-PDF —
             the per-user tables below ARE group-filtered and a printout must
             say so. Self-hides when no group is selected. */}
-        <GroupScopeNote variant="partial" />
+        <GroupScopeNote variant={groupScoped ? 'scoped' : 'partial'} />
         {group && (usersByModel.data?.users?.length ?? 0) > 0 && liveUserRows === null && (
           <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500">
             {t('group.scoped_empty', { group: group === UNMAPPED ? t('group.unmapped') : group })}
@@ -582,10 +650,16 @@ export function Cost() {
             value={fmtUsd(data.totals.net_spend_usd)}
             hint={
               // Per-user attribution now comes from live user_cost_report
-              // (eff.user_count); CSV's distinct_users is the fallback.
-              (eff.data?.user_count || csvData?.totals?.distinct_users)
-                ? `${fmtNum(eff.data?.user_count || csvData?.totals?.distinct_users)} users · ${data.totals.distinct_models} models`
-                : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`
+              // (eff.user_count); CSV's distinct_users is the fallback. Under
+              // an active group scope the count must be the GROUP's members —
+              // insights.activeDevs is already group-aware (null = unknown).
+              groupScoped
+                ? (insights?.activeDevs != null
+                    ? `${fmtNum(insights.activeDevs)} users · ${data.totals.distinct_models} models`
+                    : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`)
+                : ((eff.data?.user_count || csvData?.totals?.distinct_users)
+                    ? `${fmtNum(eff.data?.user_count || csvData?.totals?.distinct_users)} users · ${data.totals.distinct_models} models`
+                    : `${data.totals.distinct_models} models · ${data.totals.distinct_products} products`)
             }
           />
           <KpiCard label={t('cost.kpi.input')}  value={fmtCompact(data.totals.prompt_tokens)}     hint="prompt tokens" />
@@ -603,8 +677,10 @@ export function Cost() {
           <div className={`grid gap-4 ${insights.projection30d != null ? 'grid-cols-3' : 'grid-cols-1'}`}>
             <KpiCard
               label={t('cost.kpi.per_dev')}
-              value={fmtUsd(insights.costPerDev)}
-              hint={t('cost.kpi.per_dev.hint', { n: fmtNum(insights.activeDevs) })}
+              value={insights.costPerDev != null ? fmtUsd(insights.costPerDev) : '—'}
+              hint={insights.activeDevs != null
+                ? t('cost.kpi.per_dev.hint', { n: fmtNum(insights.activeDevs) })
+                : t('cost.kpi.per_dev.hint.pending')}
             />
             {insights.projection30d != null && insights.avg7d != null && (
               <>
@@ -987,18 +1063,27 @@ export function Cost() {
         {eff.data && eff.data.users.length > 0 && (() => {
           const scopedUsers = eff.data!.users.filter((u) => inGroup(u.email))
           if (scopedUsers.length === 0) return null
-          // Server totals are org-wide; under a group scope the median-score
-          // KPI ("cohort median") must reflect the scoped cohort, so recompute
-          // it client-side. The avg $/LOC / $/Commit KPIs keep the org values
-          // (their hints already say "avg org").
+          // Server totals are org-wide; under a group scope every cohort KPI
+          // (median score AND the avg $/LOC / $/Commit ratios) must reflect
+          // the scoped cohort, so recompute them client-side. Spend uses
+          // range_spend_usd ?? spend_usd — the same precedence the per-user
+          // rows use — to stay consistent with the server's method.
           let totals = eff.data!.totals
           if (group) {
             const scores = scopedUsers.map((u) => u.economic_productivity_score).sort((a, b) => a - b)
             const mid = scores.length >> 1
             const median = scores.length % 2 ? scores[mid] : Math.round((scores[mid - 1] + scores[mid]) / 2)
-            totals = { ...totals, median_score: median }
+            const spendSum = scopedUsers.reduce((a, u) => a + (u.range_spend_usd ?? u.spend_usd), 0)
+            const locSum = scopedUsers.reduce((a, u) => a + (u.loc_added || 0), 0)
+            const commitSum = scopedUsers.reduce((a, u) => a + (u.commits || 0), 0)
+            totals = {
+              ...totals,
+              median_score: median,
+              avg_cost_per_loc: locSum > 0 ? spendSum / locSum : null,
+              avg_cost_per_commit: commitSum > 0 ? spendSum / commitSum : null,
+            }
           }
-          return <EconomicProductivitySection data={{ ...eff.data!, users: scopedUsers, totals }} t={t} range={range} />
+          return <EconomicProductivitySection data={{ ...eff.data!, users: scopedUsers, totals }} t={t} range={range} scoped={!!group} />
         })()}
 
         {/* ── CSV management (auto-expanded in CSV mode) ────────────── */}
@@ -1020,10 +1105,11 @@ export function Cost() {
   )
 }
 
-function EconomicProductivitySection({ data, t, range }: {
+function EconomicProductivitySection({ data, t, range, scoped = false }: {
   data: EfficiencyResp;
   t: (k: any, p?: any) => string;
   range: { startingDate: string; endingDate: string };
+  scoped?: boolean;   // true → totals were recomputed for the selected group
 }) {
   const topScore  = [...data.users].sort((a, b) => b.economic_productivity_score - a.economic_productivity_score).slice(0, 10)
   const mostEff   = [...data.users].filter((u) => u.cost_per_loc != null && u.loc_added > 50).sort((a, b) => (a.cost_per_loc ?? Infinity) - (b.cost_per_loc ?? Infinity)).slice(0, 10)
@@ -1051,8 +1137,8 @@ function EconomicProductivitySection({ data, t, range }: {
 
         <div className="grid grid-cols-4 gap-4 mb-5">
           <KpiCard accent label={t('econ.kpi.score')}      value={topScore[0]?.economic_productivity_score ?? '—'}  hint={maskEmail(topScore[0]?.email ?? '')} />
-          <KpiCard       label={t('econ.kpi.cost_loc')}    value={data.totals.avg_cost_per_loc != null ? `$${data.totals.avg_cost_per_loc.toFixed(4)}` : '—'}    hint="avg org" />
-          <KpiCard       label={t('econ.kpi.cost_commit')} value={data.totals.avg_cost_per_commit != null ? fmtUsd(data.totals.avg_cost_per_commit) : '—'} hint="avg org" />
+          <KpiCard       label={t('econ.kpi.cost_loc')}    value={data.totals.avg_cost_per_loc != null ? `$${data.totals.avg_cost_per_loc.toFixed(4)}` : '—'}    hint={t(scoped ? 'econ.kpi.avg_group' : 'econ.kpi.avg_org')} />
+          <KpiCard       label={t('econ.kpi.cost_commit')} value={data.totals.avg_cost_per_commit != null ? fmtUsd(data.totals.avg_cost_per_commit) : '—'} hint={t(scoped ? 'econ.kpi.avg_group' : 'econ.kpi.avg_org')} />
           <KpiCard       label={t('econ.kpi.total_output')} value={data.totals.median_score ?? '—'} hint={t('econ.kpi.total_output.hint')} />
         </div>
 

@@ -860,7 +860,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   }
 
   // Fetch + reshape org cost (used by GET /cost/live and the chat cost tool).
-  async function fetchCostSummary({ starting_date, ending_date } = {}) {
+  // `rbac_group_id` (optional) scopes every upstream report to ONE RBAC
+  // group via the documented `rbac_group_ids[]` filter (cost family, shipped
+  // upstream 2026-07; verified live 2026-07-12: filtered totals equal the
+  // grouped-by slice exactly). Attribution is any-membership — a multi-group
+  // user's spend counts fully here AND in their other groups' scopes.
+  async function fetchCostSummary({ starting_date, ending_date, rbac_group_id } = {}) {
     const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
     if (!ANALYTICS_KEY) {
       const e = new Error('ANTHROPIC_ANALYTICS_KEY (sk-ant-api01-...) is required for live cost data.')
@@ -879,6 +884,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const buildUrl = (p, dims = ['product', 'model']) => {
       const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${utcNextDay(endingDate)}T00:00:00Z`, bucket_width: '1d' })
       for (const dim of dims) params.append('group_by[]', dim)
+      if (rbac_group_id) params.append('rbac_group_ids[]', rbac_group_id)
       return `${apiUrl}${p}?${params.toString()}`
     }
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
@@ -912,6 +918,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     out.by_cost_type = aggregateCostType(ctBody)
     out.by_token_type = aggregateTokenTypeCost(ttBody)
     out.token_tiers = aggregateTokenTiers(usageBody)
+    if (rbac_group_id) out.rbac_group_id = rbac_group_id  // echo: client can confirm the scope took effect
     return out
   }
 
@@ -1164,12 +1171,36 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   //   502 upstream_error            → either upstream endpoint returned non-2xx
   //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
   router.get('/cost/live', async (req, res) => {
+    // Optional group scope: id-shape-validated (never trusted verbatim);
+    // an unknown/malformed id is simply ignored → org-wide response.
+    const rawGroupId = String(req.query.rbac_group_id || '')
+    const rbacGroupId = /^rbac_group_[A-Za-z0-9]{6,}$/.test(rawGroupId) ? rawGroupId : undefined
+    // The rbac_group_ids[] filter rides the same membership backend that
+    // flaps for hours (ADR-0011) — keep a per-(window,group) last-good so a
+    // flap degrades the scoped view to stale instead of collapsing the page.
+    const scopedKey = rbacGroupId
+      ? `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId}`
+      : null
     try {
-      const out = await fetchCostSummary({ starting_date: req.query.starting_date, ending_date: req.query.ending_date })
+      const out = await fetchCostSummary({
+        starting_date: req.query.starting_date, ending_date: req.query.ending_date,
+        rbac_group_id: rbacGroupId,
+      })
+      if (scopedKey) rememberGroupResult(scopedKey, out)
       res.json(out)
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
+      }
+      if (scopedKey) {
+        const stale = groupLastGood.get(scopedKey)
+        if (stale) {
+          console.warn(`[cost/live] scoped upstream failure; serving last-good for ${scopedKey}`)
+          return res.json({ ...stale, stale: true })
+        }
+        if (isRbacUnavailable(err?.upstream)) {
+          return res.status(503).json({ error: 'rbac_scope_unavailable', message: err?.upstream?.error?.message || 'RBAC group scope temporarily unavailable upstream.' })
+        }
       }
       return res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }

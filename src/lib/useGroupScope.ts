@@ -16,11 +16,20 @@ export const UNMAPPED = '__unmapped__'
  */
 export function useGroupScope() {
   const [params, setParams] = useSearchParams()
-  const { groups, map, hasMap, loading, refetch } = useGroupScopeData()
+  const { groups, map, groupIds, hasMap, loading, refetch } = useGroupScopeData()
 
   const rawGroup = params.get('group') ?? ''
   // Fall back to "All" if the selected name is no longer present in the map.
   const group = rawGroup === UNMAPPED || groups.includes(rawGroup) ? rawGroup : ''
+
+  // rbac_group_id of the selected group, when the mapping source knows it
+  // (members/auto — a CSV mapping has no upstream ids). Pages pass this to
+  // the cost endpoints to activate the upstream rbac_group_ids[] filter.
+  // Own-key read (mirrors inGroup): a group literally named "constructor"
+  // must not resolve a prototype member as its id.
+  const groupId = group && group !== UNMAPPED && Object.prototype.hasOwnProperty.call(groupIds, group)
+    ? groupIds[group]
+    : null
 
   const setGroup = useCallback((g: string) => {
     const next = new URLSearchParams(params)
@@ -38,5 +47,5 @@ export function useGroupScope() {
     return Object.prototype.hasOwnProperty.call(map, e) && map[e].includes(group)
   }, [group, map])
 
-  return { group, setGroup, groups, hasMap, loading, inGroup, refetch }
+  return { group, groupId, setGroup, groups, hasMap, loading, inGroup, refetch }
 }
