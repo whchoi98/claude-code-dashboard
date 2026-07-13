@@ -87,10 +87,14 @@
   .nav-links a:hover{color:var(--brand-ink)}
   .nav-cta{
     font-size:14px; font-weight:600; color:var(--white)!important; background:var(--ink-800);
-    padding:9px 16px; border-radius:99px; transition:transform .2s, background .2s;
+    padding:9px 16px; border-radius:99px; transition:transform .2s, background .2s; white-space:nowrap;
   }
   .nav-cta:hover{background:var(--acc-700); transform:translateY(-1px)}
   @media (max-width:880px){ .nav-links a:not(.nav-cta){display:none} }
+  @media (max-width:640px){
+    .brand .mono{display:none}
+    .brand b{font-size:17px; white-space:nowrap}
+  }
 
   /* ---------- hero ---------- */
   .hero{padding:88px 0 64px; overflow:hidden}
