@@ -7,6 +7,7 @@
 Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생산성·비용·감사 지표를 통합하고 AI 질의응답 레이어를 제공합니다.
 
 > 🇺🇸 English version: **[README.md](./README.md)**
+> 🌐 온라인 브로셔 (GitHub Pages): **https://whchoi98.github.io/claude-code-dashboard/**
 
 ## 화면
 

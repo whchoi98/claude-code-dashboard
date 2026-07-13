@@ -42,8 +42,9 @@ claude-code-dashboard/
 │   ├── bin/app.ts          Entry — 4 stacks with context-driven VPC selection
 │   └── lib/                network-stack · storage-stack · compute-stack · collector-stack
 ├── public/claude.svg       Favicon
+├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots; publish via scripts/deploy-pages.sh → gh-pages branch)
 ├── docs/                   Architecture, ADRs, runbooks, onboarding, API reference
-├── scripts/                setup + install-hooks
+├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish)
 ├── tests/                  Harness tests (hooks, structure, secrets)
 └── tools/prompts/          AI prompt templates
 ```

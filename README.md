@@ -7,6 +7,7 @@
 Enterprise analytics dashboard for Claude Code — engagement, productivity, cost, and audit insights with an AI query layer.
 
 > 🇰🇷 Korean version: **[README.ko.md](./README.ko.md)**
+> 🌐 Brochure (GitHub Pages): **https://whchoi98.github.io/claude-code-dashboard/**
 
 ## Screenshots
 
