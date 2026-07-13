@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Claude Code Dashboard — 조직의 Claude Code 도입·생산성·비용을 하나의 화면에서</title>
+<meta name="description" content="Anthropic Analytics · Admin · Compliance API와 S3 아카이브를 결합해 Claude Code 도입 현황, 생산성, 라이브 비용, 감사 로그를 AI 자연어 질의와 함께 보여주는 엔터프라이즈 분석 대시보드입니다." />
+<meta property="og:title" content="Claude Code Dashboard — 도입·생산성·비용, 하나의 화면" />
+<meta property="og:description" content="사용자별 생산성 · 라이브 비용 & RBAC 그룹 스코프 · 감사 로그 · AI 자연어 분석." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://whchoi98.github.io/claude-code-dashboard/" />
+<meta property="og:image" content="https://whchoi98.github.io/claude-code-dashboard/img/overview.png" />
+<link rel="icon" type="image/svg+xml" href="claude.svg" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+<style>
+  :root{
+    /* accent — Claude coral */
+    --acc-50:#FBF1EB; --acc-100:#F6E3D6; --acc-200:#EDC9B4;
+    --acc-300:#E4A98A; --acc-400:#DE8A63; --acc-500:#D97757; --acc-600:#BC5F3F; --acc-700:#94482E;
+    /* ink — warm neutral */
+    --ink-50:#F7F6F2; --ink-100:#EDEBE4; --ink-200:#DDD9CE;
+    --ink-400:#8F897A; --ink-500:#6D675A; --ink-600:#4E4941; --ink-700:#38342C; --ink-800:#26231D; --ink-900:#191713;
+    /* paper */
+    --paper:#FAF9F5; --paper-muted:#F0EEE6; --white:#FFFFFF;
+    /* semantic */
+    --emerald-500:#10B981; --emerald-700:#047857; --amber-500:#F59E0B; --amber-700:#B45309; --rose-500:#F43F5E; --rose-700:#BE123C;
+
+    --bg:var(--paper); --surface:var(--white); --sunken:var(--paper-muted);
+    --text:var(--ink-800); --text-2:var(--ink-500); --text-3:#6D675A;
+    --line:var(--ink-100); --line-2:var(--ink-200);
+    --brand:var(--acc-500); --brand-ink:var(--acc-700);
+
+    --serif:"Fraunces",Georgia,serif;
+    --sans:"Pretendard Variable",Pretendard,-apple-system,system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+
+    --shadow-card:0 1px 2px rgba(25,23,19,.04), 0 8px 28px rgba(25,23,19,.07);
+    --shadow-pop:0 10px 40px rgba(25,23,19,.16);
+    --maxw:1180px;
+    --r:16px;
+  }
+
+  *{box-sizing:border-box}
+  :focus-visible{outline:2px solid var(--brand); outline-offset:3px; border-radius:4px}
+  a:focus-visible, .btn:focus-visible, .nav-cta:focus-visible{outline-offset:4px}
+  .skip-link{position:absolute; left:12px; top:-48px; z-index:200; background:var(--ink-900); color:var(--paper);
+    padding:10px 16px; border-radius:10px; font-size:14px; font-weight:600; transition:top .18s}
+  .skip-link:focus{top:12px}
+  html{scroll-behavior:smooth; scroll-padding-top:80px; -webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:17px; line-height:1.6;
+    font-feature-settings:"ss01","cv01"; -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility; overflow-x:hidden;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.02'/%3E%3C/svg%3E");
+  }
+  .num{font-variant-numeric:tabular-nums lining-nums}
+  a{color:inherit; text-decoration:none}
+  img,svg{display:block}
+
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px; position:relative; z-index:1}
+  section{position:relative; z-index:1}
+
+  /* ---------- nav ---------- */
+  .nav{
+    position:sticky; top:0; z-index:50;
+    backdrop-filter:saturate(1.4) blur(10px);
+    background:color-mix(in srgb, var(--paper) 78%, transparent);
+    border-bottom:1px solid var(--line);
+  }
+  .nav-in{display:flex; align-items:center; gap:24px; height:64px}
+  .brand{display:flex; align-items:center; gap:11px; font-weight:600; letter-spacing:-.01em}
+  .brand .mark{width:30px; height:30px}
+  .brand b{font-family:var(--serif); font-weight:600; font-size:20px; letter-spacing:-.02em}
+  .brand .mono{font-family:var(--mono); font-size:11px; color:var(--text-3); padding:2px 7px; border:1px solid var(--line-2); border-radius:99px; letter-spacing:0}
+  .nav-links{margin-left:auto; display:flex; gap:28px; align-items:center}
+  .nav-links a{font-size:14.5px; color:var(--text-2); transition:color .2s}
+  .nav-links a:hover{color:var(--brand-ink)}
+  .nav-cta{
+    font-size:14px; font-weight:600; color:var(--white)!important; background:var(--ink-800);
+    padding:9px 16px; border-radius:99px; transition:transform .2s, background .2s;
+  }
+  .nav-cta:hover{background:var(--acc-700); transform:translateY(-1px)}
+  @media (max-width:880px){ .nav-links a:not(.nav-cta){display:none} }
+
+  /* ---------- hero ---------- */
+  .hero{padding:88px 0 64px; overflow:hidden}
+  .hero-grid{display:grid; grid-template-columns:1.15fr .85fr; gap:48px; align-items:center}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12.5px;
+    letter-spacing:.04em; color:var(--brand-ink); background:var(--acc-50);
+    border:1px solid var(--acc-100); padding:6px 13px; border-radius:99px; margin-bottom:26px;
+  }
+  .eyebrow .dot{width:7px; height:7px; border-radius:99px; background:var(--brand); box-shadow:0 0 0 0 rgba(217,119,87,.5); animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(217,119,87,.45)}70%{box-shadow:0 0 0 9px rgba(217,119,87,0)}100%{box-shadow:0 0 0 0 rgba(217,119,87,0)}}
+  h1.hero-title{
+    font-family:var(--sans); font-weight:800; font-size:clamp(32px,5vw,56px); line-height:1.08;
+    letter-spacing:-.03em; margin:0 0 22px;
+  }
+  h1.hero-title em{font-family:var(--serif); font-style:italic; font-weight:500; color:var(--brand-ink); letter-spacing:-.01em}
+  .hero-sub{font-size:clamp(16px,1.6vw,18.5px); color:var(--text-2); max-width:42ch; margin:0 0 30px}
+  .hero-actions{display:flex; flex-wrap:wrap; gap:14px; align-items:center}
+  .btn{font-weight:600; font-size:15px; padding:13px 22px; border-radius:99px; transition:transform .2s, box-shadow .2s, background .2s; cursor:pointer; border:1px solid transparent}
+  .btn-primary{background:var(--brand); color:var(--ink-900); box-shadow:0 6px 20px rgba(217,119,87,.28)}
+  .btn-primary:hover{background:var(--acc-400); transform:translateY(-2px); box-shadow:0 10px 28px rgba(217,119,87,.34)}
+  .btn-ghost{background:var(--surface); color:var(--text); border-color:var(--line-2)}
+  .btn-ghost:hover{border-color:var(--ink-400); transform:translateY(-2px)}
+
+  .metrics{display:flex; flex-wrap:wrap; gap:10px; margin-top:38px; padding-top:30px; border-top:1px solid var(--line)}
+  .metric{flex:1 1 120px}
+  .metric .v{font-family:var(--serif); font-weight:600; font-size:30px; letter-spacing:-.02em; line-height:1}
+  .metric .v small{font-size:16px; color:var(--brand-ink)}
+  .metric .l{font-size:12.5px; color:var(--text-3); margin-top:6px; letter-spacing:.01em}
+
+  .hero-fig{position:relative; background:var(--surface); border:1px solid var(--line); border-radius:24px; padding:28px; box-shadow:var(--shadow-card); overflow:hidden}
+  .hero-fig .cap{font-family:var(--mono); font-size:11px; color:var(--text-3); letter-spacing:.05em; text-transform:uppercase; margin-bottom:6px}
+  .hero-fig .cap2{font-size:14.5px; color:var(--text-2); margin-bottom:18px}
+  .glyph{width:100%; height:auto}
+
+  /* ---------- section heads ---------- */
+  .sec{padding:78px 0}
+  .sec-head{max-width:62ch; margin-bottom:44px}
+  .kicker{font-family:var(--mono); font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--brand-ink); margin-bottom:14px}
+  h2{font-family:var(--sans); font-weight:800; font-size:clamp(26px,3.4vw,38px); letter-spacing:-.03em; line-height:1.1; margin:0 0 16px}
+  h2 em{font-family:var(--serif); font-style:italic; font-weight:500; color:var(--brand-ink)}
+  .sec-head p{font-size:17px; color:var(--text-2); margin:0}
+
+  /* ---------- pillars ---------- */
+  .pillars{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+  .pillar{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:30px; box-shadow:var(--shadow-card); transition:transform .3s, box-shadow .3s; position:relative; overflow:hidden}
+  .pillar:hover{transform:translateY(-4px); box-shadow:var(--shadow-pop)}
+  .pillar .pn{font-family:var(--serif); font-size:14px; color:var(--brand-ink); font-weight:600}
+  .pillar .ic{width:42px; height:42px; border-radius:11px; background:var(--acc-50); border:1px solid var(--acc-100); display:grid; place-items:center; margin:8px 0 18px; color:var(--brand-ink)}
+  .pillar h3{font-size:20px; font-weight:700; letter-spacing:-.02em; margin:0 0 10px}
+  .pillar p{font-size:15px; color:var(--text-2); margin:0}
+
+  /* ---------- features ---------- */
+  .feat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--r); overflow:hidden}
+  .feat{background:var(--surface); padding:28px; transition:background .25s}
+  .feat:hover{background:var(--ink-50)}
+  .feat .fic{color:var(--brand-ink); margin-bottom:14px}
+  .feat h3{font-size:16.5px; font-weight:700; letter-spacing:-.01em; margin:0 0 8px}
+  .feat p{font-size:14px; color:var(--text-2); margin:0; line-height:1.55}
+  .feat .tag{font-family:var(--mono); font-size:11px; color:var(--text-3); margin-top:12px; display:block}
+
+  /* ---------- screenshot showcase ---------- */
+  .shot-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:20px}
+  .shot-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--shadow-card); overflow:hidden; transition:transform .3s, box-shadow .3s; margin:0}
+  .shot-card:hover{transform:translateY(-4px); box-shadow:var(--shadow-pop)}
+  .shot-card .shot-img{background:var(--ink-50); position:relative; overflow:hidden; display:block; width:100%; padding:0; margin:0; border:0; border-bottom:1px solid var(--line); cursor:zoom-in; appearance:none; -webkit-appearance:none; font:inherit; text-align:inherit}
+  .shot-card .shot-img img{width:100%; height:auto; display:block; opacity:.97; transition:transform .4s ease}
+  .shot-card .shot-img:hover img{transform:scale(1.03)}
+  .shot-card .shot-img .zoom-hint{
+    position:absolute; right:12px; bottom:12px; display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:11.5px; color:var(--white); background:rgba(25,23,19,.62);
+    padding:7px 12px; border-radius:99px; opacity:0; transform:translateY(4px); transition:opacity .2s, transform .2s;
+    backdrop-filter:blur(3px);
+  }
+  .shot-card .shot-img:hover .zoom-hint, .shot-card .shot-img:focus-visible .zoom-hint{opacity:1; transform:none}
+  .shot-card .shot-body{padding:20px 22px}
+  .shot-card .shot-kicker{font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--brand-ink); margin-bottom:8px}
+  .shot-card h3{font-size:17px; font-weight:700; letter-spacing:-.01em; margin:0 0 8px}
+  .shot-card p{font-size:14px; color:var(--text-2); margin:0; line-height:1.6}
+  .shot-card.wide{grid-column:1 / -1}
+  .shot-card.wide .shot-img{max-height:520px}
+  .shot-card.wide .shot-img img{object-fit:cover; object-position:top}
+
+  /* ---------- lightbox ---------- */
+  .lightbox{
+    position:fixed; inset:0; z-index:300; display:grid; place-items:center; padding:min(6vh,48px) min(5vw,40px);
+    background:rgba(25,23,19,.88); backdrop-filter:blur(4px); opacity:0; visibility:hidden;
+    transition:opacity .25s ease; overscroll-behavior:contain;
+  }
+  .lightbox.open{opacity:1; visibility:visible}
+  .lightbox figure{margin:0; max-width:min(94vw,1400px); max-height:100%; display:flex; flex-direction:column; gap:14px; align-items:center}
+  .lightbox img{max-width:100%; max-height:78vh; width:auto; height:auto; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.5); background:var(--white)}
+  .lightbox figcaption{color:var(--ink-100); font-size:14px; text-align:center; max-width:70ch}
+  .lightbox-close{
+    position:absolute; top:18px; right:18px; width:44px; height:44px; border-radius:99px; border:1px solid rgba(250,249,245,.25);
+    background:rgba(255,255,255,.06); color:var(--white); display:grid; place-items:center; cursor:pointer; transition:background .2s, transform .2s;
+  }
+  .lightbox-close:hover{background:rgba(255,255,255,.16); transform:rotate(90deg)}
+  .lightbox-nav{
+    position:absolute; top:50%; transform:translateY(-50%); width:48px; height:48px; border-radius:99px;
+    border:1px solid rgba(250,249,245,.25); background:rgba(255,255,255,.06); color:var(--white);
+    display:grid; place-items:center; cursor:pointer; transition:background .2s;
+  }
+  .lightbox-nav:hover{background:rgba(255,255,255,.16)}
+  .lightbox-prev{left:18px}
+  .lightbox-next{right:18px}
+  @media (max-width:640px){
+    .lightbox{padding:22px 14px}
+    .lightbox-nav{width:40px; height:40px}
+    .lightbox-prev{left:6px} .lightbox-next{right:6px}
+    .lightbox-close{top:10px; right:10px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .shot-card .shot-img:hover img{transform:none}
+    .lightbox{transition:none}
+  }
+
+  /* ---------- data flow strip ---------- */
+  .flow{background:linear-gradient(180deg, var(--sunken), var(--paper)); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+  .diagram{display:grid; gap:18px; grid-template-columns:repeat(4,1fr); align-items:stretch}
+  .lane{display:flex; flex-direction:column; gap:14px; min-width:0; position:relative}
+  @media (min-width:641px){
+    .lane:not(:last-child)::after{
+      content:"→"; position:absolute; right:-15px; top:46px; transform:translateY(-50%);
+      color:var(--brand); font-size:18px; font-weight:700; opacity:.7; z-index:2;
+    }
+  }
+  .lane-title{font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); padding-bottom:8px; border-bottom:1px dashed var(--line-2); margin-bottom:2px}
+  .node{
+    background:var(--surface); border:1px solid var(--line-2); border-radius:13px; padding:14px 15px;
+    box-shadow:var(--shadow-card); position:relative; transition:transform .25s, box-shadow .25s;
+  }
+  .node:hover{transform:translateY(-3px); box-shadow:var(--shadow-pop)}
+  .node .nt{font-weight:700; font-size:14px; letter-spacing:-.01em; display:flex; align-items:center; gap:8px}
+  .node .nd{font-size:12.5px; color:var(--text-2); margin-top:5px; line-height:1.45}
+  .node .meta{font-family:var(--mono); font-size:10.5px; color:var(--text-3); margin-top:8px; letter-spacing:.02em}
+  .node.edge{border-color:var(--acc-200); background:linear-gradient(180deg,var(--acc-50),var(--surface))}
+  .node.compute{border-color:#E2CB96}
+  .node.data{border-color:#B7D9C4}
+  .node.ai{border-color:#D8C8F0}
+  .arch-note{margin-top:24px; font-size:13px; color:var(--text-3); display:flex; flex-wrap:wrap; gap:18px}
+  .arch-note b{color:var(--text-2); font-weight:600}
+
+  /* ---------- security / stack ---------- */
+  .split{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:start}
+  .checklist{list-style:none; padding:0; margin:0}
+  .checklist li{display:flex; gap:13px; padding:14px 0; border-bottom:1px solid var(--line)}
+  .checklist li:last-child{border-bottom:0}
+  .checklist .ci{flex:none; width:22px; height:22px; border-radius:99px; background:var(--acc-50); border:1px solid var(--acc-200); color:var(--brand-ink); display:grid; place-items:center; margin-top:2px}
+  .checklist h4{margin:0 0 3px; font-size:15.5px; font-weight:700; letter-spacing:-.01em}
+  .checklist p{margin:0; font-size:13.5px; color:var(--text-2)}
+  .stack{display:flex; flex-wrap:wrap; gap:9px}
+  .stack .s{font-family:var(--mono); font-size:13px; padding:9px 14px; border-radius:10px; background:var(--surface); border:1px solid var(--line-2); color:var(--text); transition:transform .2s, border-color .2s}
+  .stack .s:hover{transform:translateY(-2px); border-color:var(--brand)}
+  .stack .s b{color:var(--brand-ink)}
+  .stack-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:30px; box-shadow:var(--shadow-card)}
+
+  /* ---------- closing CTA ---------- */
+  .cta{margin:40px auto 0}
+  .cta-box{background:var(--ink-900); color:var(--ink-50); border-radius:28px; padding:clamp(36px,5vw,64px); text-align:center; position:relative; overflow:hidden}
+  .cta-box::after{content:""; position:absolute; inset:0; background:radial-gradient(600px 300px at 50% -10%, rgba(217,119,87,.30), transparent 70%); pointer-events:none}
+  .cta-box h2{color:var(--paper); position:relative; text-align:center; max-width:24ch; margin:0 auto 16px}
+  .cta-box h2 em{color:var(--acc-300)}
+  .cta-box p{color:var(--ink-200); max-width:52ch; margin:0 auto 28px; position:relative}
+  .cta-box .btn-primary{position:relative}
+  .cta-box .btn-ghost{background:transparent; color:var(--paper); border-color:rgba(250,249,245,.25)}
+  .cta-box .btn-ghost:hover{border-color:var(--paper)}
+  .cta-box .mono{font-family:var(--mono); font-size:13px}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line); padding:40px 0; margin-top:80px}
+  .foot-in{display:flex; flex-direction:column; gap:10px; align-items:center; justify-content:center; text-align:center; font-size:13px; color:var(--text-3)}
+  .foot-in .mono{font-family:var(--mono)}
+  .foot-in a{color:var(--brand-ink); font-weight:600}
+
+  /* reveal */
+  .reveal{opacity:0; transform:translateY(18px); transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1)}
+  .reveal.in{opacity:1; transform:none}
+  @media (prefers-reduced-motion:reduce){.reveal{opacity:1; transform:none; transition:none} .eyebrow .dot{animation:none} *{scroll-behavior:auto!important}}
+
+  /* ============ RESPONSIVE — tablet ============ */
+  @media (max-width:1024px){
+    .hero-grid{grid-template-columns:1fr; gap:36px}
+    .hero{padding:64px 0 48px}
+    .pillars{grid-template-columns:repeat(2,1fr)}
+    .pillars .pillar:nth-child(3){grid-column:1 / -1}
+    .feat-grid{grid-template-columns:repeat(2,1fr)}
+    .shot-grid{grid-template-columns:1fr}
+    .split{grid-template-columns:1fr; gap:36px}
+    .diagram{grid-template-columns:repeat(2,1fr); gap:16px}
+    .diagram .lane:last-child{grid-column:1 / -1}
+  }
+
+  /* ============ RESPONSIVE — mobile ============ */
+  @media (max-width:640px){
+    body{font-size:16px}
+    .wrap{padding:0 18px}
+    .sec{padding:54px 0}
+    .hero{padding:44px 0 36px}
+    .metrics{gap:18px 10px}
+    .metric{flex:1 1 40%}
+    .pillars{grid-template-columns:1fr}
+    .pillars .pillar:nth-child(3){grid-column:auto}
+    .feat-grid{grid-template-columns:1fr}
+    .shot-grid{grid-template-columns:1fr}
+    .diagram{grid-template-columns:1fr; gap:12px}
+    .diagram .lane:last-child{grid-column:auto}
+    .lane{flex-direction:column}
+    .lane:not(:last-child)::after{content:"↓"; display:block; text-align:center; color:var(--brand); font-size:20px; margin-top:2px}
+    .hero .hero-actions .btn{flex:1 1 100%; text-align:center}
+    .cta-box{border-radius:20px}
+  }
+  @media (max-width:380px){ .metric{flex:1 1 100%} }
+
+  /* AI & 아카이브 lane은 시각화의 다음 단계가 아니므로 흐름 화살표를 표시하지 않음 */
+  .lane.noarrow::after{display:none!important}
+  section[tabindex="-1"]:focus-visible{outline:none}
+</style>
+</head>
+<body>
+<a href="#value" class="skip-link">본문으로 건너뛰기</a>
+<noscript><style>.reveal{opacity:1;transform:none}</style></noscript>
+
+<!-- ===================== NAV ===================== -->
+<nav class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Claude Code Dashboard">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <rect width="64" height="64" rx="12" fill="#D97757"/>
+        <path d="M32 8 L36 28 L56 32 L36 36 L32 56 L28 36 L8 32 L28 28 Z" fill="#FAF9F5"/>
+      </svg>
+      <b>Claude Code Dashboard</b><span class="mono">Enterprise Analytics</span>
+    </a>
+    <div class="nav-links">
+      <a href="#value">핵심 가치</a>
+      <a href="#features">기능</a>
+      <a href="#screens">화면 둘러보기</a>
+      <a href="#architecture">동작 원리</a>
+      <a href="#trust">데이터 & 보안</a>
+      <a class="nav-cta" href="https://c4e.whchoi.net" target="_blank" rel="noopener">라이브 데모</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+<!-- ===================== HERO ===================== -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow reveal"><span class="dot"></span> ANTHROPIC ANALYTICS · ADMIN · COMPLIANCE API</span>
+      <h1 class="hero-title reveal">조직의 Claude Code를<br><em>하나의 대시보드</em>에서.</h1>
+      <p class="hero-sub reveal">Anthropic Analytics · Admin · Compliance API와 S3 아카이브를 결합해, Claude Code 도입 현황·사용자별 생산성·실시간 비용·감사 로그를 AI 자연어 분석과 함께 보여주는 엔터프라이즈 분석 대시보드입니다.</p>
+      <div class="hero-actions reveal">
+        <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기 (로그인 필요)</a>
+        <a href="#screens" class="btn btn-ghost">화면 둘러보기</a>
+      </div>
+      <div class="metrics reveal">
+        <div class="metric"><div class="v num">19</div><div class="l">대시보드 화면 (Overview → Archive)</div></div>
+        <div class="metric"><div class="v num">4</div><div class="l">데이터 소스 (3 Anthropic API + S3 아카이브)</div></div>
+        <div class="metric"><div class="v num">2</div><div class="l">언어 (한국어 · English 런타임 전환)</div></div>
+        <div class="metric"><div class="v">AI</div><div class="l">자연어 질의 · 스트리밍 리포트</div></div>
+      </div>
+    </div>
+
+    <aside class="hero-fig reveal" aria-label="데이터 흐름 모티프">
+      <div class="cap">APIS → S3 → DASHBOARD</div>
+      <div class="cap2">세 개의 Anthropic API와 S3 아카이브가 하나의 분석 화면으로 모입니다.</div>
+      <svg class="glyph" viewBox="0 0 420 300" role="img" aria-label="Anthropic API와 S3 아카이브에서 대시보드로 이어지는 데이터 흐름">
+        <defs>
+          <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#D97757" stop-opacity=".35"/>
+            <stop offset="100%" stop-color="#D97757" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <g stroke="#DDD9CE" stroke-width="1.4" fill="none">
+          <line x1="60" y1="220" x2="210" y2="150"/>
+          <line x1="210" y1="150" x2="360" y2="90"/>
+          <line x1="210" y1="150" x2="350" y2="220"/>
+          <line x1="60" y1="220" x2="150" y2="70"/>
+          <line x1="150" y1="70" x2="210" y2="150"/>
+          <line x1="350" y1="220" x2="360" y2="90"/>
+          <line x1="60" y1="220" x2="350" y2="220"/>
+        </g>
+        <g stroke="#D97757" stroke-width="1.8" fill="none" stroke-dasharray="4 6">
+          <line x1="210" y1="150" x2="360" y2="90"><animate attributeName="stroke-dashoffset" from="40" to="0" dur="2.4s" repeatCount="indefinite"/></line>
+          <line x1="60" y1="220" x2="210" y2="150"><animate attributeName="stroke-dashoffset" from="40" to="0" dur="3s" repeatCount="indefinite"/></line>
+        </g>
+        <g>
+          <circle cx="60" cy="220" r="9" fill="#FFFFFF" stroke="#8F897A" stroke-width="1.6"/>
+          <circle cx="150" cy="70" r="9" fill="#FFFFFF" stroke="#8F897A" stroke-width="1.6"/>
+          <circle cx="360" cy="90" r="9" fill="#FFFFFF" stroke="#8F897A" stroke-width="1.6"/>
+          <circle cx="350" cy="220" r="9" fill="#FFFFFF" stroke="#8F897A" stroke-width="1.6"/>
+        </g>
+        <circle cx="210" cy="150" r="46" fill="url(#halo)"><animate attributeName="r" values="40;52;40" dur="3.2s" repeatCount="indefinite"/></circle>
+        <path d="M210 122 L215 145 L238 150 L215 155 L210 178 L205 155 L182 150 L205 145 Z" fill="#D97757"/>
+        <g font-family="JetBrains Mono, monospace" font-size="11" fill="#6D675A">
+          <text x="60" y="246" text-anchor="middle">Analytics API</text>
+          <text x="150" y="52" text-anchor="middle">Admin · Compliance</text>
+          <text x="360" y="72" text-anchor="middle">실시간 비용</text>
+          <text x="350" y="246" text-anchor="middle">S3 아카이브</text>
+          <text x="210" y="207" text-anchor="middle" fill="#94482E" font-weight="600">DASHBOARD</text>
+        </g>
+      </svg>
+    </aside>
+  </div>
+</header>
+
+<!-- ===================== VALUE / PILLARS ===================== -->
+<section class="sec" id="value" tabindex="-1">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">왜 Claude Code Dashboard인가</div>
+      <h2>흩어진 리포트 대신, <em>하나의 화면</em>.</h2>
+      <p>"Claude Code 도입 효과가 어때?"라는 질문에 답하려면 Console 지표, CSV 스펜드 리포트, API 응답을 오가며 짜깁기해야 합니다. Claude Code Dashboard는 세 개의 Anthropic API와 S3 아카이브를 도입·생산성·비용·감사 네 축으로 재구성해, 경영진과 엔지니어가 같은 화면을 보게 합니다.</p>
+    </div>
+    <div class="pillars">
+      <article class="pillar reveal">
+        <div class="pn">01</div>
+        <div class="ic">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 5-7"/></svg>
+        </div>
+        <h3>도입 & 생산성 가시화</h3>
+        <p>누가 얼마나 쓰는지부터 LOC·커밋·PR·툴 수용률까지. 사용자별 활동 점수와 랭킹, DAU/WAU/MAU 추이로 도입 곡선을 추적합니다.</p>
+      </article>
+      <article class="pillar reveal">
+        <div class="pn">02</div>
+        <div class="ic">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <h3>실시간 비용 & 그룹 스코프</h3>
+        <p>조직·RBAC 그룹·사용자 단위의 라이브 USD와 토큰, 모델·제품별 분해, 캐시 효율까지. 그룹 탭 하나로 조직 지표가 그룹 스코프로 바뀝니다.</p>
+      </article>
+      <article class="pillar reveal">
+        <div class="pn">03</div>
+        <div class="ic">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2L12 16.8 5.7 21l2.3-7.2-6-4.4h7.6z"/></svg>
+        </div>
+        <h3>AI 자연어 분석</h3>
+        <p>대시보드가 보고 있는 데이터를 그대로 컨텍스트로, Amazon Bedrock의 Claude에게 한국어로 질문하고 스트리밍 리포트를 받습니다. PDF 저장도 지원.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FEATURES ===================== -->
+<section class="sec" id="features" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">기능</div>
+      <h2>개요부터 감사까지, <em>빠짐없이</em>.</h2>
+      <p>Overview KPI, 사용자 분석, Claude Code 생산성, 실시간 비용, 표면별 사용량, 감사 로그, 아카이브, AI 분석 — 19개 화면이 하나의 대시보드 안에서 이어집니다.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 13h3"/></svg></div>
+        <h3>Overview & Executive</h3>
+        <p>활성 사용자·세션·스펜드 KPI와 요약 차트를 첫 화면에서. 경영진용 Executive 뷰는 인쇄(PDF 저장)까지 지원합니다.</p>
+        <span class="tag">KPI · 요약 차트 · PDF</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.4"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.5a3.4 3.4 0 0 1 0 7M18.5 14.6c1.9.9 3.2 2.6 3.5 5.4"/></svg></div>
+        <h3>사용자 분석 & 상세 패널</h3>
+        <p>사용자별 엔게이지먼트 테이블과 상세 패널 — 제품·모델별 지출, 스킬, 캐시 효율(Cache Hit Rate)까지 한 사람 단위로 파고듭니다.</p>
+        <span class="tag">이메일 마스킹 · 캐시 효율</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14"/></svg></div>
+        <h3>Claude Code 생산성</h3>
+        <p>추가·삭제 LOC, 커밋, PR, 툴 수용률과 세션 지표. 사용자별 Top 테이블과 활동 점수 랭킹으로 생산성을 비교합니다.</p>
+        <span class="tag">LOC · COMMITS · PRS · ACCEPT</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2v20M17 6.5c0-1.9-2.2-3-5-3s-5 1.1-5 3 1.6 2.6 5 3.2 5 1.5 5 3.3-2.2 3-5 3-5-1.1-5-3"/></svg></div>
+        <h3>실시간 비용</h3>
+        <p>cost/usage report 계열 API로 조직 스펜드와 사용자별 USD·토큰을 라이브로. 모델·제품별 분해와 스펜드 리밋, CSV 리포트 대사(reconciliation)까지.</p>
+        <span class="tag">LIVE USD · 토큰 · 스펜드 리밋</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M6.5 6.5L10 10M17.5 6.5L14 10M6.5 17.5L10 14M17.5 17.5L14 14"/></svg></div>
+        <h3>RBAC 그룹 스코프</h3>
+        <p>페이지별 그룹 탭으로 조직 지표를 그룹 단위로 전환. Compliance 멤버십 소스로 그룹 신설·인원 이동이 1시간 내 반영됩니다.</p>
+        <span class="tag">그룹 탭 · 멤버십 자동 동기화</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg></div>
+        <h3>도입 추이 (Trends)</h3>
+        <p>DAU·WAU·MAU와 활성률을 기간별로 추적합니다. 7일·14일·30일 프리셋과 자유 기간 선택을 지원합니다.</p>
+        <span class="tag">DAU · WAU · MAU</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></div>
+        <h3>표면별 사용량</h3>
+        <p>Claude Code 외에도 Claude Chat·Cowork·Office·Design·Agentic 화면에서 표면별 활동 지표와 Top 사용자를 봅니다.</p>
+        <span class="tag">CHAT · COWORK · AGENTIC</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>감사 로그 (Compliance)</h3>
+        <p>Compliance API의 활동 이벤트를 커서 페이지네이션으로 수집하고, 7·14·30일 창을 프리웜해 감사 조회를 즉시 응답합니다.</p>
+        <span class="tag">AUDIT TRAIL · 프리웜 캐시</span>
+      </div>
+      <div class="feat reveal">
+        <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5" rx="8" ry="2.6"/><path d="M4 5v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6V5"/><path d="M4 12v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6v-7"/></svg></div>
+        <h3>아카이브 & AI 분석</h3>
+        <p>일일 수집 Lambda가 S3에 NDJSON으로 적재해 API 90일 창 너머를 Athena로 조회. Analyze 화면과 챗봇이 Bedrock의 Claude로 자연어 리포트를 만듭니다.</p>
+        <span class="tag">S3 · ATHENA · BEDROCK</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== SCREENSHOTS ===================== -->
+<section class="sec" id="screens" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">화면 둘러보기</div>
+      <h2>대시보드 화면을 <em>미리 보세요</em>.</h2>
+      <p>아래 화면은 데모 조직 데이터 기준이며(일부 화면은 Mock 데이터), 초기 버전 캡처라 사이드바 구성은 현재 19개 화면보다 적게 보입니다. 모든 이메일은 마스킹되어 표시되며, 전체 화면은 라이브 데모에서 직접 확인할 수 있습니다.</p>
+    </div>
+    <div class="shot-grid">
+      <figure class="shot-card wide reveal">
+        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, 세션, LOC, 커밋, PR, 툴 수용률을 보여주는 Users 화면 — 이메일은 마스킹됨" width="2400" height="663"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Users</div>
+          <h3>사용자별 엔게이지먼트를 한 테이블에</h3>
+          <p>메시지·세션·LOC·커밋·PR·툴 수용률을 사용자 단위로 정렬하고, 행을 클릭하면 제품별 지출과 캐시 효율까지 상세 패널로 이어집니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="조직 KPI와 요약 차트를 보여주는 Overview 화면" width="1600" height="691"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Overview</div>
+          <h3>조직 KPI를 첫 화면에서</h3>
+          <p>활성 사용자·세션·생산성 지표를 요약 차트와 함께 한눈에. 기간 프리셋(7·14·30일)으로 바로 전환합니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="조직 스펜드, 토큰, 모델별 분해를 보여주는 Cost 화면" width="1600" height="828"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Cost</div>
+          <h3>실시간 스펜드와 토큰</h3>
+          <p>조직·그룹·사용자 단위 USD와 토큰을 모델·제품별로 분해하고, 스펜드 리밋까지 같은 화면에서 봅니다. 라이브 리포트가 기본이고 CSV 스펜드 리포트(화면 예시)는 폴백·대사용입니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="LOC, 커밋, PR, 툴 수용률을 보여주는 Claude Code 생산성 화면" width="1600" height="667"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Claude Code</div>
+          <h3>코드 생산성 지표</h3>
+          <p>추가·삭제 LOC, 커밋, PR, 툴 수용률을 조직 전체와 사용자별로. 도입 효과를 숫자로 증명합니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="사용자별 활동 점수와 랭킹을 보여주는 User Productivity 화면" width="1600" height="764"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">User Productivity</div>
+          <h3>활동 점수로 랭킹</h3>
+          <p>엔게이지먼트와 코드 산출물을 결합한 활동 점수로 사용자를 랭킹하고, 파워 유저와 온보딩 대상자를 구분합니다. (화면은 Mock 데이터 예시)</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="5"><img src="img/trends.png" loading="lazy" alt="DAU, WAU, MAU 추이를 보여주는 Trends 화면" width="1600" height="518"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Trends</div>
+          <h3>도입 곡선 추적</h3>
+          <p>DAU·WAU·MAU와 활성률 추이로 조직의 Claude Code 도입이 어디까지 왔는지 확인합니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="6"><img src="img/audit.png" loading="lazy" alt="이벤트 수·고위험 이벤트 KPI와 이벤트 유형·행위자 차트를 보여주는 Audit 화면" width="1600" height="505"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Audit</div>
+          <h3>감사 로그 피드</h3>
+          <p>Compliance API의 활동 이벤트를 집계해 유형·행위자별로 시각화하고 고위험 이벤트를 분류합니다. 보안·컴플라이언스 팀의 질문에 바로 답합니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card wide reveal">
+        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/ai-analyze.png" loading="lazy" alt="자연어 질문에 대해 AI가 생성한 분석 리포트를 보여주는 Analyze 화면" width="1800" height="1684"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">AI Analyze</div>
+          <h3>자연어로 묻고, 리포트로 받는다</h3>
+          <p>"이번 달 비용이 왜 늘었지?" 같은 질문을 그대로 입력하면, 대시보드 데이터를 컨텍스트로 Bedrock의 Claude가 스트리밍 리포트를 생성합니다. PDF 저장 지원.</p>
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== HOW IT WORKS ===================== -->
+<section class="sec flow" id="architecture">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">동작 원리</div>
+      <h2>Anthropic API에서 <em>대시보드</em>까지.</h2>
+      <p>Express 프록시가 세 개의 Anthropic API를 캐시와 함께 서빙하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
+    </div>
+
+    <div class="diagram">
+      <div class="lane">
+        <div class="lane-title">수집</div>
+        <div class="node edge reveal">
+          <div class="nt">Anthropic API ×3</div>
+          <div class="nd">Analytics(엔게이지먼트·비용), Admin(워크스페이스 사용량), Compliance(감사·그룹 멤버십).</div>
+          <div class="meta">ENGAGEMENT · COST · AUDIT</div>
+        </div>
+        <div class="node edge reveal">
+          <div class="nt">Collector Lambda</div>
+          <div class="nd">매일 Analytics 스냅샷을 S3에 NDJSON으로 적재 — API 90일 창 너머를 보존.</div>
+          <div class="meta">DAILY · NDJSON + RAW</div>
+        </div>
+      </div>
+      <div class="lane">
+        <div class="lane-title">서빙</div>
+        <div class="node compute reveal">
+          <div class="nt">Express on ECS Fargate</div>
+          <div class="nd">API 프록시 + TTL 캐시(keep-warm 프리웜, stale-while-revalidate) + 응답 압축.</div>
+          <div class="meta">KEEP-WARM · SWR CACHE</div>
+        </div>
+      </div>
+      <div class="lane noarrow">
+        <div class="lane-title">시각화</div>
+        <div class="node reveal">
+          <div class="nt">React SPA</div>
+          <div class="nd">CloudFront + WAF 뒤에서 로그인 게이트(Cognito)로 보호. 19개 화면, 한국어·영어 전환, 모바일 대응.</div>
+          <div class="meta">19 PAGES · KO/EN · MOBILE</div>
+        </div>
+      </div>
+      <div class="lane">
+        <div class="lane-title">AI & 아카이브</div>
+        <div class="node ai reveal">
+          <div class="nt">Bedrock Claude</div>
+          <div class="nd">화면 데이터를 컨텍스트로 자연어 질의에 스트리밍 응답(챗봇·Analyze 리포트).</div>
+          <div class="meta">SSE STREAMING</div>
+        </div>
+        <div class="node data reveal">
+          <div class="nt">S3 + Glue + Athena</div>
+          <div class="nd">파티셔닝된 NDJSON 아카이브를 SQL로 질의 — 장기 추세·감사용.</div>
+          <div class="meta">date=YYYY-MM-DD 파티션</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arch-note reveal">
+      <span><b>흐름</b> Anthropic API → Express 프록시(캐시) → React SPA / Collector Lambda → S3 → Athena / Bedrock → AI 리포트</span>
+      <span><b>포지셔닝</b> 읽기 전용 분석 대시보드 — Anthropic 조직 설정을 변경하지 않습니다</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== TRUST / STACK ===================== -->
+<section class="sec" id="trust">
+  <div class="wrap split">
+    <div>
+      <div class="sec-head reveal" style="margin-bottom:28px">
+        <div class="kicker">데이터 & 보안</div>
+        <h2>읽기 전용, <em>마스킹 우선</em>.</h2>
+        <p>Claude Code Dashboard는 Anthropic API가 제공하는 조직 분석 데이터를 읽어 시각화하는 대시보드입니다. 개인 식별 정보는 마스킹하고, 자격 증명은 코드 밖에서 관리합니다.</p>
+      </div>
+      <ul class="checklist">
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h4>읽기 전용 관측</h4><p>모든 API 호출은 조회 전용입니다. 대시보드는 Anthropic 조직 설정이나 사용자 권한을 변경하지 않습니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h4>이메일 마스킹</h4><p>모든 화면과 AI 응답에서 이메일은 마스킹되어 표시됩니다. LLM 프롬프트 레벨에서도 마스킹을 강제합니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h4>시크릿 무노출</h4><p>API 키는 AWS Secrets Manager에서 런타임에 주입됩니다. 코드와 저장소에는 자격 증명이 존재하지 않습니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h4>로그인 게이트 & WAF</h4><p>배포본은 CloudFront 엣지에서 Cognito 로그인으로 보호됩니다 — 미인증 트래픽은 WAF·오리진에 닿기 전에 차단되며, 정적 자산 요청까지 인증을 검사합니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h4>90일 너머 보존</h4><p>일일 스냅샷을 S3에 NDJSON으로 적재하고 원본 사이드카를 병행 보존해, API 조회 창 너머의 추세 분석과 스키마 변경 복구를 지원합니다.</p></div></li>
+      </ul>
+    </div>
+
+    <div class="stack-card reveal">
+      <div class="kicker">기술 스택</div>
+      <h2 style="font-size:22px; margin-bottom:20px">AWS 네이티브 위에서.</h2>
+      <div class="stack">
+        <span class="s"><b>Frontend</b> React 18 · Vite · TypeScript</span>
+        <span class="s"><b>UI</b> Tailwind · Recharts</span>
+        <span class="s"><b>API</b> Express · Node 20</span>
+        <span class="s"><b>런타임</b> ECS Fargate (ARM64)</span>
+        <span class="s"><b>엣지</b> CloudFront · WAF · Cognito</span>
+        <span class="s"><b>데이터</b> S3 · Glue · Athena</span>
+        <span class="s"><b>AI</b> Amazon Bedrock (Claude)</span>
+        <span class="s"><b>IaC</b> AWS CDK</span>
+      </div>
+      <div style="margin-top:26px; padding-top:22px; border-top:1px solid var(--line); display:flex; gap:24px; flex-wrap:wrap">
+        <div><div class="metric"><div class="v num" style="font-size:26px">19</div><div class="l">대시보드 화면</div></div></div>
+        <div><div class="metric"><div class="v num" style="font-size:26px">4</div><div class="l">CDK 스택</div></div></div>
+        <div><div class="metric"><div class="v num" style="font-size:26px">2</div><div class="l">언어 (ko · en)</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CLOSING CTA ===================== -->
+<section class="wrap cta" id="start">
+  <div class="cta-box reveal">
+    <h2>도입 효과를 <em>숫자로 보여드릴게요</em>.</h2>
+    <p>사용자별 생산성·실시간 비용·AI 분석 화면을 라이브로 직접 확인할 수 있습니다. <span class="mono">(라이브 데모는 Cognito 로그인 필요)</span></p>
+    <div class="hero-actions" style="justify-content:center">
+      <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기</a>
+      <a href="#screens" class="btn btn-ghost">화면 다시 보기</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ===================== FOOTER ===================== -->
+<footer>
+  <div class="wrap foot-in">
+    <div class="brand" style="gap:9px">
+      <svg class="mark" style="width:24px;height:24px" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <rect width="64" height="64" rx="12" fill="#D97757"/>
+        <path d="M32 8 L36 28 L56 32 L36 36 L32 56 L28 36 L8 32 L28 28 Z" fill="#FAF9F5"/>
+      </svg>
+      <span>Claude Code Dashboard — Claude Code 조직 분석 대시보드</span>
+    </div>
+    <div class="mono">Anthropic Analytics · Admin · Compliance API — React · Express · ECS Fargate · Bedrock · Athena</div>
+    <div><a href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener">GitHub에서 소스 보기</a></div>
+    <div>본 대시보드는 독립적으로 개발된 분석 도구로, Anthropic의 공식 제품이 아닙니다. Anthropic, Claude는 Anthropic PBC의 상표이며, Amazon Web Services, AWS 관련 명칭은 Amazon.com, Inc. 또는 계열사의 상표입니다.</div>
+  </div>
+</footer>
+
+<!-- ===================== LIGHTBOX ===================== -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-hidden="true" aria-label="스크린샷 확대 보기">
+  <button type="button" class="lightbox-close" id="lightboxClose" aria-label="닫기">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 5l14 14M19 5L5 19"/></svg>
+  </button>
+  <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev" aria-label="이전 스크린샷">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>
+  </button>
+  <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext" aria-label="다음 스크린샷">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7"/></svg>
+  </button>
+  <figure>
+    <img id="lightboxImg" src="" alt="">
+    <figcaption id="lightboxCaption"></figcaption>
+  </figure>
+</div>
+
+<script>
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.querySelectorAll('svg animate, svg animateTransform').forEach(a=>a.remove());
+  }
+  document.querySelectorAll('.hero .reveal').forEach((el,i)=>{
+    el.style.transitionDelay=(i*90)+'ms';
+  });
+  requestAnimationFrame(()=>document.querySelectorAll('.hero .reveal').forEach(el=>el.classList.add('in')));
+
+  const io=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+  },{threshold:.12, rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.reveal:not(.in)').forEach((el)=>{
+    if(!el.closest('.hero')){ io.observe(el); }
+  });
+
+  // ---------- lightbox ----------
+  const triggers = Array.from(document.querySelectorAll('[data-lightbox-index]'));
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImg = document.getElementById('lightboxImg');
+  const lightboxCaption = document.getElementById('lightboxCaption');
+  let lastFocused = null;
+  let current = 0;
+
+  function renderSlide(i){
+    const t = triggers[i];
+    const img = t.querySelector('img');
+    lightboxImg.src = img.currentSrc || img.src;
+    lightboxImg.alt = img.alt;
+    lightboxCaption.textContent = img.alt;
+    current = i;
+  }
+  function openLightbox(i){
+    lastFocused = document.activeElement;
+    renderSlide(i);
+    lightbox.classList.add('open');
+    lightbox.setAttribute('aria-hidden','false');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('lightboxClose').focus();
+  }
+  function closeLightbox(){
+    lightbox.classList.remove('open');
+    lightbox.setAttribute('aria-hidden','true');
+    document.body.style.overflow = '';
+    lightboxImg.src = '';
+    if (lastFocused) lastFocused.focus();
+  }
+  function step(delta){
+    renderSlide((current + delta + triggers.length) % triggers.length);
+  }
+
+  triggers.forEach((t,i)=> t.addEventListener('click', ()=> openLightbox(i)));
+  document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
+  document.getElementById('lightboxPrev').addEventListener('click', ()=> step(-1));
+  document.getElementById('lightboxNext').addEventListener('click', ()=> step(1));
+  lightbox.addEventListener('click', (e)=>{ if(e.target === lightbox) closeLightbox(); });
+  document.addEventListener('keydown', (e)=>{
+    if(!lightbox.classList.contains('open')) return;
+    if(e.key === 'Escape') closeLightbox();
+    if(e.key === 'ArrowLeft') step(-1);
+    if(e.key === 'ArrowRight') step(1);
+    if(e.key === 'Tab'){
+      // focus trap: keep Tab inside the dialog controls
+      const f = ['lightboxClose','lightboxPrev','lightboxNext'].map(id=>document.getElementById(id));
+      const i = f.indexOf(document.activeElement);
+      e.preventDefault();
+      const n = e.shiftKey ? (i <= 0 ? f.length-1 : i-1) : (i === f.length-1 || i < 0 ? 0 : i+1);
+      f[n].focus();
+    }
+  });
+</script>
+</body>
+</html>
