@@ -178,9 +178,9 @@
   .lightbox{
     position:fixed; inset:0; z-index:300; display:grid; place-items:center; padding:min(6vh,48px) min(5vw,40px);
     background:rgba(25,23,19,.88); backdrop-filter:blur(4px); opacity:0; visibility:hidden;
-    transition:opacity .25s ease; overscroll-behavior:contain;
+    transition:opacity .25s ease, visibility 0s linear .25s; overscroll-behavior:contain;
   }
-  .lightbox.open{opacity:1; visibility:visible}
+  .lightbox.open{opacity:1; visibility:visible; transition:opacity .25s ease}
   .lightbox figure{margin:0; max-width:min(94vw,1400px); max-height:100%; display:flex; flex-direction:column; gap:14px; align-items:center}
   .lightbox img{max-width:100%; max-height:78vh; width:auto; height:auto; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.5); background:var(--white)}
   .lightbox figcaption{color:var(--ink-100); font-size:14px; text-align:center; max-width:70ch}
@@ -212,7 +212,7 @@
   .flow{background:linear-gradient(180deg, var(--sunken), var(--paper)); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
   .diagram{display:grid; gap:18px; grid-template-columns:repeat(4,1fr); align-items:stretch}
   .lane{display:flex; flex-direction:column; gap:14px; min-width:0; position:relative}
-  @media (min-width:641px){
+  @media (min-width:1025px){
     .lane:not(:last-child)::after{
       content:"→"; position:absolute; right:-15px; top:46px; transform:translateY(-50%);
       color:var(--brand); font-size:18px; font-weight:700; opacity:.7; z-index:2;
@@ -240,7 +240,7 @@
   .checklist li{display:flex; gap:13px; padding:14px 0; border-bottom:1px solid var(--line)}
   .checklist li:last-child{border-bottom:0}
   .checklist .ci{flex:none; width:22px; height:22px; border-radius:99px; background:var(--acc-50); border:1px solid var(--acc-200); color:var(--brand-ink); display:grid; place-items:center; margin-top:2px}
-  .checklist h4{margin:0 0 3px; font-size:15.5px; font-weight:700; letter-spacing:-.01em}
+  .checklist h3{margin:0 0 3px; font-size:15.5px; font-weight:700; letter-spacing:-.01em}
   .checklist p{margin:0; font-size:13.5px; color:var(--text-2)}
   .stack{display:flex; flex-wrap:wrap; gap:9px}
   .stack .s{font-family:var(--mono); font-size:13px; padding:9px 14px; border-radius:10px; background:var(--surface); border:1px solid var(--line-2); color:var(--text); transition:transform .2s, border-color .2s}
@@ -311,7 +311,7 @@
 </style>
 </head>
 <body>
-<a href="#value" class="skip-link">본문으로 건너뛰기</a>
+<a href="#main" class="skip-link">본문으로 건너뛰기</a>
 <noscript><style>.reveal{opacity:1;transform:none}</style></noscript>
 
 <!-- ===================== NAV ===================== -->
