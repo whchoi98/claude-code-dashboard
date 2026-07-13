@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Public brochure on GitHub Pages.** A self-contained Korean landing page (`site/index.html` — hero, value pillars, 9 feature cards, 8 masked screenshots with a lightbox, architecture flow, security posture, live-demo CTA to c4e.whchoi.net) published to https://whchoi98.github.io/claude-code-dashboard/ from the `gh-pages` branch via `scripts/deploy-pages.sh`, mirroring the nfm-dashboard brochure pattern.
+- **Architecture diagram in the how-it-works section.** Hand-authored 1400×860 SVG (`site/img/ccd-arch.svg`) in the model-monitoring brochure style — user path (CloudFront/Cognito → ALB/Regional WAF → Fargate), Anthropic API fan-out, S3-first replay, Bedrock, collector pipeline, dual Secrets injection — embedded responsively with 90° rotation on mobile.
 
 ### Changed
 
@@ -24,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 추가
 
 - **GitHub Pages 공개 브로셔.** 자체 완결형 한국어 랜딩 페이지(`site/index.html` — 히어로, 핵심 가치, 기능 9종, 마스킹된 스크린샷 8장 + 라이트박스, 아키텍처 흐름, 보안 포지셔닝, c4e.whchoi.net 라이브 데모 CTA)를 `scripts/deploy-pages.sh`로 `gh-pages` 브랜치에 게시 — https://whchoi98.github.io/claude-code-dashboard/ (nfm-dashboard 브로셔 패턴).
+- **동작 원리 섹션 아키텍처 다이어그램.** model-monitoring 브로셔 스타일의 수제 1400×860 SVG(`site/img/ccd-arch.svg`) — 사용자 경로(CloudFront/Cognito → ALB/Regional WAF → Fargate), Anthropic API 팬아웃, S3-first 리플레이, Bedrock, 수집 파이프라인, 이중 Secrets 주입 — 모바일에서 90° 회전되는 반응형 임베드.
 
 ### 변경
 
