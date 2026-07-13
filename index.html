@@ -94,6 +94,8 @@
   @media (max-width:640px){
     .brand .mono{display:none}
     .brand b{font-size:17px; white-space:nowrap}
+    .nav-in{gap:12px}
+    .nav-cta{padding:8px 13px}
   }
 
   /* ---------- hero ---------- */
@@ -214,6 +216,17 @@
 
   /* ---------- data flow strip ---------- */
   .flow{background:linear-gradient(180deg, var(--sunken), var(--paper)); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+  .arch-figure{margin:0 0 36px; background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-card); padding:14px; overflow:hidden}
+  .arch-figure img{display:block; width:100%; height:auto}
+  .arch-rot-hint{display:none}
+  @media (max-width:640px){
+    /* SVG natural size 1400×860 → portrait container, rotated 90° */
+    .arch-figure{position:relative; padding:0; aspect-ratio:860/1400; margin-bottom:0}
+    .arch-figure img{position:absolute; top:50%; left:50%; max-width:none;
+      width:calc((100vw - 36px) * 1400 / 860);
+      height:auto; transform:translate(-50%,-50%) rotate(90deg)}
+    .arch-rot-hint{display:block; font-size:12.5px; color:var(--text-3); text-align:center; margin:12px 0 30px}
+  }
   .diagram{display:grid; gap:18px; grid-template-columns:repeat(4,1fr); align-items:stretch}
   .lane{display:flex; flex-direction:column; gap:14px; min-width:0; position:relative}
   @media (min-width:1025px){
@@ -592,6 +605,12 @@
       <p>Express 프록시가 세 개의 Anthropic API를 캐시와 함께 서빙하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
     </div>
 
+    <figure class="arch-figure reveal">
+      <img src="img/ccd-arch.svg" width="1400" height="860" loading="lazy"
+        alt="아키텍처 다이어그램: 사용자 → CloudFront(Cognito 엣지 인증) → ALB(Regional WAF) → React SPA + Express API(ECS Fargate). Express가 Anthropic Analytics·Admin·Compliance API를 조회 전용으로 프록시하고 일상 질의는 S3 아카이브를 먼저 읽으며(라이브 API 폴백), Amazon Bedrock의 Claude가 자연어 질의에 SSE로 응답. EventBridge가 매일 Collector Lambda를 기동해 Analytics 스냅샷을 S3에 NDJSON·raw로 적재하고 Athena가 SQL로 질의. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입.">
+    </figure>
+    <p class="arch-rot-hint">모바일에서는 다이어그램이 세로로 회전되어 표시됩니다.</p>
+
     <div class="diagram">
       <div class="lane">
         <div class="lane-title">수집</div>
@@ -618,7 +637,7 @@
         <div class="lane-title">시각화</div>
         <div class="node reveal">
           <div class="nt">React SPA</div>
-          <div class="nd">CloudFront + WAF 뒤에서 로그인 게이트(Cognito)로 보호. 19개 화면, 한국어·영어 전환, 모바일 대응.</div>
+          <div class="nd">CloudFront 로그인 게이트(Cognito 엣지 인증)와 ALB의 Regional WAF로 보호. 19개 화면, 한국어·영어 전환, 모바일 대응.</div>
           <div class="meta">19 PAGES · KO/EN · MOBILE</div>
         </div>
       </div>
@@ -631,14 +650,14 @@
         </div>
         <div class="node data reveal">
           <div class="nt">S3 + Glue + Athena</div>
-          <div class="nd">파티셔닝된 NDJSON 아카이브를 SQL로 질의 — Analytics 데이터의 장기 추세 분석용.</div>
+          <div class="nd">일상 질의는 S3 파티션을 먼저 읽고(라이브 API 폴백), Athena SQL은 장기 추세 분석용.</div>
           <div class="meta">date=YYYY-MM-DD 파티션</div>
         </div>
       </div>
     </div>
 
     <div class="arch-note reveal">
-      <span><b>흐름</b> Anthropic API → Express 프록시(캐시) → React SPA / Collector Lambda → S3 → Athena / Bedrock → AI 리포트</span>
+      <span><b>흐름</b> Anthropic API·S3 아카이브 → Express 프록시(캐시) → React SPA / Collector Lambda → S3 → Athena / Bedrock → AI 리포트</span>
       <span><b>포지셔닝</b> 읽기 전용 분석 대시보드 — Anthropic 조직 설정을 변경하지 않습니다</span>
     </div>
   </div>
@@ -670,7 +689,7 @@
         <span class="s"><b>UI</b> Tailwind · Recharts</span>
         <span class="s"><b>API</b> Express · Node 20</span>
         <span class="s"><b>런타임</b> ECS Fargate (ARM64)</span>
-        <span class="s"><b>엣지</b> CloudFront · WAF · Cognito</span>
+        <span class="s"><b>엣지</b> CloudFront · Cognito · WAF(ALB)</span>
         <span class="s"><b>데이터</b> S3 · Glue · Athena</span>
         <span class="s"><b>AI</b> Amazon Bedrock (Claude)</span>
         <span class="s"><b>IaC</b> AWS CDK</span>

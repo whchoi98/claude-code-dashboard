@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="Claude Code Dashboard 아키텍처: 사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 부착된 ALB를 거쳐 ECS Fargate의 React SPA + Express API에 접속합니다. Express는 Anthropic Analytics·Admin·Compliance API를 keep-warm 캐시로 프록시하고, 일상 질의는 S3 아카이브를 먼저 읽습니다(라이브 API 폴백). Amazon Bedrock의 Claude가 자연어 분석에 응답하고, EventBridge가 매일 Collector Lambda를 기동해 Analytics 스냅샷을 S3에 NDJSON과 raw 사이드카로 적재하며, Athena가 이를 SQL로 질의합니다. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입합니다.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5F5A4D"/>
+    </marker>
+    <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#D97757"/>
+    </marker>
+  </defs>
+
+  <style>
+    .t{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .card{fill:#FFFFFF;stroke:#DDD9CE;stroke-width:1.5}
+    .cardX{fill:#FBF1EB;stroke:#EDC9B4;stroke-width:1.5}
+    .name{font-size:19px;font-weight:700;fill:#26231D}
+    .sub{font-size:14px;fill:#6D675A}
+    .lbl{font-size:13px;fill:#6D675A;letter-spacing:.08em}
+    .flow{stroke:#5F5A4D;stroke-width:1.8;fill:none}
+    .flowD{stroke:#8F897A;stroke-width:1.6;fill:none;stroke-dasharray:5 5}
+    .flowA{stroke:#D97757;stroke-width:2.2;fill:none}
+    .edge{font-size:12.5px;fill:#6D675A}
+    .edgeA{font-size:12.5px;fill:#94482E;font-weight:600}
+  </style>
+
+  <rect x="0" y="0" width="1400" height="860" fill="#FAF9F5"/>
+
+  <!-- AWS Cloud boundary -->
+  <rect x="292" y="48" width="762" height="772" rx="18" fill="#FFFFFF" fill-opacity="0.45" stroke="#B5AFA0" stroke-width="1.6" stroke-dasharray="7 6"/>
+  <text class="m lbl" x="316" y="80">AWS CLOUD</text>
+
+  <!-- Anthropic external group label -->
+  <text class="m lbl" x="1100" y="80">ANTHROPIC API (EXTERNAL)</text>
+
+  <!-- 사용자 -->
+  <rect x="52" y="190" width="196" height="96" rx="12" class="card"/>
+  <text class="t name" x="76" y="230">사용자</text>
+  <text class="t sub" x="76" y="256">브라우저 · 모바일</text>
+
+  <!-- CloudFront -->
+  <rect x="330" y="118" width="212" height="96" rx="12" class="card"/>
+  <text class="t name" x="352" y="156">CloudFront</text>
+  <text class="t sub" x="352" y="182">Cognito 엣지 인증</text>
+
+  <!-- ALB -->
+  <rect x="330" y="272" width="212" height="96" rx="12" class="card"/>
+  <text class="t name" x="352" y="310">ALB</text>
+  <text class="t sub" x="352" y="336">Regional WAF · CF 전용</text>
+
+  <!-- Secrets Manager -->
+  <rect x="330" y="430" width="212" height="96" rx="12" class="card"/>
+  <text class="t name" x="352" y="468">Secrets Manager</text>
+  <text class="t sub" x="352" y="494">API 키 런타임 주입</text>
+
+  <!-- EventBridge -->
+  <rect x="330" y="624" width="212" height="96" rx="12" class="card"/>
+  <text class="t name" x="352" y="662">EventBridge</text>
+  <text class="t sub" x="352" y="688">매일 14:00 UTC</text>
+
+  <!-- Dashboard service -->
+  <rect x="608" y="215" width="230" height="110" rx="12" class="card"/>
+  <text class="t name" x="630" y="251">Dashboard 서비스</text>
+  <text class="t sub" x="630" y="277">React SPA + Express API</text>
+  <text class="t sub" x="630" y="299">ECS Fargate · 상시 웜 캐시</text>
+
+  <!-- Bedrock -->
+  <rect x="608" y="430" width="230" height="96" rx="12" class="card"/>
+  <text class="t name" x="630" y="468">Amazon Bedrock</text>
+  <text class="t sub" x="630" y="494">Claude · SSE 스트리밍</text>
+
+  <!-- Collector Lambda -->
+  <rect x="608" y="624" width="230" height="96" rx="12" class="card"/>
+  <text class="t name" x="630" y="662">Collector Lambda</text>
+  <text class="t sub" x="630" y="688">일일 Analytics 스냅샷</text>
+
+  <!-- Athena -->
+  <rect x="880" y="430" width="150" height="96" rx="12" class="card"/>
+  <text class="t name" x="896" y="468">Athena</text>
+  <text class="t sub" x="896" y="494">Glue 카탈로그</text>
+
+  <!-- S3 archive -->
+  <rect x="880" y="624" width="150" height="96" rx="12" class="card"/>
+  <text class="t name" x="896" y="662">S3 아카이브</text>
+  <text class="t sub" x="896" y="688">NDJSON · raw</text>
+
+  <!-- Anthropic API boxes (external) -->
+  <rect x="1100" y="118" width="248" height="96" rx="12" class="cardX"/>
+  <text class="t name" x="1124" y="156">Analytics API</text>
+  <text class="t sub" x="1124" y="182">인게이지먼트 · 비용</text>
+
+  <rect x="1100" y="240" width="248" height="96" rx="12" class="cardX"/>
+  <text class="t name" x="1124" y="278">Admin API</text>
+  <text class="t sub" x="1124" y="304">워크스페이스 사용량</text>
+
+  <rect x="1100" y="362" width="248" height="96" rx="12" class="cardX"/>
+  <text class="t name" x="1124" y="400">Compliance API</text>
+  <text class="t sub" x="1124" y="426">감사 · 그룹 멤버십</text>
+
+  <!-- flows: user path -->
+  <path class="flow" marker-end="url(#ar)" d="M248 238 L296 238 L296 166 L330 166"/>
+  <path class="flow" marker-end="url(#ar)" d="M436 214 L436 272"/>
+  <path class="flow" marker-end="url(#ar)" d="M542 320 L575 320 L575 270 L608 270"/>
+
+  <!-- flows: Express -> Anthropic APIs (accent) -->
+  <path class="flowA" marker-end="url(#arA)" d="M838 245 L960 245 L960 166 L1100 166"/>
+  <path class="flowA" marker-end="url(#arA)" d="M838 270 L1005 270 L1005 288 L1100 288"/>
+  <path class="flowA" marker-end="url(#arA)" d="M838 295 L960 295 L960 410 L1100 410"/>
+  <text class="t edgeA" x="845" y="230">HTTPS · 조회 전용</text>
+
+  <!-- flows: Express -> Bedrock / Athena -->
+  <path class="flow" marker-end="url(#ar)" d="M723 325 L723 430"/>
+  <text class="t edge" x="650" y="384">자연어 질의</text>
+  <path class="flow" marker-end="url(#ar)" d="M838 315 L940 315 L940 430"/>
+  <text class="t edge" x="850" y="334">SQL 질의</text>
+  <path class="flow" marker-end="url(#ar)" d="M800 325 L800 395 L858 395 L858 648 L880 648"/>
+  <text class="t edge" x="812" y="388">S3-first 리플레이</text>
+  <path class="flow" marker-end="url(#ar)" d="M955 526 L955 624"/>
+  <text class="t edge" x="967" y="580">파티션 스캔</text>
+
+  <!-- flows: secrets (dashed) -->
+  <path class="flowD" marker-end="url(#ar)" d="M542 478 L585 478 L585 310 L608 310"/>
+  <path class="flowD" marker-end="url(#ar)" d="M542 500 L585 500 L585 600 L630 600 L630 624"/>
+  <text class="t edge" x="597" y="402">키 주입</text>
+
+  <!-- flows: collector -->
+  <path class="flow" marker-end="url(#ar)" d="M542 672 L608 672"/>
+  <path class="flow" marker-end="url(#ar)" d="M838 672 L880 672"/>
+  <text class="t edge" x="859" y="660" text-anchor="middle">적재</text>
+  <path class="flow" marker-end="url(#ar)" d="M780 720 L780 750 L1374 750 L1374 166 L1348 166"/>
+  <text class="t edge" x="1050" y="736">일일 수집 (raw + 평탄화)</text>
+
+  <!-- legend (stacked, clear of the cloud boundary) -->
+  <path class="flowA" d="M52 774 L92 774"/>
+  <text class="t edgeA" x="100" y="779">Anthropic API 데이터 경로</text>
+  <path class="flow" d="M52 804 L92 804"/>
+  <text class="t edge" x="100" y="809">요청 · 적재 경로</text>
+</svg>
