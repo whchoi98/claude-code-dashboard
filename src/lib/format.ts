@@ -31,8 +31,9 @@ export const acceptRate = (a: number, r: number) => {
  * and keeps the domain visible.
  *   alice.kim@acme.com  →  al*******@acme.com
  *   brian.park@acme.com →  br*********@acme.com
- *   ab@x.com            →  ab@x.com        (local part already ≤ 2 chars)
- *   a@x.com             →  a*@x.com        (stars at least 1)
+ *   ab@x.com            →  ab@x.com        (local part ≤ 2 chars: returned
+ *   a@x.com             →  a@x.com          unchanged — nothing to mask
+ *                                            without erasing the whole local)
  */
 export function maskEmail(email: string | null | undefined): string {
   if (!email) return ''

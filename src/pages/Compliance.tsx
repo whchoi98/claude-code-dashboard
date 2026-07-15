@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -106,6 +106,10 @@ export function Compliance() {
   const t = useT()
   const { range } = useDateRange('7d')
   const [filterType, setFilterType] = useState<string | 'all' | 'risk' | 'login'>('all')
+  const [selected, setSelected] = useState<ActivityEvent | null>(null)
+  // Stable identity: the panel's focus-management effect depends on onClose —
+  // an inline arrow would re-run it (and yank focus) on every parent render.
+  const closePanel = useCallback(() => setSelected(null), [])
   const [q, setQ] = useState('')
 
   // useDateRange clamps endingDate to today-3 for the Analytics API's data
@@ -327,15 +331,16 @@ export function Compliance() {
           {filtered.length === 0 ? (
             <EmptyState title={t('audit.empty')} />
           ) : (
-            <AuditFeedTable events={filtered} />
+            <AuditFeedTable events={filtered} onSelect={setSelected} />
           )}
         </ChartCard>
       </div>
+      <EventDetailPanel event={selected} onClose={closePanel} />
     </div>
   )
 }
 
-function AuditFeedTable({ events }: { events: ActivityEvent[] }) {
+function AuditFeedTable({ events, onSelect }: { events: ActivityEvent[]; onSelect: (e: ActivityEvent) => void }) {
   type K = 'time' | 'actor' | 'event' | 'ip'
   const accessors: Record<K, (e: ActivityEvent) => string | number | null | undefined> = {
     time:  (e) => e.created_at,
@@ -365,23 +370,36 @@ function AuditFeedTable({ events }: { events: ActivityEvent[] }) {
           {rows.map((e) => {
                     const r = riskLabel(e.type)
                     return (
-                      <tr key={e.id} className={clsx(
-                        'border-t border-ink-100',
-                        r === 'risk' ? 'bg-claude-50/40' : 'hover:bg-paper-muted/30',
-                      )}>
+                      <tr
+                        key={e.id}
+                        // Pointer convenience only — the badge <button> below is
+                        // the keyboard/AT entry point (a role=row can't announce
+                        // clickability). Skip when the user is drag-selecting
+                        // text (copying an IP/actor fires click on the row).
+                        onClick={() => { if (window.getSelection()?.toString()) return; onSelect(e) }}
+                        className={clsx(
+                          'border-t border-ink-100 cursor-pointer',
+                          r === 'risk' ? 'bg-claude-50/40 hover:bg-claude-50/70' : 'hover:bg-paper-muted/30',
+                        )}>
                         <td className="px-3 py-1.5 tabular-nums whitespace-nowrap text-ink-500">
                           {new Date(e.created_at).toLocaleString()}
                         </td>
                         <td className="px-3 py-1.5 text-ink-700">{actorDisplay(e.actor)}</td>
                         <td className="px-3 py-1.5">
-                          <span className={clsx(
-                            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
-                            r === 'risk'  ? 'bg-claude-100 text-claude-800' :
-                            r === 'login' ? 'bg-emerald-50 text-emerald-700' :
-                            'bg-ink-100 text-ink-600',
-                          )}>
+                          <button
+                            type="button"
+                            onClick={(ev) => { ev.stopPropagation(); onSelect(e) }}
+                            aria-label={`${e.type} · ${new Date(e.created_at).toLocaleString()} — detail`}
+                            className={clsx(
+                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer',
+                              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-claude-500',
+                              r === 'risk'  ? 'bg-claude-100 text-claude-800' :
+                              r === 'login' ? 'bg-emerald-50 text-emerald-700' :
+                              'bg-ink-100 text-ink-600',
+                            )}
+                          >
                             {e.type}
-                          </span>
+                          </button>
                         </td>
                         <td className="px-3 py-1.5 text-ink-500">{eventSummary(e)}</td>
                         <td className="px-3 py-1.5 text-ink-400 tabular-nums font-mono">{e.actor.ip_address ?? '—'}</td>
@@ -391,5 +409,175 @@ function AuditFeedTable({ events }: { events: ActivityEvent[] }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+// Mask every email-shaped string (keep 1-2 leading chars + domain — the
+// maskEmail convention) inside arbitrary text, for the raw-JSON view.
+// Also matches percent-encoded '@' (%40): compliance_api_accessed events
+// record other clients' request url/request_body verbatim, where emails
+// arrive URL-encoded — a literal-@ regex would let those through.
+function maskEmailsInText(s: string): string {
+  return s.replace(
+    /([A-Za-z0-9._+-]{1,2})[A-Za-z0-9._%+-]*(@|%40)([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi,
+    '$1***$2$3',
+  )
+}
+
+/** Value renderer for dynamic event fields: nulls, booleans, emails, objects. */
+function fieldValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'boolean') return String(v)
+  if (typeof v === 'object') return maskEmailsInText(JSON.stringify(v))
+  return maskEmailsInText(String(v))
+}
+
+// Keys rendered in the dedicated header/actor sections — everything else
+// lands in the generic field list.
+const PANEL_HANDLED_KEYS = new Set(['id', 'type', 'created_at', 'actor'])
+
+function EventDetailPanel({ event, onClose }: { event: ActivityEvent | null; onClose: () => void }) {
+  const t = useT()
+  const panelRef = useRef<HTMLElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const open = !!event
+
+  // aria-modal promises "everything outside is inert" — honor it: move
+  // focus into the panel on open, cycle Tab inside it, and restore focus
+  // to the triggering element on close.
+  useEffect(() => {
+    if (!open) return
+    const returnTo = document.activeElement as HTMLElement | null
+    // Defer past the visibility transition's first frame — at t=0 the
+    // computed visibility is still 'hidden' and focus() is silently ignored.
+    const focusTimer = setTimeout(() => closeBtnRef.current?.focus(), 50)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab') return
+      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
+        'button, summary, a[href], [tabindex]:not([tabindex="-1"])',
+      )
+      if (!focusables || focusables.length === 0) return
+      const list = Array.from(focusables)
+      const i = list.indexOf(document.activeElement as HTMLElement)
+      const next = e.shiftKey
+        ? (i <= 0 ? list.length - 1 : i - 1)
+        : (i === list.length - 1 || i < 0 ? 0 : i + 1)
+      list[next].focus()
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      clearTimeout(focusTimer)
+      window.removeEventListener('keydown', onKey)
+      returnTo?.focus?.()
+    }
+  }, [open, onClose])
+
+  const fields = useMemo(() => {
+    if (!event) return []
+    return Object.entries(event)
+      .filter(([k]) => !PANEL_HANDLED_KEYS.has(k))
+      .sort(([a], [b]) => a.localeCompare(b))
+  }, [event])
+
+  const r = event ? riskLabel(event.type) : 'info'
+  return (
+    <>
+      <div
+        onClick={onClose}
+        className={clsx(
+          'fixed inset-0 bg-ink-900/20 backdrop-blur-[2px] transition-opacity z-30',
+          open ? 'opacity-100' : 'opacity-0 pointer-events-none',
+        )}
+        aria-hidden="true"
+      />
+      <aside
+        ref={panelRef}
+        className={clsx(
+          // `invisible` when closed removes the offscreen panel (and its
+          // aria-modal dialog semantics) from the a11y tree and tab order —
+          // transforms alone don't (same guard as the Layout mobile drawer).
+          'fixed right-0 top-0 bottom-0 w-[480px] max-w-[90vw] bg-paper border-l border-ink-100 shadow-2xl z-40 transition-[transform,visibility] duration-200 overflow-y-auto',
+          open ? 'translate-x-0 visible' : 'translate-x-full invisible',
+        )}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('audit.detail.title')}
+      >
+        {event && (
+          <div className="p-5 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-1.5">{t('audit.detail.title')}</div>
+                <span className={clsx(
+                  'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium',
+                  r === 'risk'  ? 'bg-claude-100 text-claude-800' :
+                  r === 'login' ? 'bg-emerald-50 text-emerald-700' :
+                  'bg-ink-100 text-ink-600',
+                )}>
+                  {event.type}
+                </span>
+              </div>
+              <button
+                ref={closeBtnRef}
+                onClick={onClose}
+                aria-label={t('audit.detail.close')}
+                className="flex-none rounded-md p-1.5 text-ink-400 hover:text-ink-700 hover:bg-paper-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-claude-500"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" /></svg>
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[13px] text-ink-700 tabular-nums">{new Date(event.created_at).toLocaleString()}</div>
+              <div className="text-[11px] text-ink-400 font-mono break-all">{event.created_at} · {event.id}</div>
+            </div>
+
+            <section>
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-2">{t('audit.detail.actor')}</h3>
+              <dl className="rounded-lg border border-ink-100 divide-y divide-ink-100 text-[12px]">
+                {([
+                  ['type', event.actor.type],
+                  ['email', event.actor.email_address ? maskEmail(event.actor.email_address) : null],
+                  ['user_id', event.actor.user_id],
+                  ['api_key_id', event.actor.api_key_id],
+                  ['ip_address', event.actor.ip_address],
+                  ['user_agent', event.actor.user_agent],
+                ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([k, v]) => (
+                  <div key={k} className="flex gap-3 px-3 py-1.5">
+                    <dt className="w-24 flex-none text-ink-400 font-mono text-[11px] pt-0.5">{k}</dt>
+                    <dd className="min-w-0 break-all text-ink-700">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            {fields.length > 0 && (
+              <section>
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-2">{t('audit.detail.fields')}</h3>
+                <dl className="rounded-lg border border-ink-100 divide-y divide-ink-100 text-[12px]">
+                  {fields.map(([k, v]) => (
+                    <div key={k} className="flex gap-3 px-3 py-1.5">
+                      <dt className="w-40 flex-none text-ink-400 font-mono text-[11px] pt-0.5 break-all">{k}</dt>
+                      <dd className={clsx('min-w-0 break-all', v === null || v === undefined || v === '' ? 'text-ink-300' : 'text-ink-700')}>
+                        {fieldValue(v)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
+
+            <details className="rounded-lg border border-ink-100">
+              <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-ink-500 hover:text-ink-700">{t('audit.detail.raw')}</summary>
+              <pre className="px-3 pb-3 text-[10.5px] leading-relaxed text-ink-600 overflow-x-auto whitespace-pre-wrap break-all">
+                {maskEmailsInText(JSON.stringify(event, null, 2))}
+              </pre>
+            </details>
+          </div>
+        )}
+      </aside>
+    </>
   )
 }
