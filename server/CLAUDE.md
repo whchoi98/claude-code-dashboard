@@ -13,8 +13,26 @@ fallback.
   Analytics / Admin / Compliance proxy routes, the S3-first
   `readUsersFromS3` helper, and the **10-minute in-memory upstream cache**
   (`cache` Map, `TTL_MS = 600_000`). Schedules a **compliance prewarm** at
-  task startup + every 5 minutes for the 7d / 14d / 30d windows so the
-  audit page hits the cache instead of paginating the live API.
+  task startup + every 5 minutes: a direct `auditCache.topUp` (NOT an HTTP
+  self-call) of the four DateRangeControl preset windows using the SAME
+  key formula the frontend sends (`auditKey`; 1d = today−3, 7d/14d/30d =
+  today−(days−1), upper = today, `max=2000&pages=20`) — **the prewarm
+  windows and the frontend presets must stay formula-identical or the
+  response cache warms keys nobody requests** (the −9/−16/−32
+  engagement-buffer offsets were exactly that bug).
+  `/api/compliance/activities` rides that **response-level SWR cache**
+  (`auditCache` = `makeTtlCache` from `aws.js`; in-flight dedup) around the
+  `walkActivities` after_id walk: foreground walks carry a 45s budget +
+  15s-per-page `AbortSignal` (`AUDIT_WALK_BUDGET_MS` / `AUDIT_PAGE_TIMEOUT_MS`
+  — hard-bounded under the CloudFront 60s origin timeout even against a
+  hung socket) and degrade mid-walk failures (429/5xx/network) or budget
+  exhaustion to a `partial: true` response; background walks (prewarm
+  top-ups + the throttled `scheduleAuditCompletion` retry that follows any
+  partial serve) use the 240s `AUDIT_BG_BUDGET_MS` so cached entries
+  converge to COMPLETE results — audit volume passed 2000 events/window in
+  2026-07 (≈700+/day, mostly `claude_file_viewed`), so an uncached walk
+  takes 30–85s and MUST never run unbounded in a user-facing request path
+  (the 2026-07-15 Audit-page timeout regression).
   `COMPLIANCE_KEY` falls back to the Analytics key (its scopes include
   `read:compliance_activities`, verified live 2026-07-03) — the dedicated
   `ccd/compliance-key` secret is optional; `/api/health` reports which is

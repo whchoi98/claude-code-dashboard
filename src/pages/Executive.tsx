@@ -30,7 +30,14 @@ type CostResp = {
   }
   daily?: DailyCost[]
 }
-type ComplianceResp = { data: { id: string; type: string; created_at: string }[]; total_fetched: number }
+type ComplianceResp = {
+  data: { id: string; type: string; created_at: string }[]
+  total_fetched: number
+  /** See Compliance.tsx — anything outside COMPLETE stops means truncation. */
+  stop_reason?: string
+  partial?: boolean
+}
+const COMPLIANCE_COMPLETE_STOPS = new Set(['starting_date', 'has_more=false', 'empty'])
 
 // Same risk classification used by the Compliance page — keep this aligned.
 const RISK_TYPES = new Set([
@@ -289,7 +296,11 @@ export function Executive() {
             <KpiCard label={t('exec.kpi.cost_per_kloc')} value={snapshot.costPerKLoc != null ? fmtUsd(snapshot.costPerKLoc, 2) : '—'}
               hint={t('exec.kpi.cost_per_kloc.hint')} />
             <KpiCard label={t('exec.kpi.risk')} value={fmtNum(snapshot.riskEvents)}
-              hint={t('exec.kpi.risk.hint', { total: fmtNum(snapshot.totalEvents) })} />
+              hint={
+                compliance.data?.stop_reason && !COMPLIANCE_COMPLETE_STOPS.has(compliance.data.stop_reason)
+                  ? t('exec.kpi.risk.hint.partial', { total: fmtNum(snapshot.totalEvents) })
+                  : t('exec.kpi.risk.hint', { total: fmtNum(snapshot.totalEvents) })
+              } />
           </div>
         </div>
 

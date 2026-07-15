@@ -44,9 +44,16 @@ type Resp = {
   in_window?: number
   /** Why server-side pagination stopped: 'starting_date' = date boundary
    *  reached (good); 'max' = hit max records cap (older events missing);
-   *  'has_more=false' = no more upstream events; 'cap' = page cap; 'empty'. */
-  stop_reason?: 'starting_date' | 'max' | 'has_more=false' | 'cap' | 'empty'
+   *  'has_more=false' = no more upstream events; 'cap' = page cap; 'empty';
+   *  'time_budget' = server walk budget hit; 'upstream_<status>' = mid-walk
+   *  upstream failure degraded to a partial result. */
+  stop_reason?: string
+  /** Present when the server returned a mid-walk degraded (partial) result. */
+  partial?: boolean
 }
+
+/** Stop reasons that mean the requested window was fully covered. */
+const COMPLETE_STOPS = new Set(['starting_date', 'has_more=false', 'empty'])
 
 // Event categories for filtering + coloring
 const RISK_TYPES = new Set([
@@ -205,7 +212,7 @@ export function Compliance() {
         title={t('audit.title')}
         subtitle={t('audit.subtitle', {
           shown: events.length,
-          total: data?.data?.length ?? 0,
+          total: data?.total_fetched ?? 0,
           start: range.startingDate,
           end: upper,
         })}
@@ -213,13 +220,20 @@ export function Compliance() {
       />
       <GroupScopeNote />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
-        {data?.stop_reason === 'max' && (
+        {data?.stop_reason && !COMPLETE_STOPS.has(data.stop_reason) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-            {t('audit.cap.warning', {
-              fetched: fmtNum(data.total_fetched),
-              start: range.startingDate,
-              end: upper,
-            })}
+            {t(
+              // Volume stops (max/cap) keep the "narrow the range" wording;
+              // degraded stops get an accurate diagnosis + remediation.
+              data.stop_reason.startsWith('upstream_') ? 'audit.partial.upstream'
+                : data.stop_reason === 'time_budget' ? 'audit.partial.budget'
+                : 'audit.cap.warning',
+              {
+                fetched: fmtNum(data.total_fetched),
+                start: range.startingDate,
+                end: upper,
+              },
+            )}
           </div>
         )}
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">

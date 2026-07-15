@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { generateMock } from './mock.js'
-import { registerAwsRoutes } from './aws.js'
+import { registerAwsRoutes, makeTtlCache } from './aws.js'
 import { inflateUser } from './inflate.js'
 
 dotenv.config()
@@ -68,7 +68,7 @@ app.use(express.json())
 const cache = new Map()
 const TTL_MS = 600_000  // 10 min — paired with the 5-min compliance prewarm interval below
 
-async function fetchJson(path, params, key) {
+async function fetchJson(path, params, key, { signal } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
     if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, String(vv)))
@@ -79,6 +79,7 @@ async function fetchJson(path, params, key) {
   if (hit && Date.now() - hit.t < TTL_MS) return { ...hit.data, _cached: true }
 
   const res = await fetch(url, {
+    signal,
     headers: {
       'x-api-key': key,
       'anthropic-version': API_VERSION,
@@ -421,38 +422,83 @@ app.get('/api/admin/usage', async (req, res) => {
 
 // ─── Compliance API ─────────────────────────────────────────────────────────
 // Activity (audit) feed. Passes through most query params, auto-paginates.
-app.get('/api/compliance/activities', async (req, res) => {
-  if (!COMPLIANCE_KEY) {
-    return res.status(400).json({
-      error: 'compliance_key_required',
-      message: 'Set ANTHROPIC_COMPLIANCE_KEY (Enterprise Compliance API scope).',
-    })
-  }
-  // The Compliance API uses cursor pagination via `after_id` (the last event
-  // id of the previous page) to walk *backward* in time. It does NOT return a
-  // `next_page` token and does NOT accept timestamp-based filters. To honor a
-  // requested date window we paginate page by page and break out as soon as
-  // we cross the lower bound — for noisy orgs this prevents pulling tens of
-  // thousands of events when the user only asked for the last 14 days.
-  const pagesCap = Math.min(Number(req.query.pages || 50), 200)
-  const limit = Math.min(Number(req.query.limit || 100), 100)
-  const eventType = req.query.type // single type filter (client-side after fetch)
-  const maxRecords = Number(req.query.max || 5000)
-  const startingDate = req.query.starting_date // YYYY-MM-DD; older events stop pagination
-  const endingDate = req.query.ending_date     // YYYY-MM-DD; newer events filtered out
-  const initialAfterId = req.query.after_id     // cursor passthrough for incremental fetches
+//
+// The walk is wrapped in a RESPONSE-level SWR cache (auditCache): the 5-min
+// prewarm below top-ups the four preset windows DIRECTLY (same cache-key
+// formula as the frontend presets — 1d/7d/14d/30d ending today) with a
+// generous background budget, so user requests are served from memory and
+// never wait on the sequential after_id walk. Without this, any request
+// landing on a task whose 10-min page cache had just expired re-paginated
+// the live API in the foreground — with audit volume past 2000 events/window
+// that walk takes 30-75s, which blows through the CloudFront 60s origin
+// timeout and the Audit page never loads (regression observed 2026-07-15).
+const auditCache = makeTtlCache({ ttlMs: TTL_MS, cap: 24 })
+// Foreground walks must finish inside the CloudFront/ALB 60s window; return
+// what we have past this budget instead of timing out with nothing.
+// Background walks (prewarm top-ups, partial-completion retries) get the
+// longer budget so they can actually finish the window and replace partial
+// entries with complete ones — foreground and page TTLs are equal, so a
+// budget-capped refresh would otherwise re-truncate at the same depth
+// forever.
+const AUDIT_WALK_BUDGET_MS = 45_000
+const AUDIT_BG_BUDGET_MS = 240_000
+const AUDIT_PAGE_TIMEOUT_MS = 15_000
 
+// One canonical key per walk-parameter tuple — shared by the route and the
+// prewarm so the prewarm genuinely warms the keys real requests use.
+function auditKey(p) {
+  return [
+    p.startingDate || '', p.endingDate || '',
+    p.maxRecords, p.pagesCap, p.limit,
+    p.eventType || '', p.initialAfterId || '',
+  ].join('|')
+}
+
+// Sequential after_id walk over /v1/compliance/activities. Returns the
+// response body; NEVER throws once at least one page has been aggregated —
+// mid-walk failures (429 under the shared 60 rpm budget, upstream 5xx,
+// network errors/timeouts) and budget exhaustion degrade to a partial
+// result instead. A first-page failure throws (status attached) so the
+// cache can serve stale or the route can surface the real upstream error.
+async function walkActivities({ pagesCap, limit, eventType, maxRecords, startingDate, endingDate, initialAfterId }, budgetMs = AUDIT_WALK_BUDGET_MS) {
   const aggregated = []
   let afterId = initialAfterId
   let lastBody
-  let stopReason = 'cap'  // why pagination stopped: cap | empty | has_more=false | starting_date
+  let stopReason = 'cap'  // cap | empty | has_more=false | starting_date | max | upstream_<status> | upstream_network | time_budget
+  let partial = false
+  const t0 = Date.now()
   for (let i = 0; i < pagesCap; i++) {
+    // Budget check BEFORE each page, and a per-page abort capped to the
+    // remaining budget — a hung upstream socket must not push a foreground
+    // response past the CloudFront 60s window (undici's default timeout is
+    // minutes, and the in-flight dedup would pin every follower to it).
+    const left = budgetMs - (Date.now() - t0)
+    if (left < 2000 && aggregated.length > 0) { stopReason = 'time_budget'; partial = true; break }
     const params = {
       limit,
       ...(afterId ? { after_id: afterId } : {}),
     }
-    const upstream = await fetchJson('/v1/compliance/activities', params, COMPLIANCE_KEY)
-    if (!upstream.ok) return res.status(upstream.status).json(upstream.body)
+    let upstream
+    try {
+      const signal = AbortSignal.timeout(Math.min(AUDIT_PAGE_TIMEOUT_MS, Math.max(2000, left)))
+      upstream = await fetchJson('/v1/compliance/activities', params, COMPLIANCE_KEY, { signal })
+    } catch (err) {
+      if (aggregated.length === 0) throw err
+      stopReason = 'upstream_network'
+      partial = true
+      break
+    }
+    if (!upstream.ok) {
+      if (aggregated.length === 0) {
+        const err = new Error(`compliance activities upstream ${upstream.status}`)
+        err.status = upstream.status
+        err.body = upstream.body
+        throw err
+      }
+      stopReason = `upstream_${upstream.status}`
+      partial = true
+      break
+    }
     lastBody = upstream.body
     const pageData = Array.isArray(upstream.body?.data) ? upstream.body.data : []
     if (pageData.length === 0) { stopReason = 'empty'; break }
@@ -483,15 +529,63 @@ app.get('/api/compliance/activities', async (req, res) => {
   let filtered = aggregated.filter(inWindow)
   if (eventType) filtered = filtered.filter((a) => a.type === eventType)
 
-  res.json({
+  return {
     source: 'live',
     data: filtered.slice(0, maxRecords),
     has_more: lastBody?.has_more ?? false,
     total_fetched: aggregated.length,
     in_window: filtered.length,
     stop_reason: stopReason,
-  })
+    ...(partial ? { partial: true } : {}),
+  }
+}
+
+app.get('/api/compliance/activities', async (req, res) => {
+  if (!COMPLIANCE_KEY) {
+    return res.status(400).json({
+      error: 'compliance_key_required',
+      message: 'Set ANTHROPIC_COMPLIANCE_KEY (Enterprise Compliance API scope).',
+    })
+  }
+  // The Compliance API uses cursor pagination via `after_id` (the last event
+  // id of the previous page) to walk *backward* in time. It does NOT return a
+  // `next_page` token and does NOT accept timestamp-based filters. To honor a
+  // requested date window we paginate page by page and break out as soon as
+  // we cross the lower bound — for noisy orgs this prevents pulling tens of
+  // thousands of events when the user only asked for the last 14 days.
+  const walkParams = {
+    pagesCap: Math.min(Number(req.query.pages || 50), 200),
+    limit: Math.min(Number(req.query.limit || 100), 100),
+    eventType: req.query.type, // single type filter (client-side after fetch)
+    maxRecords: Number(req.query.max || 5000),
+    startingDate: req.query.starting_date, // YYYY-MM-DD; older events stop pagination
+    endingDate: req.query.ending_date,     // YYYY-MM-DD; newer events filtered out
+    initialAfterId: req.query.after_id,    // cursor passthrough for incremental fetches
+  }
+  const cacheKey = auditKey(walkParams)
+  try {
+    const out = await auditCache(cacheKey, () => walkActivities(walkParams))
+    // A budget/failure-truncated result is served immediately (fast, banner
+    // explains the truncation) while a background walk with the long budget
+    // finishes the window and replaces the cached entry — otherwise the
+    // partial would be latched for the whole TTL. Throttled per key so
+    // repeat visitors don't stack walks.
+    if (out.partial) scheduleAuditCompletion(cacheKey, walkParams)
+    res.json(out)
+  } catch (err) {
+    res.status(err.status || 502).json(err.body || { error: 'compliance_upstream_failed', message: err.message })
+  }
 })
+
+const auditCompletionAt = new Map() // cacheKey → last background-completion attempt ms
+function scheduleAuditCompletion(cacheKey, walkParams) {
+  const last = auditCompletionAt.get(cacheKey) || 0
+  if (Date.now() - last < 60_000) return
+  auditCompletionAt.set(cacheKey, Date.now())
+  if (auditCompletionAt.size > 64) auditCompletionAt.delete(auditCompletionAt.keys().next().value)
+  auditCache.topUp(cacheKey, () => walkActivities(walkParams, AUDIT_BG_BUDGET_MS))
+    .catch((err) => console.warn(`[audit] background completion failed for ${cacheKey}:`, err?.message || err))
+}
 
 // Cost API — daily cost breakdown (USD cents)
 app.get('/api/admin/cost', async (req, res) => {
@@ -565,26 +659,38 @@ if (PROD) {
 app.listen(PORT, () => {
   console.log(`\x1b[36m[api]\x1b[0m Claude Code Dashboard proxy on http://localhost:${PORT}`)
   console.log(`\x1b[36m[api]\x1b[0m Analytics key: ${keyClass(ANALYTICS_KEY)} | Admin key: ${keyClass(ADMIN_KEY)}`)
-  // Background prewarm for the Compliance audit feed. The Compliance API
-  // pagination is sequential (after_id cursor, ~1.5s/page) and a 14d window
-  // on noisy orgs takes 30+s — long enough to risk an ALB/CloudFront
-  // timeout on cold first request. Pre-populate the upstream cache for the
-  // three common preset windows so the user-facing fetch hits the in-memory
-  // cache and returns in <1s.
+  // Background prewarm for the Compliance audit feed. Top-ups the
+  // response-level auditCache DIRECTLY for the four DateRangeControl preset
+  // windows — the key formula MUST match what the frontend sends
+  // (useDateRange presets: start = today-(days-1), 1d = the finalized
+  // today-3 day, upper bound = today; Compliance.tsx/Executive.tsx send
+  // max=2000&pages=20), otherwise the prewarm warms keys nobody requests
+  // and every real request foreground-walks (the first version of this
+  // prewarm used the engagement-buffer offsets -9/-16/-32 and never matched).
+  // Background walks use the long budget so entries are COMPLETE — a
+  // 45s-capped refresh would re-truncate at the same depth forever since
+  // the page cache expires in lockstep with the response cache.
   if (COMPLIANCE_KEY) {
     const prewarm = async () => {
       const today = todayUtc(0)
       const windows = [
-        { label: '7d',  starting_date: todayUtc(-9) },   // BUFFER_DAYS+7-1
-        { label: '14d', starting_date: todayUtc(-16) },
-        { label: '30d', starting_date: todayUtc(-32) },
+        { label: '1d',  starting_date: todayUtc(-3) },   // '1d' preset = finalized day, clamped to end
+        { label: '7d',  starting_date: todayUtc(-6) },
+        { label: '14d', starting_date: todayUtc(-13) },
+        { label: '30d', starting_date: todayUtc(-29) },
       ]
       for (const w of windows) {
+        const params = {
+          pagesCap: 20, limit: 100, eventType: undefined,
+          maxRecords: 2000, startingDate: w.starting_date, endingDate: today,
+          initialAfterId: undefined,
+        }
         try {
-          const url = `http://127.0.0.1:${PORT}/api/compliance/activities?max=2000&pages=20&starting_date=${w.starting_date}&ending_date=${today}`
           const t0 = Date.now()
-          const r = await fetch(url)
-          const body = await r.json().catch(() => ({}))
+          // minAge 4 min: each 5-min tick refreshes, so entries never age
+          // past ~5 min and user requests always fresh-hit (no SWR
+          // foreground-budget refresh that could re-truncate them).
+          const body = await auditCache.topUp(auditKey(params), () => walkActivities(params, AUDIT_BG_BUDGET_MS), 240_000)
           const ms = Date.now() - t0
           console.log(`\x1b[36m[prewarm]\x1b[0m audit ${w.label}: ${body?.in_window ?? 'fail'} events in ${ms}ms (${body?.stop_reason ?? '?'})`)
         } catch (err) {
@@ -592,9 +698,6 @@ app.listen(PORT, () => {
         }
       }
     }
-    // Initial run after a brief delay (so the server is ready to accept
-    // self-calls), then refresh every 5 minutes (TTL is 10 min, so the
-    // cache stays warm with one window of overlap).
     setTimeout(() => { prewarm().catch(() => {}) }, 1000)
     setInterval(() => { prewarm().catch(() => {}) }, 300_000)
   }

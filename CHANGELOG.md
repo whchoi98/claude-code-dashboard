@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Audit page not loading (CloudFront 504).** Org audit volume passed 2000 events per preset window (≈700+/day, dominated by `claude_file_viewed`), so any request that missed the upstream page cache re-paginated the Compliance API in the foreground for 30–85s — past the CloudFront 60s origin timeout. `/api/compliance/activities` now rides a response-level SWR cache (`makeTtlCache`: in-flight dedup, stale-while-revalidate) whose 5-min prewarm top-ups the four preset windows **with the exact key formula the frontend sends** (the old prewarm used engagement-buffer offsets that never matched a real request); foreground walks carry a 45s budget + 15s per-page abort and degrade mid-walk failures (429/5xx/network) or budget exhaustion to `partial: true` responses, while background walks (prewarm + a throttled completion retry after any partial serve) get a 240s budget so cached entries converge to complete results. Frontend: the truncation banner now distinguishes volume caps from upstream failures and time-budget stops (new i18n keys), the Executive Risk KPI flags partial windows, and the Audit subtitle's `{total}` now uses `total_fetched` (was always equal to `{shown}`).
+
 ### Added
 
 - **Public brochure on GitHub Pages.** A self-contained Korean landing page (`site/index.html` — hero, value pillars, 9 feature cards, 8 masked screenshots with a lightbox, architecture flow, security posture, live-demo CTA to c4e.whchoi.net) published to https://whchoi98.github.io/claude-code-dashboard/ from the `gh-pages` branch via `scripts/deploy-pages.sh`, mirroring the nfm-dashboard brochure pattern.
@@ -21,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Activity Score vs Cost-Efficiency Score disambiguation.** The User Productivity score column is now labeled "Activity Score" with an explicit "(cost is not a factor)" formula note and a cross-reference to the Cost menu's Cost Efficiency section; the Cost Efficiency subtitle states it is intentionally different from the Activity Score. Four hardcoded English chart/formula strings were moved into en/ko i18n.
+
+### 수정
+
+- **감사 페이지 로딩 실패 (CloudFront 504).** 조직 감사 볼륨이 프리셋 창당 2000건을 초과(일 700건+, `claude_file_viewed` 위주)하면서, 캐시를 비껴간 요청이 Compliance API를 포그라운드에서 30~85초간 재페이지네이션 — CloudFront 60초 오리진 타임아웃 초과. `/api/compliance/activities`에 응답 레벨 SWR 캐시(`makeTtlCache`: in-flight 중복 제거, stale-while-revalidate)를 적용하고, 5분 프리웜이 **프런트엔드가 보내는 것과 동일한 키 수식**으로 4개 프리셋 창을 top-up(기존 프리웜은 인게이지먼트 버퍼 오프셋을 써서 실제 요청 키와 전혀 일치하지 않았음). 포그라운드 워크는 45초 예산 + 페이지당 15초 abort로 60초 아래 하드 바운드, 도중 실패(429/5xx/네트워크)·예산 초과는 `partial: true`로 강등, 백그라운드 워크(프리웜·partial 후 완주 재시도)는 240초 예산으로 완전한 결과에 수렴. 프런트: 잘림 배너가 볼륨 상한/업스트림 실패/시간 예산을 구분(신규 i18n 키), Executive Risk KPI에 부분 데이터 표시, 감사 부제의 `{total}` 보간 버그(`total_fetched` 사용) 수정.
 
 ### 추가
 
