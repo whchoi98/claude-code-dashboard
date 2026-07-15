@@ -265,7 +265,7 @@ Monthly AWS charges for a single production deployment. Numbers assume the **def
 | Secrets Manager | 3 secrets (Analytics / Admin / Compliance) | ~$1.20 |
 | S3 archive | <1 GB NDJSON + versioning | ~$0.05 |
 | CloudWatch Logs | 30-day retention, ~1 GB/month | ~$1 |
-| Glue Data Catalog | 4 tables + partition projections | ~$1 |
+| Glue Data Catalog | 6 tables + partition projections | ~$1 |
 | Athena | Ad-hoc queries, ~10 GB scanned/month | ~$1 |
 | CloudFront | 50 GB free tier covers most small deployments | ~$1-3 |
 | Lambda collector + EventBridge | 30 invocations/month · 512 MB · 30s avg | ~$0 (free tier) |

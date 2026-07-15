@@ -163,7 +163,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 - **19개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운 — 사용자별 캐시 적중률·Cowork/Design 컬럼 포함) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 트렌드 · Claude Code(사용자별 테이블 포함) · **Claude Chat**(대화 사용량·활동) · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입 · 비용(라이브 사용자별 지출/토큰, 그룹 스코프 조직 KPI, 실명 RBAC 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **체인지로그**(앱 내 릴리스 이력). 모바일 지원: `lg` 미만 햄버거 드로어 내비 + 반응형 레이아웃.
 - **세 개의 API 통합** — Analytics, Admin, Compliance (각각 별도 Secrets Manager 시크릿으로 주입; 모두 선택적이며 키가 없어도 UI는 graceful하게 동작).
-- **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷을 파티셔닝된 NDJSON으로 S3에 저장합니다. 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
+- **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷과 감사 이벤트를 파티셔닝된 NDJSON으로 S3에 저장합니다(감사 이력은 Athena `compliance_daily`로 조회). 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
 - **AI 자연어 질의** — Amazon Bedrock(Claude Sonnet 4.6 cross-region 프로파일) 기반 SSE 스트리밍. 두 모드: 실시간 스냅샷 직접 분석, 자율 Athena SQL 생성 + 실행.
 - **Cognito + Lambda@Edge 인증** — 모든 대시보드 URL이 Cognito Hosted UI 로그인을 거쳐야 접근 가능. 네 개의 viewer-request Lambda@Edge 함수(`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`)가 모든 CloudFront PoP에서 실행됨. 미인증 트래픽은 WAF · ALB · ECS에 도달하기 전에 차단. [ADR-0001](docs/decisions/0001-cognito-lambda-edge-auth.md) 참조.
 - **셀프서비스 CSV 업로드** — 비용 페이지에서 Spend Report CSV 업로드 / 목록 / 삭제를 브라우저로 직접 수행 — 클라이언트 프리뷰 + 기간 중복 경고 포함. AWS CLI 권한 불필요. [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md) 참조.
@@ -265,7 +265,7 @@ claude-code-dashboard/
 | Secrets Manager | 시크릿 3개 (Analytics / Admin / Compliance) | 약 $1.20 |
 | S3 archive | NDJSON < 1 GB + versioning | 약 $0.05 |
 | CloudWatch Logs | 30일 보존, 월 약 1 GB | 약 $1 |
-| Glue Data Catalog | 4 테이블 + 파티션 projection | 약 $1 |
+| Glue Data Catalog | 6 테이블 + 파티션 projection | 약 $1 |
 | Athena | Ad-hoc 쿼리, 월 약 10 GB 스캔 | 약 $1 |
 | CloudFront | 무료 티어 50 GB로 대부분 커버 | 약 $1-3 |
 | Lambda 컬렉터 + EventBridge | 월 30회 호출 · 512 MB · 30초 평균 | 약 $0 (free tier) |

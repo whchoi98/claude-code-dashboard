@@ -147,7 +147,10 @@ fallback.
     `fetchCostSummary()` is shared by `GET /cost/live` and the cost tool.
     Athena execution (`runAthena` polls for up to 60 s and throws an
     explicit timeout error rather than falling through to
-    `GetQueryResultsCommand` on a still-RUNNING query), S3 CSV reading.
+    `GetQueryResultsCommand` on a still-RUNNING query; `POST /archive/query`
+    sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the six
+    Glue tables incl. `compliance_daily` — and **masks result rows
+    server-side** with `maskEmailsDeep` before responding), S3 CSV reading.
   - The `analyticsReportsToCostResp` reshape function — pure, exported,
     unit-tested in `tests/server/test-cost-live-reshape.mjs`.
 - **`chat-tools.js`** — Pure, dependency-free helpers + tool registry for
@@ -155,7 +158,14 @@ fallback.
   `historyToBedrockMessages`, `parseFollowups`, `rankUsers`,
   `compactOverview`, `TOOL_SPECS`, `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
   No AWS client instantiation — fully unit-testable in isolation
-  (`tests/server/test-chat-tools.mjs`).
+  (`tests/server/test-chat-tools.mjs`). `maskEmailsDeep` masks BOTH literal
+  and **`%40`-percent-encoded** emails (compliance events record other
+  clients' request `url`/`request_body` verbatim) — it also masks
+  `/api/archive/query` rows server-side, since free-form SQL over
+  `compliance_daily` (in the Athena allowlist since ADR-0017) can surface
+  `actor_email`/`payload` strings the frontend can't anticipate. The
+  chatbot schema hint + system prompt carve out `compliance_daily` from the
+  3-day-buffer rule (event-time partitioned, current through yesterday).
 - **`mock.js`** — Deterministic mock generators for local dev when no
   Analytics key is configured. Schema must track `src/types.ts`; the fake
   data is only valid when it matches the real shape.

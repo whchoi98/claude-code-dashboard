@@ -106,18 +106,20 @@
                                                    ▲
                                                    │ (NDJSON partitions)
                               ┌────────────────────┴──────────────────┐
-                              │  EventBridge (daily 14:00 UTC)        │
+                              │  EventBridge (14:00 UTC analytics ·   │
+                              │   00:30 UTC compliance-only)          │
                               │           │                           │
                               │           ▼                           │
                               │  Collector Lambda (Node 20)           │
                               │  - fetchAllPages × 5 endpoints        │
+                              │  - compliance after_id walk (00:30)   │
                               │  - flattenUser (Analytics → NDJSON)   │
                               └───────────────────────────────────────┘
 ```
 
 ## Data flow summary
 
-Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archive or live Anthropic API) → JSON → browser. AI chatbot mode (`/api/chat/stream`) extends: browser → Express → Bedrock `ConverseStreamCommand` tool-use loop (max 4 hops, tools call live APIs + Athena) → SSE chunks → browser.
+Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archive or live Anthropic API) → JSON → browser. Collector: EventBridge → Lambda → Analytics snapshot (14:00 UTC) / compliance audit walk (00:30 UTC) → S3 NDJSON (+raw) → Glue/Athena. AI chatbot mode (`/api/chat/stream`) extends: browser → Express → Bedrock `ConverseStreamCommand` tool-use loop (max 4 hops, tools call live APIs + Athena) → SSE chunks → browser.
 
 ## Infrastructure (CDK stacks)
 
@@ -126,7 +128,7 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 | `ccd-network` | VPC (new or looked up), S3 Gateway endpoint |
 | `ccd-storage` | Versioned S3 archive bucket, Glue database + 6 projection-partitioned tables (incl. `compliance_daily`), Athena workgroup |
 | `ccd-compute` | ECS cluster, task definition (ARM64), service (2–6 tasks, CPU auto-scale), ALB + listener + WAF, CloudFront distribution (alias domains `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM cert declared in CDK since 2026-07-12 — a deploy once stripped the console-added values; `/assets/*` CACHING_OPTIMIZED behavior; origin readTimeout 60s), Secrets Manager references |
-| `ccd-collector` | Collector Lambda + EventBridge rule (daily 14:00 UTC) + log retention custom resource |
+| `ccd-collector` | Collector Lambda (15-min timeout) + TWO EventBridge rules — 14:00 UTC analytics-only (`{complianceDays:0}`), 00:30 UTC compliance-only (`{complianceOnly:true}`) + log retention custom resource |
 
 ## Key design decisions
 
@@ -140,6 +142,7 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **RBAC group cost with real names** — `cost_report × rbac_group_id` (upstream since 2026-07) powers the Cost page's per-group card. Group ids resolve to display names via the documented Compliance groups endpoint (`GET /v1/compliance/groups`, 1h cache — each listing emits a `group_list_viewed` audit event), not the undocumented `rbac_groups` listing. The upstream dimension flaps (intermittent 503 "Team membership data is not ready yet"); the server keeps last-good responses and the UI shows an explanatory note instead of a missing card. See [ADR-0011](decisions/0011-rbac-group-visibility-native.md).
 - **Group membership from the Compliance members endpoint** — the per-page group scope (GroupTabs) maps emails to groups via `GET /v1/compliance/groups/{id}/members` (authoritative point-in-time membership, 1h cache, all-or-nothing): new groups and member moves land within the hour instead of waiting days for spend to accrue under the new attribution. The `/api/groups` source chain is admin CSV (`live`) > real membership (`members`) > spend-derived `user_cost_report × rbac_group_id` (`auto`) > last-good (`stale:true`) > `empty`. See [ADR-0014](decisions/0014-membership-source-compliance-members.md). Since 2026-07-12 the Cost page's org-level aggregates also scope to the selected group via the `rbac_group_ids[]` filter on `/api/cost/live` (live mode; CSV/UNMAPPED stay partial) — see the ADR-0011 amendment.
 - **Always-warm cost/engagement caching layer** — every menu's default view is served from per-task in-memory caches that background schedulers keep perpetually fresh: `makeTtlCache` (10-min TTL, stale-while-revalidate with `stale: true` marking after failed refreshes, 6×TTL foreground fallback, in-flight dedup, 45s per-page upstream timeouts) fronts `/cost/live`, `/cost/groups`, `/cost/spend-limits` and the whole `fetchUserReport` family; an 8-min jittered keep-warm cycle re-registers the UI preset windows plus every RBAC group's default-window scoped key, and a 5-min analytics prewarm covers the engagement endpoints (`users/range` is day-granular, so one 30-day warm covers every preset). Warm hits are ~1 ms vs 1.5–30 s upstream; gzip + a CloudFront `/assets/*` CACHING_OPTIMIZED behavior cover the transfer layer. See [ADR-0015](decisions/0015-performance-caching-layer.md).
+- **Compliance events archived to S3 (`compliance_daily`)** — the daily collector's 00:30 UTC rule walks the audit feed backward and writes each complete UTC day as an event-time partition (envelope columns + full-JSON `payload` for `json_extract_scalar`), with a never-shrink-a-partition invariant and workstation-driven deep backfill (32 days / 193k events landed 2026-07-15). Long-horizon audit questions now run on Athena instead of the live feed's 2000-event head. See [ADR-0017](decisions/0017-compliance-s3-archival.md).
 - **Compliance after_id pagination + response-cache with a partial contract** — the Compliance API has no timestamp filter and only paginates via `after_id`. Audit volume passed 2000 events/window in 2026-07, so the walk now rides a response-level SWR cache: a 5-min prewarm `topUp`s the four UI preset windows in-process (keys formula-identical to the frontend presets), foreground walks are hard-bounded at 45 s (+15 s/page abort) under the CloudFront 60 s origin timeout, and mid-walk failures or budget exhaustion return the aggregated events as `partial: true` (background walks at 240 s converge entries to complete results). The Audit page opens per-event slide-in detail (actor/fields/raw JSON, emails masked incl. `%40`-encoded); the daily chart adds a `mean+1·stdev` reference line so risk spikes are obvious. See [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) · [ADR-0016](decisions/0016-audit-response-cache-partial-contract.md).
 - **7d default range** — every range-aware page boots on `range=7d` (was 14d / 30d in v0.3.0). Trade-off: tighter signal, but at 7 days the half-window bisection used by Adoption's stale-skill detector and the Compliance spike threshold both still produce useful values. See [ADR-0005](decisions/0005-default-7d-window.md).
 - **Athena varchar partitions** — Glue tables partition `date` as `varchar`, not `DATE`, because the collector writes ISO strings. Queries must compare to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); wrapping in `DATE '…'` raises `TYPE_MISMATCH` on Engine v3. The `run_athena_sql` chatbot tool spec and the Archive page's pre-filled query both follow this convention. See [ADR-0007](decisions/0007-athena-varchar-partitions.md).
@@ -273,27 +276,29 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
                                                    ▲
                                                    │ (NDJSON 파티션)
                               ┌────────────────────┴──────────────────┐
-                              │  EventBridge (매일 14:00 UTC)          │
+                              │  EventBridge (14:00 UTC analytics ·   │
+                              │   00:30 UTC compliance 전용)          │
                               │           │                           │
                               │           ▼                           │
                               │  Collector Lambda (Node 20)           │
                               │  - fetchAllPages × 5 엔드포인트         │
+                              │  - compliance after_id 워크 (00:30)   │
                               │  - flattenUser (Analytics → NDJSON)   │
                               └───────────────────────────────────────┘
 ```
 
 ## 데이터 흐름 요약
 
-브라우저 요청 → CloudFront → WAF → ALB → Fargate Express → (S3 아카이브 또는 실시간 Anthropic API) → JSON → 브라우저. AI 챗봇 모드(`/api/chat/stream`): 브라우저 → Express → Bedrock `ConverseStreamCommand` tool-use 루프(최대 4 hop, 도구가 실시간 API + Athena 호출) → SSE 청크 → 브라우저.
+브라우저 요청 → CloudFront → WAF → ALB → Fargate Express → (S3 아카이브 또는 실시간 Anthropic API) → JSON → 브라우저. Collector: EventBridge → Lambda → Analytics 스냅샷(14:00 UTC) / 감사 이벤트 워크(00:30 UTC) → S3 NDJSON(+raw) → Glue/Athena. AI 챗봇 모드(`/api/chat/stream`): 브라우저 → Express → Bedrock `ConverseStreamCommand` tool-use 루프(최대 4 hop, 도구가 실시간 API + Athena 호출) → SSE 청크 → 브라우저.
 
 ## 인프라 (CDK 스택)
 
 | 스택 | 포함 리소스 |
 |------|-------------|
 | `ccd-network` | VPC (신규 또는 lookup), S3 Gateway endpoint |
-| `ccd-storage` | 버전 관리 S3 아카이브 버킷, Glue 데이터베이스 + projection partition 4개 테이블, Athena 워크그룹 |
+| `ccd-storage` | 버전 관리 S3 아카이브 버킷, Glue 데이터베이스 + projection partition 6개 테이블(`compliance_daily` 포함), Athena 워크그룹 |
 | `ccd-compute` | ECS 클러스터, 태스크 정의(ARM64), 서비스(2–6 태스크, CPU 자동 스케일), ALB + listener + WAF, CloudFront 배포(별칭 도메인 `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM 인증서를 2026-07-12부터 CDK에 선언 — 콘솔 추가분이 배포로 제거된 사고 후 코드화; `/assets/*` CACHING_OPTIMIZED 동작; origin readTimeout 60초), Secrets Manager 참조 |
-| `ccd-collector` | Collector Lambda + EventBridge 규칙(매일 14:00 UTC) + 로그 보존 custom resource |
+| `ccd-collector` | Collector Lambda(타임아웃 15분) + EventBridge 규칙 2종 — 14:00 UTC analytics 전용(`{complianceDays:0}`), 00:30 UTC compliance 전용(`{complianceOnly:true}`) + 로그 보존 custom resource |
 
 ## 주요 설계 결정
 
@@ -307,6 +312,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 - **RBAC 그룹 비용 + 실명** — `cost_report × rbac_group_id`(upstream 2026-07~)가 Cost 페이지 그룹별 카드를 구동. 그룹 ID는 문서화된 Compliance groups 엔드포인트(`GET /v1/compliance/groups`, 1h 캐시 — 호출마다 `group_list_viewed` 감사 이벤트 발생)로 실명 해석하며 비문서화 `rbac_groups` 목록은 사용하지 않음. upstream 차원이 플랩(간헐 503 "Team membership data is not ready yet")하므로 서버가 last-good 응답을 보관하고 UI는 카드 소실 대신 안내 문구 표시. [ADR-0011](decisions/0011-rbac-group-visibility-native.md) 참조.
 - **Compliance members 엔드포인트 기반 그룹 멤버십** — 페이지별 그룹 스코프(GroupTabs)의 email→그룹 매핑은 `GET /v1/compliance/groups/{id}/members`(현재 시점의 확정 멤버십, 1h 캐시, all-or-nothing)에서 공급: 신규 그룹과 멤버 이동이 지출 누적을 기다리지 않고 1시간 안에 반영. `/api/groups` 소스 체인은 관리자 CSV(`live`) > 실제 멤버십(`members`) > 지출 파생 `user_cost_report × rbac_group_id`(`auto`) > last-good(`stale:true`) > `empty`. [ADR-0014](decisions/0014-membership-source-compliance-members.md) 참조. 2026-07-12부터 Cost 페이지의 조직 레벨 집계도 `/api/cost/live`의 `rbac_group_ids[]` 필터로 선택 그룹에 스코프됨(라이브 모드; CSV/UNMAPPED는 partial 유지) — ADR-0011 개정 참조.
 - **상시 웜 비용/엔게이지먼트 캐싱 계층** — 모든 메뉴의 기본 화면이 태스크별 in-memory 캐시에서 서빙되고 백그라운드 스케줄러가 이를 상시 갱신: `makeTtlCache`(10분 TTL, 갱신 실패 시 `stale: true` 마킹하는 stale-while-revalidate, 6×TTL 초과 시 포그라운드 폴백, in-flight dedup, 페이지당 45초 업스트림 타임아웃)가 `/cost/live`·`/cost/groups`·`/cost/spend-limits`·`fetchUserReport` 계열 전체를 커버; 태스크별 지터 8분 keep-warm 사이클이 UI 프리셋 창 + 전 RBAC 그룹의 기본 창 스코프 키를 재등록하고, 5분 analytics prewarm이 엔게이지먼트 엔드포인트를 워밍(`users/range`는 일 단위라 30일 1회로 전 프리셋 커버). 웜 응답 ~1ms vs 업스트림 1.5–30초; 전송 계층은 gzip + CloudFront `/assets/*` CACHING_OPTIMIZED. [ADR-0015](decisions/0015-performance-caching-layer.md) 참조.
+- **Compliance 이벤트 S3 아카이빙 (`compliance_daily`)** — 컬렉터의 00:30 UTC 룰이 감사 피드를 역방향 워크해 완결된 UTC 일자를 이벤트 시각 파티션으로 적재(엔벨로프 컬럼 + `json_extract_scalar`용 전체 JSON `payload`), '파티션을 절대 축소하지 않는' 불변식과 워크스테이션 딥 백필(2026-07-15에 32일/19.3만 건 적재). 장기 감사 질문은 라이브 피드의 2000건 헤드 대신 Athena에서 처리. [ADR-0017](decisions/0017-compliance-s3-archival.md) 참조.
 - **Compliance after_id 페이지네이션 + 부분 계약 응답 캐시** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. 2026-07에 감사 볼륨이 창당 2000건을 초과하면서 워크가 응답 레벨 SWR 캐시를 타도록 변경: 5분 프리웜이 UI 프리셋 4개 창을 in-process `topUp`(키 수식이 프런트 프리셋과 동일), 포그라운드 워크는 CloudFront 60초 오리진 타임아웃 아래로 45초(+페이지당 15초 abort) 하드 바운드, 워크 도중 실패·예산 초과는 수집분을 `partial: true`로 반환(백그라운드 240초 워크가 완전한 결과로 수렴). 감사 페이지는 이벤트별 슬라이드-인 상세(액터/필드/원본 JSON, `%40` 인코딩 포함 이메일 마스킹)를 제공하고, 일별 차트에는 `평균+1σ` reference line이 추가돼 위험 spike를 즉시 인지. [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) · [ADR-0016](decisions/0016-audit-response-cache-partial-contract.md) 참조.
 - **7d 기본 기간** — 모든 기간 인지 페이지가 `range=7d`로 부팅 (v0.3.0까지는 14d / 30d). 더 좁은 신호와 트레이드오프이지만, Adoption stale-skill 감지의 윈도우 이등분과 Compliance spike 임계값 계산이 7d에서도 의미 있는 값을 산출. [ADR-0005](decisions/0005-default-7d-window.md) 참조.
 - **Athena varchar 파티션** — Glue 테이블의 `date` 파티션은 `varchar`이지 `DATE`가 아님 (collector가 ISO 문자열로 적재). 쿼리는 단순 문자열 리터럴(`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 비교해야 하며, `DATE '…'`로 감싸면 Engine v3가 `TYPE_MISMATCH`로 거부. `run_athena_sql` 챗봇 도구 스펙과 Archive 페이지의 기본 쿼리 모두 이 규칙을 따름. [ADR-0007](decisions/0007-athena-varchar-partitions.md) 참조.

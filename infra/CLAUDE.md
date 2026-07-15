@@ -2,7 +2,7 @@
 
 ## Role
 
-Four-stack CDK app that provisions the VPC references, S3 + Glue + Athena, ECS Fargate compute with ALB + CloudFront + WAF, and the collector Lambda + EventBridge rule.
+Four-stack CDK app that provisions the VPC references, S3 + Glue + Athena, ECS Fargate compute with ALB + CloudFront + WAF, and the collector Lambda + two EventBridge rules (14:00 UTC analytics-only, 00:30 UTC compliance-only; Lambda timeout 15 min).
 
 ## Layout
 
@@ -13,7 +13,7 @@ infra/
 │   ├── network-stack.ts    # VPC (new or lookup by id)
 │   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 6 tables (incl. compliance_daily) + Athena workgroup
 │   ├── compute-stack.ts    # ECS service, ALB, CloudFront, WAF, Secrets Manager
-│   └── collector-stack.ts  # Lambda + EventBridge schedule
+│   └── collector-stack.ts  # Lambda (15-min timeout) + 2 EventBridge rules (14:00 analytics / 00:30 compliance)
 ├── cdk.json                # `cdk` app command
 └── package.json
 ```

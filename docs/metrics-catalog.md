@@ -415,7 +415,7 @@ cache_hit_rate = cache_read_input_tokens / (uncached + cache_read + cache_creati
 2. **Allowlist** — `SELECT` 또는 `WITH`로만 시작 허용. `DESCRIBE`, `SHOW`, `INSERT` 등은 거부.
 3. **Forbidden keyword** — `INSERT / UPDATE / DELETE / DROP / ALTER / CREATE / TRUNCATE / GRANT / REVOKE / MERGE / CALL / EXECUTE / MSCK / REPAIR / USE / COPY / UNLOAD / LOAD DATA / INTO OUTFILE` 가 본문 어디에든 있으면 거부.
 4. **Table allowlist** — 모든 `FROM/JOIN` 대상이 다음 테이블 중 하나여야 합니다:
-   - `claude_code_analytics` · `summaries_daily` · `skills_daily` · `connectors_daily`
+   - `claude_code_analytics` · `summaries_daily` · `skills_daily` · `connectors_daily` · `projects_daily` · `compliance_daily`
    - CTE 별칭(`WITH name AS (...)`)은 자동으로 허용 목록에 추가됨.
    - 서브쿼리(`FROM (SELECT ...)`) 내부의 `FROM`도 `matchAll`로 재귀적으로 검증.
 5. **IAM은 추가 방어선** — task 롤은 `ccd` 워크그룹과 `claude_code_analytics` 데이터베이스에만 접근 허용. IAM만으로 의존하지 않고, 쿼리 단계에서 선제적으로 차단.

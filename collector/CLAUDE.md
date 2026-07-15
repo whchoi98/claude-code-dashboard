@@ -65,6 +65,6 @@ Non-obvious invariants:
 - **Volume reality (2026-07-15)**: ~6k events/day (largely the dashboard's
   own prewarm reads audited as `compliance_api_accessed`) — a 2-day window
   costs 110-150 pages, hence the 200-page default cap.
-- **Deep backfill runs from a workstation** (`_local/backfill-compliance.mjs`
+- **Deep backfill runs from a workstation** (repo-root `_local/backfill-compliance.mjs`
   pattern — paced full-feed walk writing every complete day); Lambda
   budgets can't reach weeks of history.
