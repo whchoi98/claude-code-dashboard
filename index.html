@@ -626,7 +626,7 @@
         </div>
         <div class="node edge reveal">
           <div class="nt">Collector Lambda</div>
-          <div class="nd">매일 Analytics 스냅샷을 S3에 NDJSON으로 적재 — API 90일 창 너머를 보존.</div>
+          <div class="nd">매일 Analytics 스냅샷과 감사 이벤트를 S3에 NDJSON으로 적재 — API 조회 창 너머를 보존.</div>
           <div class="meta">DAILY · NDJSON + RAW</div>
         </div>
       </div>
@@ -655,7 +655,7 @@
         </div>
         <div class="node data reveal">
           <div class="nt">S3 + Glue + Athena</div>
-          <div class="nd">일상 질의는 S3 파티션을 먼저 읽고(라이브 API 폴백), Athena SQL은 장기 추세 분석용.</div>
+          <div class="nd">일상 질의는 S3 파티션을 먼저 읽고(라이브 API 폴백), Athena SQL은 장기 추세·감사 이력 분석용(감사 이벤트도 일자별 적재).</div>
           <div class="meta">date=YYYY-MM-DD 파티션</div>
         </div>
       </div>
