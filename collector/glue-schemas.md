@@ -109,3 +109,26 @@ Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenProject` in `flatte
 ## `skills_daily`, `connectors_daily`
 
 See `flattenSkill` and `flattenConnector` in `flatten.js`.
+
+## `compliance_daily`
+
+Audit events, one row per event; partition day = event `created_at` day
+(event-time — current through yesterday, no 3-day buffer). See ADR-0017.
+
+| column            | type   |
+|-------------------|--------|
+| id                | string |
+| type              | string |
+| created_at        | string |
+| actor_type        | string |
+| actor_email       | string |
+| actor_user_id     | string |
+| actor_api_key_id  | string |
+| actor_ip_address  | string |
+| actor_user_agent  | string |
+| organization_id   | string |
+| payload           | string |
+
+`payload` holds the FULL original event as a JSON string — reach
+type-specific fields with `json_extract_scalar(payload, '$.field')`
+instead of adding columns.

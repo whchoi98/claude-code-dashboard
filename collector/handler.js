@@ -117,43 +117,54 @@ export const handler = async (event = {}, context = {}) => {
   const summariesEnd   = event.summariesEnd   || dateMinusDays(today, 2)
 
   const results = {}
+  const counts = {}
 
-  const users = await fetchAllPages('/v1/organizations/analytics/users', { date })
-  results.users = await writePartition('users', date,
-    toNdjson(users.map(flattenUser), { snapshot_date: date }))
-  results.users_raw = await writeRaw('users', date, users)
+  // complianceOnly: the dedicated 00:30 UTC EventBridge rule archives audit
+  // events right after midnight (today's feed is minutes deep → the backward
+  // walk reaches yesterday almost immediately). The 14:00 UTC analytics rule
+  // passes complianceDays:0 and skips the walk entirely.
+  if (!event.complianceOnly) {
+    const users = await fetchAllPages('/v1/organizations/analytics/users', { date })
+    results.users = await writePartition('users', date,
+      toNdjson(users.map(flattenUser), { snapshot_date: date }))
+    results.users_raw = await writeRaw('users', date, users)
 
-  const summaries = await fetchJson('/v1/organizations/analytics/summaries', {
-    starting_date: summariesStart,
-    ending_date:   summariesEnd,
-  })
-  // Summaries API returns {summaries: [...]} — normalize.
-  const summaryRows = summaries.summaries || summaries.data || []
-  results.summaries = await writePartition('summaries', date, toNdjson(summaryRows))
-  results.summaries_raw = await writeRaw('summaries', date, summaryRows)
+    const summaries = await fetchJson('/v1/organizations/analytics/summaries', {
+      starting_date: summariesStart,
+      ending_date:   summariesEnd,
+    })
+    // Summaries API returns {summaries: [...]} — normalize.
+    const summaryRows = summaries.summaries || summaries.data || []
+    results.summaries = await writePartition('summaries', date, toNdjson(summaryRows))
+    results.summaries_raw = await writeRaw('summaries', date, summaryRows)
 
-  const skills = await fetchAllPages('/v1/organizations/analytics/skills', { date })
-  results.skills = await writePartition('skills', date,
-    toNdjson(skills.map(flattenSkill), { snapshot_date: date }))
-  results.skills_raw = await writeRaw('skills', date, skills)
+    const skills = await fetchAllPages('/v1/organizations/analytics/skills', { date })
+    results.skills = await writePartition('skills', date,
+      toNdjson(skills.map(flattenSkill), { snapshot_date: date }))
+    results.skills_raw = await writeRaw('skills', date, skills)
 
-  const connectors = await fetchAllPages('/v1/organizations/analytics/connectors', { date })
-  results.connectors = await writePartition('connectors', date,
-    toNdjson(connectors.map(flattenConnector), { snapshot_date: date }))
-  results.connectors_raw = await writeRaw('connectors', date, connectors)
+    const connectors = await fetchAllPages('/v1/organizations/analytics/connectors', { date })
+    results.connectors = await writePartition('connectors', date,
+      toNdjson(connectors.map(flattenConnector), { snapshot_date: date }))
+    results.connectors_raw = await writeRaw('connectors', date, connectors)
 
-  const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date })
-  results.projects = await writePartition('projects', date,
-    toNdjson(projects.map(flattenProject), { snapshot_date: date }))
-  results.projects_raw = await writeRaw('projects', date, projects)
+    const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date })
+    results.projects = await writePartition('projects', date,
+      toNdjson(projects.map(flattenProject), { snapshot_date: date }))
+    results.projects_raw = await writeRaw('projects', date, projects)
+
+    counts.users = users.length
+    counts.summaries = summaryRows.length
+    counts.skills = skills.length
+    counts.connectors = connectors.length
+    counts.projects = projects.length
+  }
 
   const compliance = await archiveComplianceEvents(event, context, today, results)
+  counts.compliance_events = compliance.events
+  counts.compliance_days = compliance.days
 
-  return { ok: true, date, writes: results, counts: {
-    users: users.length, summaries: summaryRows.length,
-    skills: skills.length, connectors: connectors.length, projects: projects.length,
-    compliance_events: compliance.events, compliance_days: compliance.days,
-  }}
+  return { ok: true, date, writes: results, counts }
 }
 
 // ── Compliance audit archival ────────────────────────────────────────────
@@ -167,7 +178,13 @@ export const handler = async (event = {}, context = {}) => {
 // complianceDays (window size when no explicit start; analytics BACKFILL
 // invokes — any payload with an explicit `date` — default to 0 so a 30-day
 // backfill loop doesn't re-walk the same live window 30 times against the
-// shared 60 rpm budget), compliancePages (walk cap, default 60).
+// shared 60 rpm budget), compliancePages (walk cap, default 200 — audit
+// volume runs ~6k events/day as of 2026-07-15 (heavily self-amplified by
+// the dashboard's own prewarm reads), so today's partial + 2 complete days
+// ≈ 110-150 pages; the Lambda-remaining-time guard below is the real
+// limiter, and the newest-first walk order means yesterday (T-1) completes
+// before the overlap day (T-2) — a budget cut drops only T-2, which
+// yesterday's run already archived as ITS T-1).
 // Failures here must NOT sink the analytics snapshot — errors are reported
 // in results.compliance_error + console.error (the CloudWatch signal)
 // instead of thrown. The Analytics key carries read:compliance_activities.
@@ -175,7 +192,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function archiveComplianceEvents(event, context, today, results) {
   const out = { events: 0, days: 0 }
-  const pagesCap = Number(event.compliancePages ?? 60)
+  const pagesCap = Number(event.compliancePages ?? 200)
   const days = Number(event.complianceDays ?? (event.date ? 0 : 2))
   if (days <= 0 && !event.complianceStart) return out
   try {
@@ -226,7 +243,7 @@ async function archiveComplianceEvents(event, context, today, results) {
       if (oldestDay < startDay) { stop = 'window'; break }
       if (!body.has_more) { stop = 'end_of_feed'; break }
       afterId = page[page.length - 1].id
-      await sleep(1200) // pace the shared 60 rpm budget (~50 pages/min ceiling)
+      await sleep(600) // pace the shared 60 rpm budget (walk ≈ 15-20 req/min incl. fetch latency)
     }
 
     // Only a walk that crossed BELOW startDay ('window') proves the oldest

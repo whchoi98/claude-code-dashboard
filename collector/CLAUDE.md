@@ -2,7 +2,7 @@
 
 ## Role
 
-Node 20 Lambda. Fetches five Analytics API endpoints **plus the Compliance audit feed** and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`, plus a **raw sidecar** of the unflattened upstream records to `s3://<archive>/raw/<table>/date=YYYY-MM-DD/` (since 2026-07-12; compliance since 2026-07-15 — ADR-0017). Runs on an EventBridge rule at 14:00 UTC, or can be invoked manually with a `{ date, summariesStart, summariesEnd, complianceStart, complianceEnd, complianceDays, compliancePages }` payload.
+Node 20 Lambda. Fetches five Analytics API endpoints **plus the Compliance audit feed** and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`, plus a **raw sidecar** of the unflattened upstream records to `s3://<archive>/raw/<table>/date=YYYY-MM-DD/` (since 2026-07-12; compliance since 2026-07-15 — ADR-0017). Runs on TWO EventBridge rules — **14:00 UTC analytics-only** (payload `{complianceDays: 0}`) and **00:30 UTC compliance-only** (payload `{complianceOnly: true}`; right after UTC midnight today's feed is minutes deep, so the backward walk reaches yesterday in 1-2 pages — at 14:00 it would burn ~50-60 pages traversing today first). Manual invokes accept `{ date, summariesStart, summariesEnd, complianceOnly, complianceStart, complianceEnd, complianceDays, compliancePages }`.
 
 ## Files
 
@@ -59,8 +59,8 @@ Non-obvious invariants:
   file with a shorter one. Newest-first order ⇒ T-1 completes before T-2,
   so budget cuts sacrifice only the overlap that yesterday already wrote.
 - **Walk resilience**: 3-attempt retry on 429/5xx/network, 15 s per-page
-  abort, 1.2 s pacing, `getRemainingTimeInMillis` guard at 60 s (Lambda
-  timeout 10 min). Failures → `results.compliance_error` +
+  abort, 0.6 s pacing, `getRemainingTimeInMillis` guard at 60 s (Lambda
+  timeout 15 min). Failures → `results.compliance_error` +
   `console.error`; the analytics snapshot is never sunk.
 - **Volume reality (2026-07-15)**: ~6k events/day (largely the dashboard's
   own prewarm reads audited as `compliance_api_accessed`) — a 2-day window
