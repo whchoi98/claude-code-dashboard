@@ -20,7 +20,7 @@
 | Component | Purpose |
 |-----------|---------|
 | Express proxy (`server/index.js` + `server/aws.js`) | Per-request fan-out to Analytics / Admin / Compliance APIs with a 10-minute in-memory cache, gzip compression (SSE exempt), and three keep-warm schedulers: the audit response cache (5-min direct `topUp` of the four UI preset windows — key formula identical to the frontend presets; foreground walks budget-capped at 45 s + 15 s/page abort, background at 240 s, mid-walk failures degrade to `partial: true` — ADR-0016), analytics engagement endpoints (5-min — one 30d day-granular warm covers every preset), and the cost cache (8-min, jittered per task: preset windows + every group's scoped key; `makeTtlCache` = 10-min TTL + stale-while-revalidate + failure marking + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints into partitioned NDJSON on S3, plus a raw sidecar of the unflattened records under `raw/<table>/` (retroactive recovery for fields the explicit flatten mapping doesn't carry yet) |
+| Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints PLUS the Compliance audit feed (last 2 complete days via a backward after_id walk; partition day = event created_at day — ADR-0017) into partitioned NDJSON on S3, plus a raw sidecar of the unflattened records under `raw/<table>/` (retroactive recovery for fields the explicit flatten mapping doesn't carry yet) |
 | Spend Report uploader (manual) | Claude Console CSV dropped into `s3://<archive>/spend-reports/` for the Cost page |
 
 ### Storage
@@ -28,7 +28,7 @@
 | Component | Purpose |
 |-----------|---------|
 | Versioned S3 bucket | NDJSON partitions (`<table>/date=YYYY-MM-DD/`), spend reports, Athena results |
-| Glue Data Catalog | Tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`) with Hive-style date partition projection |
+| Glue Data Catalog | Tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`) with Hive-style date partition projection |
 | Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key` |
 
 ### Processing
@@ -124,7 +124,7 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 | Stack | Contents |
 |-------|----------|
 | `ccd-network` | VPC (new or looked up), S3 Gateway endpoint |
-| `ccd-storage` | Versioned S3 archive bucket, Glue database + 4 projection-partitioned tables, Athena workgroup |
+| `ccd-storage` | Versioned S3 archive bucket, Glue database + 6 projection-partitioned tables (incl. `compliance_daily`), Athena workgroup |
 | `ccd-compute` | ECS cluster, task definition (ARM64), service (2–6 tasks, CPU auto-scale), ALB + listener + WAF, CloudFront distribution (alias domains `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM cert declared in CDK since 2026-07-12 — a deploy once stripped the console-added values; `/assets/*` CACHING_OPTIMIZED behavior; origin readTimeout 60s), Secrets Manager references |
 | `ccd-collector` | Collector Lambda + EventBridge rule (daily 14:00 UTC) + log retention custom resource |
 
@@ -187,7 +187,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 구성요소 | 역할 |
 |---------|------|
 | Express 프록시 (`server/index.js` + `server/aws.js`) | Analytics / Admin / Compliance API 요청 fan-out, 10분 in-memory 캐시, gzip 압축(SSE 제외), keep-warm 스케줄러 3종: 감사 응답 캐시(UI 프리셋 4개 창을 5분마다 직접 `topUp` — 키 수식이 프런트 프리셋과 동일; 포그라운드 워크는 45초 + 페이지당 15초 abort, 백그라운드는 240초, 워크 도중 실패는 `partial: true` 강등 — ADR-0016), analytics 인게이지먼트(5분 — 30d 일 단위 워밍 1회로 전 프리셋 커버), 비용 캐시(태스크별 지터 8분: 프리셋 창 + 전 그룹 스코프 키; `makeTtlCache` = 10분 TTL + stale-while-revalidate + 실패 마킹 + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 + 비평탄화 원본 사이드카(`raw/<table>/` — flatten 매핑에 없는 신규 필드의 소급 복구용) |
+| Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트 + Compliance 감사 피드(after_id 역방향 워크로 최근 완결 2일, 파티션 = 이벤트 created_at 일자 — ADR-0017)를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 + 비평탄화 원본 사이드카(`raw/<table>/` — flatten 매핑에 없는 신규 필드의 소급 복구용) |
 | Spend Report 업로더 (수동) | Claude Console CSV를 `s3://<archive>/spend-reports/`에 투입, 비용 페이지 입력 |
 
 ### Storage (저장)
@@ -195,7 +195,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 구성요소 | 역할 |
 |---------|------|
 | 버전 관리 S3 버킷 | NDJSON 파티션(`<table>/date=YYYY-MM-DD/`), spend report, Athena 결과 |
-| Glue Data Catalog | 테이블 (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`) + Hive 방식 date partition projection |
+| Glue Data Catalog | 테이블 (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`) + Hive 방식 date partition projection |
 | Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key` |
 
 ### Processing (처리)

@@ -2,7 +2,7 @@
 
 ## Role
 
-Node 20 Lambda. Fetches five Analytics API endpoints and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`, plus a **raw sidecar** of the unflattened upstream records to `s3://<archive>/raw/<table>/date=YYYY-MM-DD/` (since 2026-07-12). Runs on an EventBridge rule at 14:00 UTC, or can be invoked manually with a `{ date, summariesStart, summariesEnd }` payload.
+Node 20 Lambda. Fetches five Analytics API endpoints **plus the Compliance audit feed** and writes partitioned NDJSON to `s3://<archive>/<table>/date=YYYY-MM-DD/`, plus a **raw sidecar** of the unflattened upstream records to `s3://<archive>/raw/<table>/date=YYYY-MM-DD/` (since 2026-07-12; compliance since 2026-07-15 — ADR-0017). Runs on an EventBridge rule at 14:00 UTC, or can be invoked manually with a `{ date, summariesStart, summariesEnd, complianceStart, complianceEnd, complianceDays, compliancePages }` payload.
 
 ## Files
 
@@ -38,7 +38,33 @@ for d in $(seq 0 $((DAYS - 1))); do
 done
 ```
 
-Note: the Compliance audit feed is NOT backfilled here — it's served live
-(with cursor pagination + a 5-minute startup prewarm in the Express server).
-Only Analytics endpoints (users / summaries / skills / connectors / projects)
-land in S3.
+Analytics-backfill invokes (any payload with an explicit `date`) SKIP the
+compliance walk by default (`complianceDays=0`) — a 30-invoke loop must not
+re-walk the same live compliance window 30 times against the shared 60 rpm
+budget.
+
+## Compliance archival (since 2026-07-15 — ADR-0017)
+
+`archiveComplianceEvents` runs after the analytics snapshot on every
+scheduled (dateless) invoke: walks `/v1/compliance/activities` backward via
+`after_id` (newest-first; no timestamp filter exists), buckets events by
+`created_at` UTC day, and writes `compliance/date=D/` + `raw/compliance/`
+partitions for the last 2 COMPLETE days (T-1 + a T-2 idempotent overlap).
+Non-obvious invariants:
+
+- **Never shrink a partition**: only crossing below the window start
+  (`stop='window'`) proves the oldest captured day complete; every other
+  stop (page/time cap, empty page, `has_more=false` glitch) DROPS that day
+  (`compliance_dropped_partial_day`) instead of overwriting a complete
+  file with a shorter one. Newest-first order ⇒ T-1 completes before T-2,
+  so budget cuts sacrifice only the overlap that yesterday already wrote.
+- **Walk resilience**: 3-attempt retry on 429/5xx/network, 15 s per-page
+  abort, 1.2 s pacing, `getRemainingTimeInMillis` guard at 60 s (Lambda
+  timeout 10 min). Failures → `results.compliance_error` +
+  `console.error`; the analytics snapshot is never sunk.
+- **Volume reality (2026-07-15)**: ~6k events/day (largely the dashboard's
+  own prewarm reads audited as `compliance_api_accessed`) — a 2-day window
+  costs 110-150 pages, hence the 200-page default cap.
+- **Deep backfill runs from a workstation** (`_local/backfill-compliance.mjs`
+  pattern — paced full-feed walk writing every complete day); Lambda
+  budgets can't reach weeks of history.

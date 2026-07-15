@@ -90,7 +90,7 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 | Admin | `sk-ant-admin01-...` | `/v1/organizations/usage_report/{claude_code,messages}` + `/cost_report` | Workspace-scoped per-user × model `estimated_cost`; daily token + USD totals. Used by `/api/admin/*` proxy routes (still wired but not the primary cost path). |
 | Compliance | `sk-ant-api01-...` (Compliance scope) | `/v1/compliance/activities` + `/v1/compliance/groups(/{id}/members)` | Audit events (cursor pagination via `after_id`, NOT `next_page`; see `server/index.js`) + RBAC group names AND authoritative per-group membership (`next_page` cursor, 1h cache; drives `/api/groups` since 2026-07-12 — ADR-0014). |
 | CSV (Spend Report) | N/A (manual export) | S3 `spend-reports/` | Per-user × product × model spend totals. **Fallback/reconciliation only** since 2026-07: live per-user spend (user_cost_report) and tokens (user_usage_report) drive the Cost page's Top-N tables; the CSV covers >31-day windows and live-report outages. |
-| S3 Archive | N/A (collector fills) | `s3://<bucket>/<table>/date=YYYY-MM-DD/` | Fast replay of Analytics API data beyond the 90-day window. Compliance is NOT yet archived to S3 — relies on the in-memory prewarm cache + cursor pagination from the live endpoint. |
+| S3 Archive | N/A (collector fills) | `s3://<bucket>/<table>/date=YYYY-MM-DD/` | Fast replay of Analytics API data beyond the 90-day window. Since 2026-07-15 compliance audit events are ALSO archived (`compliance/date=…` + raw sidecar, partition day = event `created_at` day, current through yesterday — ADR-0017) and queryable via Athena `compliance_daily`; the live audit PAGE still serves from the in-memory prewarm cache (newest 2000 events). |
 
 ## Auto-Sync Rules
 

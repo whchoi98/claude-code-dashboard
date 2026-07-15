@@ -11,7 +11,7 @@ infra/
 ├── bin/app.ts              # Entry; reads context (existingVpcId, cloudfrontPrefixListId, …)
 ├── lib/
 │   ├── network-stack.ts    # VPC (new or lookup by id)
-│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 4 tables + Athena workgroup
+│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 6 tables (incl. compliance_daily) + Athena workgroup
 │   ├── compute-stack.ts    # ECS service, ALB, CloudFront, WAF, Secrets Manager
 │   └── collector-stack.ts  # Lambda + EventBridge schedule
 ├── cdk.json                # `cdk` app command
