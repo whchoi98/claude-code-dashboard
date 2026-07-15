@@ -1,8 +1,17 @@
 # ADR-0004: Compliance API pagination + startup prewarm
 
-- **Status**: Accepted
+- **Status**: Accepted — amended by [ADR-0016](0016-audit-response-cache-partial-contract.md) (2026-07-15)
 - **Date**: 2026-05-09
 - **Deciders**: @whchoi98
+
+> **Amendment (2026-07-15)**: audit volume outgrew this design — every preset
+> window now hits the `max=2000` cap and a cold walk takes 30–85 s, past the
+> CloudFront 60 s origin timeout. ADR-0016 adds a response-level SWR cache,
+> dual walk budgets (45 s foreground / 240 s background), a degraded-200
+> `partial: true` contract, and replaces the HTTP self-call prewarm with
+> direct `topUp`s keyed identically to the frontend presets. The cursor
+> mechanics below (after_id from `data[-1].id`, starting_date early-stop)
+> remain current.
 
 ## Context
 

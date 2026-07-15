@@ -15,11 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Group-scoped Cost page showing $0 for newly created groups.** Upstream cost attribution rides a slow membership snapshot (≥14h behind live membership), so a new group's spend legitimately reads zero until the next daily snapshot; the Cost page now explains this with an amber note instead of looking broken.
+
 - **Audit page not loading (CloudFront 504).** Org audit volume passed 2000 events per preset window (≈700+/day, dominated by `claude_file_viewed`), so any request that missed the upstream page cache re-paginated the Compliance API in the foreground for 30–85s — past the CloudFront 60s origin timeout. `/api/compliance/activities` now rides a response-level SWR cache (`makeTtlCache`: in-flight dedup, stale-while-revalidate) whose 5-min prewarm top-ups the four preset windows **with the exact key formula the frontend sends** (the old prewarm used engagement-buffer offsets that never matched a real request); foreground walks carry a 45s budget + 15s per-page abort and degrade mid-walk failures (429/5xx/network) or budget exhaustion to `partial: true` responses, while background walks (prewarm + a throttled completion retry after any partial serve) get a 240s budget so cached entries converge to complete results. Frontend: the truncation banner now distinguishes volume caps from upstream failures and time-budget stops (new i18n keys), the Executive Risk KPI flags partial windows, and the Audit subtitle's `{total}` now uses `total_fetched` (was always equal to `{shown}`).
 
 ### Added
 
 - **Audit event detail panel.** Clicking a row (or its event-type badge, the keyboard/AT entry point) on the Audit page opens a right slide-in with the full event: actor details (masked email, IP, user agent), every event-specific field, and a collapsible raw-JSON view. Emails are masked in all three surfaces — including percent-encoded (`%40`) and 1-char-local forms inside recorded `url`/`request_body` values. The dialog moves focus in, traps Tab, restores focus on close, and unmounts from the a11y tree when hidden; drag-selecting text in a row (copying an IP) no longer opens it.
+
+- **Collector raw sidecar.** Alongside every flattened NDJSON partition the collector now archives the pristine unflattened upstream records under `raw/<table>/date=YYYY-MM-DD/` — fields the explicit flatten mapping doesn't carry yet stay recoverable retroactively (re-flatten from S3 instead of depending on the API's ~365-day lookback). All 108 historical partitions were backfilled; deliberately no Glue table over `raw/` (recovery safety net, not a query surface).
 
 - **Public brochure on GitHub Pages.** A self-contained Korean landing page (`site/index.html` — hero, value pillars, 9 feature cards, 8 masked screenshots with a lightbox, architecture flow, security posture, live-demo CTA to c4e.whchoi.net) published to https://whchoi98.github.io/claude-code-dashboard/ from the `gh-pages` branch via `scripts/deploy-pages.sh`, mirroring the nfm-dashboard brochure pattern.
 - **Architecture diagram in the how-it-works section.** Hand-authored 1400×860 SVG (`site/img/ccd-arch.svg`) in the model-monitoring brochure style — user path (CloudFront/Cognito → ALB/Regional WAF → Fargate), Anthropic API fan-out, S3-first replay, Bedrock, collector pipeline, dual Secrets injection — embedded responsively with 90° rotation on mobile.
@@ -30,11 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 수정
 
+- **신규 그룹의 그룹 스코프 비용 페이지가 $0으로 표시.** 업스트림 비용 귀속이 라이브 멤버십보다 ≥14시간 늦은 멤버십 스냅샷을 타므로, 신설 그룹의 지출은 다음 일일 스냅샷까지 정상적으로 0으로 조회됨 — 비용 페이지가 고장처럼 보이는 대신 앰버 안내로 설명.
+
 - **감사 페이지 로딩 실패 (CloudFront 504).** 조직 감사 볼륨이 프리셋 창당 2000건을 초과(일 700건+, `claude_file_viewed` 위주)하면서, 캐시를 비껴간 요청이 Compliance API를 포그라운드에서 30~85초간 재페이지네이션 — CloudFront 60초 오리진 타임아웃 초과. `/api/compliance/activities`에 응답 레벨 SWR 캐시(`makeTtlCache`: in-flight 중복 제거, stale-while-revalidate)를 적용하고, 5분 프리웜이 **프런트엔드가 보내는 것과 동일한 키 수식**으로 4개 프리셋 창을 top-up(기존 프리웜은 인게이지먼트 버퍼 오프셋을 써서 실제 요청 키와 전혀 일치하지 않았음). 포그라운드 워크는 45초 예산 + 페이지당 15초 abort로 60초 아래 하드 바운드, 도중 실패(429/5xx/네트워크)·예산 초과는 `partial: true`로 강등, 백그라운드 워크(프리웜·partial 후 완주 재시도)는 240초 예산으로 완전한 결과에 수렴. 프런트: 잘림 배너가 볼륨 상한/업스트림 실패/시간 예산을 구분(신규 i18n 키), Executive Risk KPI에 부분 데이터 표시, 감사 부제의 `{total}` 보간 버그(`total_fetched` 사용) 수정.
 
 ### 추가
 
 - **감사 이벤트 상세 패널.** 감사 페이지에서 행(또는 키보드/보조기기 진입점인 이벤트 타입 배지)을 클릭하면 우측 슬라이드-인으로 이벤트 전체를 표시 — 액터 정보(마스킹된 이메일·IP·user agent), 이벤트별 필드, 접이식 원본 JSON. 세 표면 모두 이메일 마스킹(기록된 `url`/`request_body` 안의 `%40` 인코딩·1글자 local part 포함). 다이얼로그는 포커스 이동·Tab 트랩·닫힘 시 포커스 복원을 수행하고 닫힌 상태에서는 접근성 트리에서 제거되며, 행 안 텍스트 드래그 선택(IP 복사)으로는 열리지 않음.
+
+- **Collector 원본 사이드카.** 평탄화 NDJSON 파티션과 나란히 비평탄화 원본 레코드를 `raw/<table>/date=YYYY-MM-DD/`에 병행 적재 — flatten 매핑이 아직 다루지 않는 필드를 API의 ~365일 lookback에 의존하지 않고 S3에서 소급 복구 가능. 과거 파티션 108개 전량 백필 완료; `raw/`에는 의도적으로 Glue 테이블 없음(복구 안전망, 질의 표면 아님).
 
 - **GitHub Pages 공개 브로셔.** 자체 완결형 한국어 랜딩 페이지(`site/index.html` — 히어로, 핵심 가치, 기능 9종, 마스킹된 스크린샷 8장 + 라이트박스, 아키텍처 흐름, 보안 포지셔닝, c4e.whchoi.net 라이브 데모 CTA)를 `scripts/deploy-pages.sh`로 `gh-pages` 브랜치에 게시 — https://whchoi98.github.io/claude-code-dashboard/ (nfm-dashboard 브로셔 패턴).
 - **동작 원리 섹션 아키텍처 다이어그램.** model-monitoring 브로셔 스타일의 수제 1400×860 SVG(`site/img/ccd-arch.svg`) — 사용자 경로(CloudFront/Cognito → ALB/Regional WAF → Fargate), Anthropic API 팬아웃, S3-first 리플레이, Bedrock, 수집 파이프라인, 이중 Secrets 주입 — 모바일에서 90° 회전되는 반응형 임베드.

@@ -239,7 +239,7 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
 │   ├── components/         # 공용 UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 18개 라우트 (경영 요약 · 에이전틱 · 변경 내역 포함)
+│   ├── pages/              # 19개 라우트 (경영 요약 · 에이전틱 · Claude Chat · 변경 내역 포함)
 │   ├── lib/                # i18n, useFetch, useDateRange, 포맷팅
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합
