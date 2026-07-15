@@ -108,6 +108,24 @@ const PROJECT_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'snapshot_date', type: 'string' },
 ]
 
+// Compliance audit events: stable envelope columns + the full original
+// record as a JSON string (`payload`) — event fields are dynamic per type,
+// so type-specific values are reached via json_extract(payload, '$.field')
+// instead of schema migrations. Partition day = created_at day.
+const COMPLIANCE_COLUMNS: glue.CfnTable.ColumnProperty[] = [
+  { name: 'id', type: 'string' },
+  { name: 'type', type: 'string' },
+  { name: 'created_at', type: 'string' },
+  { name: 'actor_type', type: 'string' },
+  { name: 'actor_email', type: 'string' },
+  { name: 'actor_user_id', type: 'string' },
+  { name: 'actor_api_key_id', type: 'string' },
+  { name: 'actor_ip_address', type: 'string' },
+  { name: 'actor_user_agent', type: 'string' },
+  { name: 'organization_id', type: 'string' },
+  { name: 'payload', type: 'string' },
+]
+
 export class StorageStack extends cdk.Stack {
   readonly archiveBucket: s3.Bucket
   readonly athenaWorkGroup: athena.CfnWorkGroup
@@ -173,6 +191,7 @@ export class StorageStack extends cdk.Stack {
     table('skills_daily', SKILL_COLUMNS, 'skills')
     table('connectors_daily', CONNECTOR_COLUMNS, 'connectors')
     table('projects_daily', PROJECT_COLUMNS, 'projects')
+    table('compliance_daily', COMPLIANCE_COLUMNS, 'compliance')
 
     this.athenaWorkGroup = new athena.CfnWorkGroup(this, 'Wg', {
       name: 'claude-code-dashboard',

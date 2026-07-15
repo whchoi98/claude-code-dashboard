@@ -117,3 +117,26 @@ export function flattenProject(p) {
     created_by_email:            p.created_by?.email_address ?? null,
   }
 }
+
+// Compliance audit event → flat columnar row. Event payloads are dynamic
+// per type, so only the stable envelope (id/type/created_at/actor/org) gets
+// dedicated columns; the FULL original record is preserved in `payload`
+// (JSON string) so Athena can reach type-specific fields via json_extract
+// without schema migrations. Partition day = created_at day (event time,
+// not snapshot time — compliance is real-time, there is no 3-day buffer).
+export function flattenActivity(e) {
+  const a = e.actor ?? {}
+  return {
+    id:                e.id ?? null,
+    type:              e.type ?? null,
+    created_at:        e.created_at ?? null,
+    actor_type:        a.type ?? null,
+    actor_email:       a.email_address ?? null,
+    actor_user_id:     a.user_id ?? null,
+    actor_api_key_id:  a.api_key_id ?? null,
+    actor_ip_address:  a.ip_address ?? null,
+    actor_user_agent:  a.user_agent ?? null,
+    organization_id:   e.organization_id ?? null,
+    payload:           JSON.stringify(e),
+  }
+}

@@ -3,7 +3,7 @@ import multer from 'multer'
 import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import {
   MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
-  historyToBedrockMessages, parseFollowups,
+  historyToBedrockMessages, parseFollowups, maskEmailsDeep,
 } from './chat-tools.js'
 import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
@@ -748,6 +748,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'skills_daily',
   'connectors_daily',
   'projects_daily',
+  'compliance_daily',
 ])
 const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
 
@@ -849,6 +850,12 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
   message_count, created_at, created_by_id, created_by_email
   (created_by_* are NULL for partitions collected before this column existed)
 
+• compliance_daily (one row per audit event; partition day = event created_at day —
+  event-time, current through YESTERDAY, no 3-day buffer):
+  id, type, created_at, actor_type, actor_email, actor_user_id, actor_api_key_id,
+  actor_ip_address, actor_user_agent, organization_id,
+  payload (FULL original event as a JSON string — json_extract_scalar(payload, '$.field'))
+
 Always filter by partition: WHERE date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'.
 The partition column is varchar — do NOT wrap the literals in DATE '...';
 Athena will throw TYPE_MISMATCH because Trino won't auto-cast varchar to date.
@@ -862,7 +869,10 @@ function redactToolInput(input) {
   const out = {}
   for (const [k, v] of Object.entries(input || {})) {
     if (typeof v === 'string') {
-      out[k] = v.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, (m) => maskEmailSrv(m))
+      out[k] = v
+        .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, (m) => maskEmailSrv(m))
+        // percent-encoded variant (%40) — recorded request urls/bodies
+        .replace(/([A-Za-z0-9._+-]{1,2})[A-Za-z0-9._%+-]*(%40)([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi, '$1***$2$3')
       if (out[k].length > 280) out[k] = out[k].slice(0, 280) + '…'
     } else out[k] = v
   }
@@ -1178,7 +1188,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const { query } = req.body || {}
     try {
       const { rows } = await runAthenaSafe(query)
-      res.json({ rows })
+      // Mask emails server-side (incl. %40-encoded inside compliance_daily
+      // payload/url strings) — the "always mask in UI" rule must hold even
+      // for free-form SQL results the frontend can't anticipate.
+      res.json({ rows: maskEmailsDeep(rows) })
     } catch (err) {
       // sanitizeAthenaQuery throws Error with a helpful message — surface as 400.
       const msg = err?.message || String(err)

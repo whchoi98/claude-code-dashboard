@@ -5,6 +5,12 @@
 export const MAX_TOOL_HOPS = 4
 export const HISTORY_MAX_TURNS = 12
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+// Percent-encoded variant (alice%40acme.com): compliance events record other
+// clients' request url/request_body verbatim, where '@' arrives as %40 — a
+// literal-@ regex lets those through. Mirrors src/pages/Compliance.tsx
+// maskEmailsInText. Group-replace (keep 1-2 leading chars + separator+domain)
+// because maskEmail() can't parse a %40 string (no literal '@').
+const ENCODED_EMAIL_RE = /([A-Za-z0-9._+-]{1,2})[A-Za-z0-9._%+-]*(%40)([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi
 
 // Mirror of src/lib/format.ts maskEmail — keep the two in sync.
 export function maskEmail(email) {
@@ -18,9 +24,14 @@ export function maskEmail(email) {
 }
 
 // Recursively mask any email-shaped string anywhere in a value. Used on tool
-// results BEFORE they reach the model, so raw emails never enter the prompt.
+// results BEFORE they reach the model, so raw emails never enter the prompt —
+// and on /api/archive/query rows before they reach the browser.
 export function maskEmailsDeep(value) {
-  if (typeof value === 'string') return value.replace(EMAIL_RE, (m) => maskEmail(m))
+  if (typeof value === 'string') {
+    return value
+      .replace(EMAIL_RE, (m) => maskEmail(m))
+      .replace(ENCODED_EMAIL_RE, '$1***$2$3')
+  }
   if (Array.isArray(value)) return value.map(maskEmailsDeep)
   if (value && typeof value === 'object') {
     const out = {}
@@ -95,6 +106,7 @@ const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. 
 • skills_daily: skill_name, distinct_users, chat_uses, claude_code_uses
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses
 • projects_daily: project_id, project_name, distinct_user_count, distinct_conversation_count, message_count, created_at, created_by_id, created_by_email (created_by_* nullable)
+• compliance_daily (audit events, partition day = event created_at day): id, type, created_at (ISO timestamp string), actor_type (user_actor|api_actor), actor_email, actor_user_id, actor_api_key_id, actor_ip_address, actor_user_agent, organization_id, payload (FULL original event as a JSON string — reach type-specific fields via json_extract_scalar(payload, '$.field')). Mask actor_email in any answer. compliance_daily is EVENT-TIME partitioned and current through YESTERDAY — the 3-day finalization rule below does NOT apply to it.
 Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
 
 // Strip the heavy per-user array from the snapshot to keep tokens low; keep the
@@ -176,9 +188,9 @@ export function CHAT_SYSTEM_PROMPT(locale, today) {
     'You are an enterprise analytics assistant for Claude Code Enterprise. This is a multi-turn conversation — use the prior turns for context.',
     'Use the provided tools to fetch real data before answering; never invent numbers. Cite exact figures and compute rates/growth explicitly.',
     'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend.',
-    'Data caveats to respect: a 3-day finalization buffer, a 90-day live lookback, and no Bedrock usage in cost.',
+    'Data caveats to respect: a 3-day finalization buffer on the analytics tables, a 90-day live lookback, and no Bedrock usage in cost.',
     'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
-    `Today is ${today} (UTC). When writing Athena date filters, end ranges no later than 3 days ago.`,
+    `Today is ${today} (UTC). When writing Athena date filters on the analytics tables, end ranges no later than 3 days ago. EXCEPTION: compliance_daily is event-time partitioned and current through yesterday — end its ranges at yesterday.`,
     lang,
   ].join('\n')
 }

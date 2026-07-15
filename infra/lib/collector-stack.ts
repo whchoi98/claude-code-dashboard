@@ -25,7 +25,10 @@ export class CollectorStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../collector')),
-      timeout: cdk.Duration.minutes(5),
+      // 10 min: the analytics snapshot (~1-2 min) now runs ahead of the
+      // paced compliance walk (60 pages × ~3-5 s incl. retries); the walk
+      // also self-limits via getRemainingTimeInMillis at a 60 s margin.
+      timeout: cdk.Duration.minutes(10),
       memorySize: 512,
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {

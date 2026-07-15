@@ -27,6 +27,10 @@ ok('maskEmailsDeep masks nested', eq(
   { rows: [{ user_email: 'bo*****@acme.com', n: 5 }] },
 ))
 ok('maskEmailsDeep leaves non-emails', maskEmailsDeep('hello world') === 'hello world')
+// percent-encoded emails inside recorded urls/bodies (compliance_daily payload)
+ok('maskEmailsDeep masks %40-encoded in url', maskEmailsDeep('GET /v1/users?email=alice%40acme.com') === 'GET /v1/users?email=al***%40acme.com')
+ok('maskEmailsDeep masks %40 with +tag encoding', maskEmailsDeep('email=bob%2Btag%40acme.com') === 'email=bo***%40acme.com')
+ok('maskEmailsDeep leaves email-free urls alone', maskEmailsDeep('https://api.anthropic.com/v1/compliance/activities?limit=100') === 'https://api.anthropic.com/v1/compliance/activities?limit=100')
 
 // historyToBedrockMessages
 ok('history maps roles + drops empties', eq(
