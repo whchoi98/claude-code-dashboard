@@ -106,6 +106,15 @@ ok('TOOL_SPECS names', eq(
   ['get_analytics_overview', 'get_cost_summary', 'run_athena_sql', 'search_users'],
 ))
 ok('system prompt localized ko', CHAT_SYSTEM_PROMPT('ko', '2026-06-09').includes('한국어'))
+// Multi-org: the optional 3rd arg pins the session to one org; omitting it
+// (legacy callers / single-org deployments) leaves the prompt org-free.
+ok('system prompt org-free by default', !CHAT_SYSTEM_PROMPT('en', '2026-07-21').includes('scoped to the organization'))
+const org2Prompt = CHAT_SYSTEM_PROMPT('en', '2026-07-21', { id: 'org2', label: 'Acme EU' })
+ok('system prompt names the org2 label', org2Prompt.includes('"Acme EU"') && org2Prompt.includes('(org2)'))
+ok('system prompt routes org2 to *_org2 tables', org2Prompt.includes('claude_code_analytics_org2'))
+const primaryPrompt = CHAT_SYSTEM_PROMPT('en', '2026-07-21', { id: 'primary', label: 'Org 1' })
+ok('system prompt routes primary to unsuffixed tables', primaryPrompt.includes('use the unsuffixed tables'))
+ok('athena tool hint mentions the *_org2 twins', TOOL_SPECS.find((t) => t.toolSpec.name === 'run_athena_sql').toolSpec.description.includes('summaries_daily_org2'))
 
 // makeToolRunner with stubbed deps
 const runner = makeToolRunner({

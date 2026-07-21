@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from './i18n'
+import { orgParam } from './api'
+import { useOrg } from './OrgProvider'
 
 export type ToolCall = { id: string; name: string; status: 'running' | 'done' | 'error'; rowCount?: number | null }
 
@@ -17,6 +19,7 @@ const HISTORY_MAX = 12
 
 export function useChatStream() {
   const { locale } = useI18n()
+  const { org } = useOrg()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [followups, setFollowups] = useState<string[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -28,6 +31,18 @@ export function useChatStream() {
     abortRef.current?.abort()
     setMessages([]); setFollowups([]); setIsStreaming(false)
   }, [])
+
+  // An org switch must clear the conversation: the transcript's numbers are
+  // the OLD org's, and the model would happily answer follow-ups ("and who
+  // was second?") from that stale context while its tools now query the new
+  // org — silently cross-org AI answers. Same hard-scope rule as useFetch.
+  const lastOrgRef = useRef(org)
+  useEffect(() => {
+    if (lastOrgRef.current !== org) {
+      lastOrgRef.current = org
+      reset()
+    }
+  }, [org, reset])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -59,10 +74,12 @@ export function useChatStream() {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const res = await fetch('/api/chat/stream', {
+      // The org rides in the body (contract: the tool runner binds to that
+      // org's keys); the query param mirrors it for the shared proxy layer.
+      const res = await fetch(orgParam('/api/chat/stream', org), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: q, history, locale }),
+        body: JSON.stringify({ message: q, history, locale, org }),
         signal: controller.signal,
       })
       if (!res.ok || !res.body) {
@@ -107,7 +124,7 @@ export function useChatStream() {
         abortRef.current = null
       }
     }
-  }, [locale])
+  }, [locale, org])
 
   return { messages, followups, isStreaming, send, stop, reset }
 }

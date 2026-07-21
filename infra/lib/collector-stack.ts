@@ -50,6 +50,20 @@ export class CollectorStack extends cdk.Stack {
       resources: [analyticsSecret.secretArn],
     }))
 
+    // Org2 (multi-org contract 2026-07-21): the second org's Analytics key
+    // (secret `ccd/analytics-key-2`). Gated on the `enableOrg2` context flag
+    // (`--context enableOrg2=true`, default OFF) so deploys succeed before
+    // the secret exists in Secrets Manager. When set, handler.js repeats the
+    // snapshot + compliance walk for org2 under the org2/ S3 prefix.
+    const enableOrg2Ctx = this.node.tryGetContext('enableOrg2')
+    if (enableOrg2Ctx === true || enableOrg2Ctx === 'true') {
+      const analyticsSecret2 = secrets.Secret.fromSecretNameV2(
+        this, 'AnalyticsSecret2', `${props.analyticsSecretName}-2`)
+      fn.addEnvironment(
+        'ANTHROPIC_ANALYTICS_KEY_2_SECRET_ARN', analyticsSecret2.secretArn)
+      analyticsSecret2.grantRead(fn)
+    }
+
     // Bootstrap: inject secret into env at cold start via init code layer is heavy; instead
     // wrap the handler using an env resolver. A simple approach: pass the secret ARN and let
     // handler.js (Phase 2) fetch it via the SDK. For now we expect users to also set the plain

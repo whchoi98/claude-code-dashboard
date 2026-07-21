@@ -12,6 +12,9 @@ const cases = [
   ['trailing semicolon only',         "SELECT 1 FROM claude_code_analytics;", 'pass'],
   ['schema-qualified table',          "SELECT 1 FROM claude_code_analytics.claude_code_analytics", 'pass'],
   ['table alias',                     "SELECT a.user_email FROM claude_code_analytics a JOIN summaries_daily s ON a.date=s.date", 'pass'],
+  ['org2 twin table allowed',         "SELECT 1 FROM claude_code_analytics_org2 WHERE date='2026-07-01'", 'pass'],
+  ['org2 compliance twin allowed',    "SELECT type FROM compliance_daily_org2 WHERE date='2026-07-01'", 'pass'],
+  ['org3 twin does not exist',        "SELECT 1 FROM claude_code_analytics_org3", 'Table not allowed'],
 
   // Injection attempts
   ['multi-statement chained',         "SELECT 1 FROM claude_code_analytics; DROP TABLE users", 'Multi-statement'],

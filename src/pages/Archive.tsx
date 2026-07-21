@@ -1,26 +1,45 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { ChartCard } from '../components/ChartCard'
 import { EmptyState } from '../components/LoadingState'
 import { useT } from '../lib/i18n'
+import { orgParam } from '../lib/api'
+import { useOrg } from '../lib/OrgProvider'
 
 export function Archive() {
   const t = useT()
+  const { org } = useOrg()
   // The `date` partition is varchar (zero-padded YYYY-MM-DD), so plain
   // string BETWEEN compares correctly *and* lets Athena prune partitions.
   // Using `BETWEEN DATE '...' AND DATE '...'` produces a TYPE_MISMATCH
   // because Trino won't auto-cast varchar to date.
-  const [query, setQuery] = useState(
-    "SELECT date, SUM(lines_of_code_added) AS loc, COUNT(DISTINCT user_email) AS developers\nFROM claude_code_analytics\nWHERE date BETWEEN '2026-04-01' AND '2026-04-30'\nGROUP BY date\nORDER BY date",
-  )
+  //
+  // The SQL itself decides which org's data it reads: org2 data lives in the
+  // *_org2 table twins. Seed the sample query from the CURRENT org and
+  // re-seed on switch — otherwise an org2 session pressing Run silently
+  // renders the primary org's numbers.
+  const defaultQuery = (o: string) =>
+    `SELECT date, SUM(lines_of_code_added) AS loc, COUNT(DISTINCT user_email) AS developers\nFROM claude_code_analytics${o === 'org2' ? '_org2' : ''}\nWHERE date BETWEEN '2026-04-01' AND '2026-04-30'\nGROUP BY date\nORDER BY date`
+  const [query, setQuery] = useState(() => defaultQuery(org))
   const [rows, setRows] = useState<null | Record<string, unknown>[]>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Render-phase derived-state reset (React-sanctioned): re-seed the sample
+  // query and drop old results the moment the org changes — no stale frame.
+  const lastOrgRef = useRef(org)
+  if (lastOrgRef.current !== org) {
+    lastOrgRef.current = org
+    setQuery(defaultQuery(org))
+    setRows(null)
+    setError(null)
+  }
 
   async function run() {
     setLoading(true); setError(null); setRows(null)
     try {
-      const r = await fetch('/api/archive/query', {
+      // The org param lets the server bias Athena hints toward the *_org2
+      // tables; the SQL itself already names the table it targets.
+      const r = await fetch(orgParam('/api/archive/query', org), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query }),

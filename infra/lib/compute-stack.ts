@@ -61,6 +61,15 @@ export class ComputeStack extends cdk.Stack {
     const complianceSecret = props.complianceSecretName
       ? secrets.Secret.fromSecretNameV2(this, 'ComplianceSecret', props.complianceSecretName)
       : undefined
+    // Org2 (multi-org contract 2026-07-21): the second org's Analytics key
+    // (secret `ccd/analytics-key-2`). Same conditional pattern as adminSecret/
+    // complianceSecret, but gated on the `enableOrg2` CDK context flag
+    // (`--context enableOrg2=true`, default OFF) so deploys succeed before
+    // the secret exists in Secrets Manager.
+    const enableOrg2Ctx = this.node.tryGetContext('enableOrg2')
+    const analyticsSecret2 = (enableOrg2Ctx === true || enableOrg2Ctx === 'true')
+      ? secrets.Secret.fromSecretNameV2(this, 'AnalyticsSecret2', `${props.analyticsSecretName}-2`)
+      : undefined
 
     const cluster = new ecs.Cluster(this, 'Cluster', {
       vpc: props.vpc,
@@ -105,6 +114,9 @@ export class ComputeStack extends cdk.Stack {
           : {}),
         ...(complianceSecret
           ? { ANTHROPIC_COMPLIANCE_KEY: ecs.Secret.fromSecretsManager(complianceSecret) }
+          : {}),
+        ...(analyticsSecret2
+          ? { ANTHROPIC_ANALYTICS_KEY_2: ecs.Secret.fromSecretsManager(analyticsSecret2) }
           : {}),
       },
       healthCheck: {

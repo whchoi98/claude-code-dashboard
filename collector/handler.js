@@ -6,7 +6,10 @@
  * so Glue/Athena can query history beyond the 90-day API lookback.
  *
  * Env:
- *   ANTHROPIC_ANALYTICS_KEY   — required
+ *   ANTHROPIC_ANALYTICS_KEY   — required (primary org; or ..._SECRET_ARN)
+ *   ANTHROPIC_ANALYTICS_KEY_2 — optional second org (or ..._2_SECRET_ARN);
+ *                               when set, every run repeats for org2 and
+ *                               writes S3 keys under the org2/ prefix
  *   ARCHIVE_S3_BUCKET         — required
  *   ANTHROPIC_API_URL         — default https://api.anthropic.com
  *   ANTHROPIC_VERSION         — default 2023-06-01
@@ -23,18 +26,60 @@ const UA = 'ClaudeCodeDashboard-Collector/0.1.0'
 const s3 = new S3Client({})
 const sm = new SecretsManagerClient({})
 
-let cachedKey = null
-async function resolveAnalyticsKey() {
-  if (cachedKey) return cachedKey
-  if (process.env.ANTHROPIC_ANALYTICS_KEY) {
-    cachedKey = process.env.ANTHROPIC_ANALYTICS_KEY
-    return cachedKey
+// ── Multi-org config (contract 2026-07-21) ─────────────────────────────────
+// Two orgs max: 'primary' keeps today's env names and legacy S3 paths
+// EXACTLY; 'org2' exists only when its key env is configured and mirrors the
+// whole layout under the org2/ S3 prefix (org2/users/, org2/raw/users/, ...).
+const ORG_ENV = {
+  primary: { key: 'ANTHROPIC_ANALYTICS_KEY',   arn: 'ANTHROPIC_ANALYTICS_KEY_SECRET_ARN' },
+  org2:    { key: 'ANTHROPIC_ANALYTICS_KEY_2', arn: 'ANTHROPIC_ANALYTICS_KEY_2_SECRET_ARN' },
+}
+const ORG_S3_PREFIX = { primary: '', org2: 'org2/' }
+
+export function orgS3Prefix(org) {
+  return ORG_S3_PREFIX[org] ?? ''
+}
+
+export function orgConfigured(org) {
+  const env = ORG_ENV[org]
+  return Boolean(env && (process.env[env.key] || process.env[env.arn]))
+}
+
+// Which orgs does this invoke run? Payload `org` limits a manual run to one
+// org (unknown values throw — failing loud beats archiving under the wrong
+// prefix); default is primary plus org2 when org2's key env is present.
+// Primary is always attempted so an unconfigured primary still fails fast
+// with the legacy "Neither ... nor ... is set" error below.
+export function orgsForRun(event = {}) {
+  if (event.org != null) {
+    if (!ORG_ENV[event.org]) {
+      throw new Error(`unknown org '${event.org}' (expected 'primary' or 'org2')`)
+    }
+    return [event.org]
   }
-  const arn = process.env.ANTHROPIC_ANALYTICS_KEY_SECRET_ARN
-  if (!arn) throw new Error('Neither ANTHROPIC_ANALYTICS_KEY nor ..._SECRET_ARN is set')
+  return orgConfigured('org2') ? ['primary', 'org2'] : ['primary']
+}
+
+// results/counts key convention: primary keeps the legacy unprefixed keys
+// (writes.users, counts.compliance_events, ...); every org2 key carries an
+// `org2_` prefix (writes.org2_users, counts.org2_compliance_events, ...).
+export function orgKeyPrefix(org) {
+  return org === 'primary' ? '' : `${org}_`
+}
+
+const cachedKeys = new Map() // org id → resolved API key
+async function resolveAnalyticsKey(org = 'primary') {
+  if (cachedKeys.has(org)) return cachedKeys.get(org)
+  const env = ORG_ENV[org]
+  if (process.env[env.key]) {
+    cachedKeys.set(org, process.env[env.key])
+    return process.env[env.key]
+  }
+  const arn = process.env[env.arn]
+  if (!arn) throw new Error(`Neither ${env.key} nor ..._SECRET_ARN is set`)
   const { SecretString } = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
-  cachedKey = SecretString
-  return cachedKey
+  cachedKeys.set(org, SecretString)
+  return SecretString
 }
 
 function dateMinusDays(d, n) {
@@ -43,12 +88,12 @@ function dateMinusDays(d, n) {
   return x.toISOString().slice(0, 10)
 }
 
-async function fetchJson(path, params, { signal } = {}) {
+async function fetchJson(path, params, { signal, org = 'primary' } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
     if (v != null) url.searchParams.set(k, String(v))
   }
-  const key = await resolveAnalyticsKey()
+  const key = await resolveAnalyticsKey(org)
   const r = await fetch(url, {
     signal,
     headers: { 'x-api-key': key, 'anthropic-version': API_VERSION, 'User-Agent': UA },
@@ -60,11 +105,15 @@ async function fetchJson(path, params, { signal } = {}) {
   return r.json()
 }
 
-async function fetchAllPages(path, params) {
+async function fetchAllPages(path, params, org = 'primary') {
   const out = []
   let page
   for (let i = 0; i < 50; i++) {
-    const body = await fetchJson(path, { ...params, limit: 1000, ...(page ? { page } : {}) })
+    // 20s per-page abort: the analytics phase has no remaining-time
+    // checkpoint, so one hung socket must not eat the whole Lambda budget
+    // (the compliance walk has its own 15s per-page signal).
+    const body = await fetchJson(path, { ...params, limit: 1000, ...(page ? { page } : {}) },
+      { org, signal: AbortSignal.timeout(20_000) })
     if (Array.isArray(body.data)) out.push(...body.data)
     if (!body.has_more || !body.next_page) break
     page = body.next_page
@@ -76,8 +125,8 @@ function toNdjson(records, extras = {}) {
   return records.map((r) => JSON.stringify({ ...r, ...extras })).join('\n') + '\n'
 }
 
-async function writePartition(prefix, date, body) {
-  const key = `${prefix}/date=${date}/${prefix}-${date}.json`
+async function writePartition(prefix, date, body, orgPrefix = '') {
+  const key = `${orgPrefix}${prefix}/date=${date}/${prefix}-${date}.json`
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
@@ -94,8 +143,9 @@ async function writePartition(prefix, date, body) {
 // column, re-flatten from raw) instead of depending on the API's ~365-day
 // lookback. Deliberately NO Glue table points at raw/ — it is a recovery
 // safety net, not a query surface. Pristine records: no snapshot_date stamp.
-async function writeRaw(prefix, date, records) {
-  const key = `raw/${prefix}/date=${date}/${prefix}-${date}.json`
+// org2 sidecars live under org2/raw/<table>/ (org prefix outermost).
+async function writeRaw(prefix, date, records, orgPrefix = '') {
+  const key = `${orgPrefix}raw/${prefix}/date=${date}/${prefix}-${date}.json`
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
@@ -107,7 +157,22 @@ async function writeRaw(prefix, date, records) {
 
 export const handler = async (event = {}, context = {}) => {
   if (!BUCKET) throw new Error('ARCHIVE_S3_BUCKET is not configured')
-  await resolveAnalyticsKey() // fail fast if the secret is not reachable
+  let orgs = orgsForRun(event)
+  // Fail fast on the PRIMARY secret only — an org2 misconfiguration (typo'd
+  // secret name, lost grant, deleted secret; fromSecretNameV2 never verifies
+  // existence at deploy) must degrade to "org2 skipped this run", never sink
+  // the primary org's daily snapshot and audit archive.
+  const orgErrors = {}
+  for (const org of orgs) {
+    try {
+      await resolveAnalyticsKey(org)
+    } catch (err) {
+      if (org === 'primary') throw err
+      orgErrors[org] = String(err?.message || err)
+      console.error(`[collector] org '${org}' key unavailable — excluded from this run:`, orgErrors[org])
+    }
+  }
+  orgs = orgs.filter((o) => !(o in orgErrors))
 
   const today = new Date()
   const date = event.date || dateMinusDays(today, 3) // respect 3-day data buffer
@@ -119,52 +184,96 @@ export const handler = async (event = {}, context = {}) => {
   const results = {}
   const counts = {}
 
-  // complianceOnly: the dedicated 00:30 UTC EventBridge rule archives audit
-  // events right after midnight (today's feed is minutes deep → the backward
-  // walk reaches yesterday almost immediately). The 14:00 UTC analytics rule
-  // passes complianceDays:0 and skips the walk entirely.
-  if (!event.complianceOnly) {
-    const users = await fetchAllPages('/v1/organizations/analytics/users', { date })
-    results.users = await writePartition('users', date,
-      toNdjson(users.map(flattenUser), { snapshot_date: date }))
-    results.users_raw = await writeRaw('users', date, users)
+  // Org loop: primary first (legacy prefixes/keys unchanged), then org2 when
+  // configured. Orgs run sequentially — each has its own upstream 60 rpm
+  // budget, but they share this one Lambda's time budget.
+  for (let orgIdx = 0; orgIdx < orgs.length; orgIdx++) {
+    const org = orgs[orgIdx]
+    const s3Prefix = orgS3Prefix(org)
+    const keyPrefix = orgKeyPrefix(org)
 
-    const summaries = await fetchJson('/v1/organizations/analytics/summaries', {
-      starting_date: summariesStart,
-      ending_date:   summariesEnd,
-    })
-    // Summaries API returns {summaries: [...]} — normalize.
-    const summaryRows = summaries.summaries || summaries.data || []
-    results.summaries = await writePartition('summaries', date, toNdjson(summaryRows))
-    results.summaries_raw = await writeRaw('summaries', date, summaryRows)
+    // The remaining-time guard protects the WHOLE multi-org run: the
+    // compliance walk checks it per page (same `context` clock for every
+    // org), but the analytics snapshot has no internal checkpoint — so if
+    // the earlier orgs left too little budget, skip this org outright
+    // instead of risking a hard timeout mid-write.
+    const remaining = context?.getRemainingTimeInMillis?.()
+    if (orgIdx > 0 && typeof remaining === 'number' && remaining < 90_000) {
+      results[`${keyPrefix}skipped`] = 'time'
+      console.error(`[collector] skipping org '${org}': ${remaining}ms left in the Lambda budget`)
+      continue
+    }
 
-    const skills = await fetchAllPages('/v1/organizations/analytics/skills', { date })
-    results.skills = await writePartition('skills', date,
-      toNdjson(skills.map(flattenSkill), { snapshot_date: date }))
-    results.skills_raw = await writeRaw('skills', date, skills)
+    const orgResults = {}
+    const orgCounts = {}
 
-    const connectors = await fetchAllPages('/v1/organizations/analytics/connectors', { date })
-    results.connectors = await writePartition('connectors', date,
-      toNdjson(connectors.map(flattenConnector), { snapshot_date: date }))
-    results.connectors_raw = await writeRaw('connectors', date, connectors)
+    // Non-primary failures (401 on a rotated key, upstream 5xx) must not
+    // fail the whole invocation after primary already archived — catch and
+    // report instead. Primary keeps today's throw-through behavior so the
+    // EventBridge retry still fires for genuine primary outages.
+    try {
 
-    const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date })
-    results.projects = await writePartition('projects', date,
-      toNdjson(projects.map(flattenProject), { snapshot_date: date }))
-    results.projects_raw = await writeRaw('projects', date, projects)
+    // complianceOnly: the dedicated 00:30 UTC EventBridge rule archives audit
+    // events right after midnight (today's feed is minutes deep → the backward
+    // walk reaches yesterday almost immediately). The 14:00 UTC analytics rule
+    // passes complianceDays:0 and skips the walk entirely.
+    if (!event.complianceOnly) {
+      const users = await fetchAllPages('/v1/organizations/analytics/users', { date }, org)
+      orgResults.users = await writePartition('users', date,
+        toNdjson(users.map(flattenUser), { snapshot_date: date }), s3Prefix)
+      orgResults.users_raw = await writeRaw('users', date, users, s3Prefix)
 
-    counts.users = users.length
-    counts.summaries = summaryRows.length
-    counts.skills = skills.length
-    counts.connectors = connectors.length
-    counts.projects = projects.length
+      const summaries = await fetchJson('/v1/organizations/analytics/summaries', {
+        starting_date: summariesStart,
+        ending_date:   summariesEnd,
+      }, { org, signal: AbortSignal.timeout(20_000) })
+      // Summaries API returns {summaries: [...]} — normalize.
+      const summaryRows = summaries.summaries || summaries.data || []
+      orgResults.summaries = await writePartition('summaries', date, toNdjson(summaryRows), s3Prefix)
+      orgResults.summaries_raw = await writeRaw('summaries', date, summaryRows, s3Prefix)
+
+      const skills = await fetchAllPages('/v1/organizations/analytics/skills', { date }, org)
+      orgResults.skills = await writePartition('skills', date,
+        toNdjson(skills.map(flattenSkill), { snapshot_date: date }), s3Prefix)
+      orgResults.skills_raw = await writeRaw('skills', date, skills, s3Prefix)
+
+      const connectors = await fetchAllPages('/v1/organizations/analytics/connectors', { date }, org)
+      orgResults.connectors = await writePartition('connectors', date,
+        toNdjson(connectors.map(flattenConnector), { snapshot_date: date }), s3Prefix)
+      orgResults.connectors_raw = await writeRaw('connectors', date, connectors, s3Prefix)
+
+      const projects = await fetchAllPages('/v1/organizations/analytics/apps/chat/projects', { date }, org)
+      orgResults.projects = await writePartition('projects', date,
+        toNdjson(projects.map(flattenProject), { snapshot_date: date }), s3Prefix)
+      orgResults.projects_raw = await writeRaw('projects', date, projects, s3Prefix)
+
+      orgCounts.users = users.length
+      orgCounts.summaries = summaryRows.length
+      orgCounts.skills = skills.length
+      orgCounts.connectors = connectors.length
+      orgCounts.projects = projects.length
+    }
+
+    const compliance = await archiveComplianceEvents(event, context, today, orgResults, org)
+    orgCounts.compliance_events = compliance.events
+    orgCounts.compliance_days = compliance.days
+
+    } catch (err) {
+      if (org === 'primary') throw err
+      orgResults.error = String(err?.message || err)
+      console.error(`[collector] org '${org}' run failed (primary unaffected):`, orgResults.error)
+    }
+
+    // Merge under the org key convention (see orgKeyPrefix): primary keeps
+    // the legacy unprefixed keys, org2's are org2_* — e.g. writes.org2_users,
+    // counts.org2_compliance_events, writes.org2_compliance_error.
+    for (const [k, v] of Object.entries(orgResults)) results[keyPrefix + k] = v
+    for (const [k, v] of Object.entries(orgCounts)) counts[keyPrefix + k] = v
   }
 
-  const compliance = await archiveComplianceEvents(event, context, today, results)
-  counts.compliance_events = compliance.events
-  counts.compliance_days = compliance.days
+  for (const [org, msg] of Object.entries(orgErrors)) results[`${orgKeyPrefix(org)}error`] = msg
 
-  return { ok: true, date, writes: results, counts }
+  return { ok: true, date, orgs, writes: results, counts }
 }
 
 // ── Compliance audit archival ────────────────────────────────────────────
@@ -188,9 +297,13 @@ export const handler = async (event = {}, context = {}) => {
 // Failures here must NOT sink the analytics snapshot — errors are reported
 // in results.compliance_error + console.error (the CloudWatch signal)
 // instead of thrown. The Analytics key carries read:compliance_activities.
+// Multi-org: runs once per org (results is the caller's PER-ORG object —
+// keys land unprefixed here and get the org2_ prefix at merge time); org2's
+// partitions go under org2/compliance/ + org2/raw/compliance/.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function archiveComplianceEvents(event, context, today, results) {
+async function archiveComplianceEvents(event, context, today, results, org = 'primary') {
+  const s3Prefix = orgS3Prefix(org)
   const out = { events: 0, days: 0 }
   const pagesCap = Number(event.compliancePages ?? 200)
   const days = Number(event.complianceDays ?? (event.date ? 0 : 2))
@@ -219,7 +332,7 @@ async function archiveComplianceEvents(event, context, today, results) {
         try {
           body = await fetchJson('/v1/compliance/activities', {
             limit: 100, ...(afterId ? { after_id: afterId } : {}),
-          }, { signal: AbortSignal.timeout(15_000) })
+          }, { signal: AbortSignal.timeout(15_000), org })
           break
         } catch (err) {
           if (attempt >= 3) throw err
@@ -258,8 +371,8 @@ async function archiveComplianceEvents(event, context, today, results) {
 
     for (const [day, evs] of [...byDay.entries()].sort()) {
       results[`compliance_${day}`] = await writePartition('compliance', day,
-        toNdjson(evs.map(flattenActivity)))
-      await writeRaw('compliance', day, evs)
+        toNdjson(evs.map(flattenActivity)), s3Prefix)
+      await writeRaw('compliance', day, evs, s3Prefix)
       out.events += evs.length
       out.days += 1
     }

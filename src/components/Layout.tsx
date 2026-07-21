@@ -5,6 +5,7 @@ import { ClaudeIcon } from './ClaudeIcon'
 import { FloatingChat } from './chat/FloatingChat'
 import { useHealth } from '../lib/useHealth'
 import { useI18n } from '../lib/i18n'
+import { DEFAULT_ORG, useOrg } from '../lib/OrgProvider'
 // Single source of truth for the displayed version. Bumping this in
 // package.json (and adding a matching ## [x.y.z] section to CHANGELOG.md)
 // is all that's needed to update the badge — the /changelog page reads
@@ -47,13 +48,20 @@ export function Layout() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [navOpen])
-  // Carry ONLY the group scope across sidebar navigation (?group=), so the
-  // per-page GroupTabs selection survives page switches. Date-range params
-  // stay per-page on purpose — each page has its own default window.
+  // Carry ONLY the scope params across sidebar navigation (?group= and
+  // ?org=), so the per-page GroupTabs selection and the org switcher survive
+  // page switches. Date-range params stay per-page on purpose — each page
+  // has its own default window.
   const [searchParams] = useSearchParams()
+  const { org, setOrg, orgs } = useOrg()
   const groupQ = searchParams.get('group')
-  const withGroup = (path: string) =>
-    groupQ ? `${path}?group=${encodeURIComponent(groupQ)}` : path
+  const withGroup = (path: string) => {
+    const q = new URLSearchParams()
+    if (groupQ) q.set('group', groupQ)
+    if (org !== DEFAULT_ORG) q.set('org', org)
+    const qs = q.toString()
+    return qs ? `${path}?${qs}` : path
+  }
 
   return (
     // h-screen pins the layout to the viewport so the sidebar stays put
@@ -88,7 +96,7 @@ export function Layout() {
             <div className="text-[11px] uppercase tracking-widest text-ink-400">{t('product.tag')}</div>
             <div className="text-[15px] font-semibold text-ink-800 truncate">{t('product.name')}</div>
             <Link
-              to="/changelog"
+              to={withGroup('/changelog')}
               title={t('nav.changelog.hint', { version: APP_VERSION })}
               className="mt-1 inline-block rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums hover:bg-claude-200 transition-colors"
             >
@@ -158,6 +166,39 @@ export function Layout() {
               <path d="M14 7l3 3-3 3" />
             </svg>
           </a>
+
+          {/* Org switcher — hidden entirely in single-org deployments.
+              Segmented control matching the language toggle below; labels
+              come from GET /api/orgs (server env CCD_ORG_LABEL/CCD_ORG2_LABEL).
+              Switching resets the ?group= selection (per-org maps). */}
+          {orgs.length > 1 && (
+            <div>
+              <div className="mb-1 text-[10px] uppercase tracking-widest text-ink-400">{t('org.label')}</div>
+              <div
+                className="flex items-center gap-1 rounded-lg border border-ink-100 bg-white p-0.5 text-xs font-medium"
+                title={t('org.hint')}
+                role="group"
+                aria-label={t('org.label')}
+              >
+                {orgs.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => setOrg(o.id)}
+                    aria-pressed={org === o.id}
+                    className={clsx(
+                      'flex-1 min-w-0 truncate rounded-md px-2 py-1 transition',
+                      org === o.id
+                        ? 'bg-claude-500 text-white shadow-sm'
+                        : 'text-ink-500 hover:bg-paper-muted',
+                    )}
+                    title={o.label}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Language toggle */}
           <div className="flex items-center gap-1 rounded-lg border border-ink-100 bg-white p-0.5 text-xs font-medium">
@@ -230,7 +271,7 @@ export function Layout() {
           <ClaudeIcon size={24} />
           <span className="text-sm font-semibold text-ink-800 truncate">{t('product.name')}</span>
           <Link
-            to="/changelog"
+            to={withGroup('/changelog')}
             className="ml-auto rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums"
           >
             v{APP_VERSION}

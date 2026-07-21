@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import clsx from 'clsx'
 import { useT } from '../lib/i18n'
+import { orgParam } from '../lib/api'
+import { useOrg } from '../lib/OrgProvider'
 import { fmtNum, fmtPct, fmtCompact, fmtDate, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
 
@@ -65,23 +67,27 @@ const fmtUsd = (v: number) =>
 // The cost/skills responses are org-wide (email-independent), so cache them
 // per URL for the session — re-opening the panel for another user must not
 // re-fire org-wide user_cost_report pagination chains (60 rpm org budget).
+// Keys carry the selected org: each org's data is a separate universe, so a
+// URL cached under one org must never be served under another.
 const panelFetchCache = new Map<string, Promise<any>>()
-const cachedGet = (url: string) => {
-  let p = panelFetchCache.get(url)
+const cachedGet = (url: string, org: string) => {
+  const key = `${org}:${url}`
+  let p = panelFetchCache.get(key)
   if (!p) {
-    p = fetch(url).then(async (r) => {
+    p = fetch(orgParam(url, org)).then(async (r) => {
       const body = await r.json()
       if (!r.ok) throw new Error(body.error || r.statusText)
       return body
     })
-    p.catch(() => panelFetchCache.delete(url))  // don't cache failures
-    panelFetchCache.set(url, p)
+    p.catch(() => panelFetchCache.delete(key))  // don't cache failures
+    panelFetchCache.set(key, p)
   }
   return p
 }
 
 export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
   const t = useT()
+  const { org } = useOrg()
   const [range, setRange] = useState<RangeResp | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -102,7 +108,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     // engagement family to today−3 / last 31 days); no-param fallback keeps
     // the old default window.
     const q = pageRange ? `?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}` : ''
-    fetch(`/api/analytics/users/range${q}`)
+    fetch(orgParam(`/api/analytics/users/range${q}`, org))
       .then(async (r) => {
         const body = await r.json()
         if (!r.ok) throw new Error(body.error || r.statusText)
@@ -112,7 +118,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       .catch((e) => { if (!aborted) setErr(String(e.message || e)) })
       .finally(() => { if (!aborted) setLoading(false) })
     return () => { aborted = true }
-  }, [email, pageRange?.startingDate, pageRange?.endingDate])
+  }, [email, pageRange?.startingDate, pageRange?.endingDate, org])
 
   // Per-product spend (current + equal-length previous window) and org-wide
   // skill usage. Fetched independently of the engagement data — each section
@@ -132,11 +138,11 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     const prevEnd = addDaysIso(pageRange.startingDate, -1)
     const prevStart = addDaysIso(pageRange.startingDate, -pageRange.days)
     Promise.allSettled([
-      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
-      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`) : Promise.reject(new Error('window > 31d')),
-      cachedGet(`/api/analytics/skills/range?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`),
-      costOk ? cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
-      costOk ? cachedGet(`/api/cost/user-tokens?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`) : Promise.reject(new Error('window > 31d')),
+      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
+      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`, org) : Promise.reject(new Error('window > 31d')),
+      cachedGet(`/api/analytics/skills/range?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org),
+      costOk ? cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
+      costOk ? cachedGet(`/api/cost/user-tokens?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
     ]).then(([cur, prev, sk, models, tokens]) => {
       if (aborted) return
       setCostCur(cur.status === 'fulfilled' ? cur.value : null)
@@ -147,7 +153,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       setCostLoading(false)
     })
     return () => { aborted = true }
-  }, [email, pageRange?.startingDate, pageRange?.endingDate, pageRange?.days])
+  }, [email, pageRange?.startingDate, pageRange?.endingDate, pageRange?.days, org])
 
   const daily = useMemo(() => {
     if (!email || !range) return []

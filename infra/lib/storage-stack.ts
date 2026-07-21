@@ -193,6 +193,16 @@ export class StorageStack extends cdk.Stack {
     table('projects_daily', PROJECT_COLUMNS, 'projects')
     table('compliance_daily', COMPLIANCE_COLUMNS, 'compliance')
 
+    // Org2 mirrors (multi-org contract 2026-07-21): identical column sets and
+    // partition projection, data written by the collector under the org2/
+    // S3 prefix. Purely additive — the primary tables above are untouched.
+    table('claude_code_analytics_org2', USER_COLUMNS, 'org2/users')
+    table('summaries_daily_org2', SUMMARY_COLUMNS, 'org2/summaries')
+    table('skills_daily_org2', SKILL_COLUMNS, 'org2/skills')
+    table('connectors_daily_org2', CONNECTOR_COLUMNS, 'org2/connectors')
+    table('projects_daily_org2', PROJECT_COLUMNS, 'org2/projects')
+    table('compliance_daily_org2', COMPLIANCE_COLUMNS, 'org2/compliance')
+
     this.athenaWorkGroup = new athena.CfnWorkGroup(this, 'Wg', {
       name: 'claude-code-dashboard',
       state: 'ENABLED',

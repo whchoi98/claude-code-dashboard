@@ -11,7 +11,7 @@ infra/
 ├── bin/app.ts              # Entry; reads context (existingVpcId, cloudfrontPrefixListId, …)
 ├── lib/
 │   ├── network-stack.ts    # VPC (new or lookup by id)
-│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 6 tables (incl. compliance_daily) + Athena workgroup
+│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 12 tables (6 primary incl. compliance_daily + 6 *_org2 mirrors over org2/<prefix>/) + Athena workgroup
 │   ├── compute-stack.ts    # ECS service, ALB, CloudFront, WAF, Secrets Manager
 │   └── collector-stack.ts  # Lambda (15-min timeout) + 2 EventBridge rules (14:00 analytics / 00:30 compliance)
 ├── cdk.json                # `cdk` app command
@@ -26,6 +26,7 @@ infra/
   ```
 - **CloudFront prefix list** is region-specific; `bin/app.ts` has a built-in map (`CF_PREFIX_LIST_BY_REGION`) but can be overridden via `--context cloudfrontPrefixListId=pl-xxxxxxxx`.
 - **Secrets names are the contract**: `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`. Create them in Secrets Manager *before* the first `compute-stack` deploy or the stack will fail on secret lookup (using `Secret.fromSecretNameV2`).
+- **Multi-org (org2)**: `ccd/analytics-key-2` is wired into BOTH compute-stack (`ANTHROPIC_ANALYTICS_KEY_2` via `ecs.Secret.fromSecretsManager`) and collector-stack (`ANTHROPIC_ANALYTICS_KEY_2_SECRET_ARN` + read grant) ONLY when `--context enableOrg2=true` is passed — default OFF so deploys succeed before the secret exists. Create the secret first, then deploy with the flag.
 - **Lambda@Edge secret injection**: CDK packages `infra/edge/dist/` into each Lambda@Edge zip. `dist/` is **generated** by `npm run build:edge` and `.gitignore`d — the committable source lives directly in `infra/edge/` (handlers + `_shared.template.js`). Rebuild before every deploy:
   ```bash
   npm run build:edge        # → produces infra/edge/dist/{_shared.js, check-auth.js, …}

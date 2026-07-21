@@ -107,6 +107,7 @@ const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. 
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses
 • projects_daily: project_id, project_name, distinct_user_count, distinct_conversation_count, message_count, created_at, created_by_id, created_by_email (created_by_* nullable)
 • compliance_daily (audit events, partition day = event created_at day): id, type, created_at (ISO timestamp string), actor_type (user_actor|api_actor), actor_email, actor_user_id, actor_api_key_id, actor_ip_address, actor_user_agent, organization_id, payload (FULL original event as a JSON string — reach type-specific fields via json_extract_scalar(payload, '$.field')). Mask actor_email in any answer. compliance_daily is EVENT-TIME partitioned and current through YESTERDAY — the 3-day finalization rule below does NOT apply to it.
+Every table has an *_org2 twin (claude_code_analytics_org2, summaries_daily_org2, skills_daily_org2, connectors_daily_org2, projects_daily_org2, compliance_daily_org2) with the IDENTICAL layout holding the second organization's (org2) data — query the table family matching the session's org.
 Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
 
 // Strip the heavy per-user array from the snapshot to keep tokens low; keep the
@@ -180,14 +181,22 @@ export const TOOL_SPECS = [
   },
 ]
 
-export function CHAT_SYSTEM_PROMPT(locale, today) {
+export function CHAT_SYSTEM_PROMPT(locale, today, org = null) {
   const lang = locale === 'ko'
     ? '답변은 반드시 한국어로, 간결한 마크다운(필요 시 ## 헤더·`-` 목록·표)으로 작성하세요.'
     : 'Answer in clear English as concise Markdown (use ## headings, "-" lists, and GFM tables where they help).'
+  // Multi-org: `org` ({ id, label } | null) pins the session to ONE
+  // organization so run_athena_sql reads the right table family (the *_org2
+  // twins hold org2's data — identical layout). null (legacy callers and
+  // single-org deployments) leaves the prompt exactly as before.
+  const orgLine = org?.id
+    ? `This session is scoped to the organization "${org.label || org.id}" (${org.id}). All tools already return this organization's data. For run_athena_sql use ${org.id === 'org2' ? 'the *_org2 tables (e.g. claude_code_analytics_org2)' : 'the unsuffixed tables'}; the ${org.id === 'org2' ? 'unsuffixed' : '*_org2'} tables hold a DIFFERENT organization's data.`
+    : null
   return [
     'You are an enterprise analytics assistant for Claude Code Enterprise. This is a multi-turn conversation — use the prior turns for context.',
     'Use the provided tools to fetch real data before answering; never invent numbers. Cite exact figures and compute rates/growth explicitly.',
     'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend.',
+    ...(orgLine ? [orgLine] : []),
     'Data caveats to respect: a 3-day finalization buffer on the analytics tables, a 90-day live lookback, and no Bedrock usage in cost.',
     'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
     `Today is ${today} (UTC). When writing Athena date filters on the analytics tables, end ranges no later than 3 days ago. EXCEPTION: compliance_daily is event-time partitioned and current through yesterday — end its ranges at yesterday.`,

@@ -32,6 +32,7 @@ claude-code-dashboard/
 │   ├── index.css           Tailwind entry + the generic `@media print` block keyed off `body.app-print` that powers Save-as-PDF on Analyze, Cost, and Executive (visibility-isolated `.print-export` subtree, auto-expanded `<details>`, Claude palette preserved on paper)
 │   └── main.tsx            Entry + I18nProvider
 ├── server/                 Express API layer
+│   ├── orgs.js             Multi-org resolution (ADR-0018): org ids primary|org2, ?org= validation, per-org key/S3-prefix/label helpers
 │   ├── index.js            Proxy routes: /api/analytics/*, /api/admin/*, /api/compliance/* (after_id cursor; response-level SWR cache with 45s-foreground/240s-background walk budgets + partial:true degrade — ADR-0016; 5-min prewarm top-ups the four UI preset windows with frontend-identical keys), /api/health, plus a 10-minute in-memory cache shared across upstream calls; gzip compression middleware (SSE chat stream exempt via no-transform — CloudFront can't compress: its dynamic behaviors run CACHING_DISABLED, only /assets/* is edge-cached+brotli'd)
 │   ├── aws.js              registerAwsRoutes(): /api/cost/{live,users,user-tokens,groups,spend-limits,csv,upload,uploads,efficiency} (/cost/live + /cost/groups ride a 10-min success TTL cache with stale-while-revalidate — the rbac dimension runs 12–30s upstream), /api/groups(+/upload — email→group map; source chain: admin CSV > compliance members endpoint (real membership, 1h cache) > spend-derived arrays > last-good), /api/chat/stream (Bedrock SSE chatbot), /api/archive/query (Athena, 60-second polling budget), plus the analytics→CsvResp reshape used by /cost/live
 │   └── mock.js             Deterministic mock generators (dev fallback only)
@@ -80,6 +81,7 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 - **Secrets**: Never hardcoded. Stored in AWS Secrets Manager (`ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`) and injected into ECS tasks via `ecs.Secret.fromSecretsManager`. Local dev reads from gitignored `.env`.
 - **CDK context**: Always pass `--context existingVpcId=vpc-0dfa5610180dfa628` in this account (EIP quota exhausted; reuse shared VPC).
 - **Regions**: ap-northeast-2 primary. Bedrock model: `global.anthropic.claude-sonnet-4-6` (cross-region inference profile).
+- **Multi-org (ADR-0018)**: a second subscription is org `org2` — key env `ANTHROPIC_ANALYTICS_KEY_2` (secret `ccd/analytics-key-2`), enabled in infra by flipping `enableOrg2` to `true` in `infra/cdk.json` (COMMITTED — a CLI-only flag would silently revert org2 on the next routine deploy). Every server route resolves `orgFromReq(req)`; every response-cache key is org-prefixed; org2 S3/Glue live under `org2/` + `*_org2` tables. New routes/pages MUST thread the org (see server/CLAUDE.md Multi-org rules).
 
 ## Data Sources
 

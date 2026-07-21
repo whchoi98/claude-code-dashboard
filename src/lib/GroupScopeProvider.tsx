@@ -41,6 +41,11 @@ export function useGroupScopeData(): GroupScopeData {
  * Fetches the admin email→group mapping (`GET /api/groups`) ONCE and shares it
  * via context, so the GroupTabs on every scoped page read one request and
  * a single refetch (after upload) refreshes all consumers.
+ *
+ * The map is PER ORG: useFetch appends the ?org= param and hard-resets its
+ * data on an org switch, so this provider automatically refetches — and
+ * hasMap goes false in the interim, hiding the tabs until the new org's map
+ * arrives (setOrg also clears the ?group= selection).
  */
 export function GroupScopeProvider({ children }: { children: ReactNode }) {
   const { data, loading, refetch } = useFetch<GroupsResp>('/api/groups')

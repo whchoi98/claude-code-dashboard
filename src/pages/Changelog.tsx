@@ -1,7 +1,8 @@
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Markdown } from '../components/Markdown'
 import { useI18n, useT } from '../lib/i18n'
+import { DEFAULT_ORG, useOrg } from '../lib/OrgProvider'
 // CHANGELOG.md is the single source of truth — Vite's `?raw` import bundles
 // its content into the SPA at build time. The sidebar version badge links
 // here; both are wired to the same file so updates propagate automatically.
@@ -13,6 +14,15 @@ const APP_VERSION = pkg.version
 export function Changelog() {
   const t = useT()
   const { locale } = useI18n()
+  // Preserve the scope params on the back link (same convention as the
+  // sidebar's withGroup) — navigating home must not silently reset the org.
+  const [searchParams] = useSearchParams()
+  const { org } = useOrg()
+  const backQ = new URLSearchParams()
+  const groupQ = searchParams.get('group')
+  if (groupQ) backQ.set('group', groupQ)
+  if (org !== DEFAULT_ORG) backQ.set('org', org)
+  const backTo = backQ.toString() ? `/?${backQ.toString()}` : '/'
 
   // The CHANGELOG has a top-of-file language switcher and `# English` /
   // `# 한국어` H1 anchors. Keep only the active locale's section so
@@ -45,7 +55,7 @@ export function Changelog() {
               </span>
             </div>
             <Link
-              to="/"
+              to={backTo}
               className="text-[12px] text-ink-500 hover:text-claude-700 transition-colors"
             >
               ← {t('changelog.back')}

@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { useT } from '../lib/i18n'
-import { useFetch } from '../lib/api'
+import { orgParam, useFetch } from '../lib/api'
+import { useOrg } from '../lib/OrgProvider'
 
 type Period = { starting_date: string; ending_date: string } | null
 type UploadsResp = { count: number; items: { file: string; key: string; size_bytes: number; last_modified: string; period: Period }[] }
@@ -46,6 +47,7 @@ interface Props {
 
 export function CsvUploader({ onChange, variant = 'full' }: Props) {
   const t = useT()
+  const { org } = useOrg()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<{ rows: number; users: number; period: Period } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -89,7 +91,7 @@ export function CsvUploader({ onChange, variant = 'full' }: Props) {
     try {
       const form = new FormData()
       form.append('file', file)
-      const res = await fetch('/api/cost/upload', { method: 'POST', body: form })
+      const res = await fetch(orgParam('/api/cost/upload', org), { method: 'POST', body: form })
       const body = await res.json()
       if (!res.ok) throw new Error(body?.message || body?.error || `HTTP ${res.status}`)
       setMsg({ kind: 'ok', text: `${t('cost.upload.success')}: ${body.file} (${body.rows} ${t('cost.upload.rows')}, ${body.distinct_users} ${t('cost.upload.users')})` })
@@ -103,14 +105,14 @@ export function CsvUploader({ onChange, variant = 'full' }: Props) {
     } finally {
       setBusy(false)
     }
-  }, [file, t, uploads, onChange])
+  }, [file, t, uploads, onChange, org])
 
   const doDelete = useCallback(async (name: string) => {
     if (!window.confirm(t('cost.uploads.confirm'))) return
     setBusy(true)
     setMsg(null)
     try {
-      const res = await fetch(`/api/cost/uploads/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      const res = await fetch(orgParam(`/api/cost/uploads/${encodeURIComponent(name)}`, org), { method: 'DELETE' })
       const body = await res.json()
       if (!res.ok) throw new Error(body?.message || body?.error || `HTTP ${res.status}`)
       await uploads.refetch?.()
@@ -120,7 +122,7 @@ export function CsvUploader({ onChange, variant = 'full' }: Props) {
     } finally {
       setBusy(false)
     }
-  }, [t, uploads, onChange])
+  }, [t, uploads, onChange, org])
 
   const hasItems = (uploads.data?.items?.length ?? 0) > 0
 

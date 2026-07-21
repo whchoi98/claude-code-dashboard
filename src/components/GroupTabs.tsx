@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { useT } from '../lib/i18n'
+import { orgParam } from '../lib/api'
+import { useOrg } from '../lib/OrgProvider'
 import { useGroupScope, UNMAPPED } from '../lib/useGroupScope'
 
 /**
@@ -12,6 +14,7 @@ import { useGroupScope, UNMAPPED } from '../lib/useGroupScope'
  */
 export function GroupTabs() {
   const t = useT()
+  const { org } = useOrg()
   const { group, setGroup, groups, hasMap, refetch } = useGroupScope()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -23,7 +26,8 @@ export function GroupTabs() {
     try {
       const form = new FormData()
       form.append('file', file)
-      const res = await fetch('/api/groups/upload', { method: 'POST', body: form })
+      // Per-org upload: the mapping applies only to the selected org.
+      const res = await fetch(orgParam('/api/groups/upload', org), { method: 'POST', body: form })
       const body = await res.json()
       if (!res.ok) throw new Error(body?.message || body?.error || `HTTP ${res.status}`)
       setMsg({ kind: 'ok', text: `${t('group.upload.success')}: ${body.groups.length} ${t('group.upload.groups')} · ${body.rows} ${t('group.upload.rows')}` })
@@ -34,7 +38,7 @@ export function GroupTabs() {
     } finally {
       setBusy(false)
     }
-  }, [t, refetch])
+  }, [t, refetch, org])
 
   const tabs: { value: string; label: string }[] = [
     { value: '', label: t('group.all') },

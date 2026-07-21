@@ -7,6 +7,27 @@ that fan out to three Anthropic API families, Amazon Bedrock, Athena, and S3.
 In production, also serves the built Vite bundle as static assets with SPA
 fallback.
 
+## Multi-org (ADR-0018)
+
+Two subscriptions ride the same routes. `server/orgs.js` is the single
+resolution point: `orgFromReq(req)` (validates `?org=`; unknown/keyless →
+`primary`), `analyticsKeyFor/complianceKeyFor/adminKeyFor(org)` (org2 has no
+Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
+`GET /api/orgs` + the UI switcher). Rules for new code:
+
+- **Every route resolves the org** — a route that forgets `orgFromReq` serves
+  primary data silently under org2.
+- **Every response-cache key carries `${org}:`** (cost `makeTtlCache`,
+  keep-warm registry, `groupLastGood`, groups/member caches; the audit cache
+  key tuple leads with the org). The upstream `fetchJson` page cache is
+  API-key-suffixed already.
+- Keep-warm/prewarm loops iterate configured orgs sequentially — each org has
+  its OWN upstream 60 rpm budget.
+- Chat binds the whole session to the body's `org` (tools + system prompt);
+  `fetchAnalyticsSnapshot` THROWS on upstream failure instead of returning
+  mock — fake numbers must never reach the model as tool output.
+- `/api/health` reflects the REQUESTED org's keys (sidebar badges are per-org).
+
 ## Files
 
 - **`index.js`** — Entry. Loads env, instantiates Express, registers the

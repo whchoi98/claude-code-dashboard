@@ -5,6 +5,7 @@ import {
   MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
   historyToBedrockMessages, parseFollowups, maskEmailsDeep,
 } from './chat-tools.js'
+import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
 } from '@aws-sdk/client-athena'
@@ -749,6 +750,13 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'connectors_daily',
   'projects_daily',
   'compliance_daily',
+  // org2 twins — identical columns/projection, locations under org2/ (multi-org contract).
+  'claude_code_analytics_org2',
+  'summaries_daily_org2',
+  'skills_daily_org2',
+  'connectors_daily_org2',
+  'projects_daily_org2',
+  'compliance_daily_org2',
 ])
 const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
 
@@ -957,8 +965,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // upstream 2026-07; verified live 2026-07-12: filtered totals equal the
   // grouped-by slice exactly). Attribution is any-membership — a multi-group
   // user's spend counts fully here AND in their other groups' scopes.
-  async function fetchCostSummary({ starting_date, ending_date, rbac_group_id } = {}) {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+  async function fetchCostSummary({ starting_date, ending_date, rbac_group_id } = {}, org = 'primary') {
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     if (!ANALYTICS_KEY) {
       const e = new Error('ANTHROPIC_ANALYTICS_KEY (sk-ant-api01-...) is required for live cost data.')
       e.code = 'analytics_key_required'
@@ -1028,16 +1036,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // dimension: 'model' (per-user × model chargeback) or 'rbac_group_id'
   // (per-user group membership derivation).
   // Cached front for fetchUserReportUncached — ONE cache entry per
-  // (report, window, dim) serves /cost/users, /cost/user-tokens, the
+  // (org, report, window, dim) serves /cost/users, /cost/user-tokens, the
   // /cost/efficiency spend join AND the /api/groups spend-derive fallback.
   // Raw opts key: identical raw opts resolve to the identical window
   // (resolveUserCostWindow is deterministic within a UTC day).
-  const fetchUserReport = (opts = {}) => cachedWarm(
-    `user_report:${opts.report || 'user_cost_report'}:${opts.starting_date || ''}:${opts.ending_date || ''}:${opts.groupBy || ''}`,
-    () => fetchUserReportUncached(opts),
+  const fetchUserReport = (opts = {}, org = 'primary') => cachedWarm(
+    `${org}:user_report:${opts.report || 'user_cost_report'}:${opts.starting_date || ''}:${opts.ending_date || ''}:${opts.groupBy || ''}`,
+    () => fetchUserReportUncached(opts, org),
   )
-  async function fetchUserReportUncached({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}) {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+  async function fetchUserReportUncached({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}, org = 'primary') {
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     if (!ANALYTICS_KEY) { const e = new Error('ANTHROPIC_ANALYTICS_KEY is required for per-user cost.'); e.code = 'analytics_key_required'; throw e }
     // Window resolution (incl. why there is NO today-3 clamp anymore) lives in
     // resolveUserCostWindow — pure + unit-tested in tests/server/test-user-cost.mjs.
@@ -1094,8 +1102,21 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'message is required' })
     }
+    // Org rides the JSON body (SSE POST — no query param on the frontend
+    // helper path). Same validation semantics as orgFromReq: absent/invalid/
+    // unconfigured → 'primary'.
+    const org = orgFromReq({ query: { org: req.body?.org } })
+    // On single-org deployments the prompt stays byte-identical to before
+    // (org info omitted); on multi-org, every session — primary included —
+    // is told which org it is scoped to so run_athena_sql picks the right
+    // table family (*_org2 twins).
+    const orgInfo = hasOrg2() ? orgList().find((o) => o.id === org) || null : null
     sseInit(res)
-    const runTool = makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary })
+    const runTool = makeToolRunner({
+      fetchAnalytics: () => fetchAnalytics(org),
+      runAthenaSafe,   // account-level: the table name carries the org
+      fetchCostSummary: (opts) => fetchCostSummary(opts, org),
+    })
     const today = new Date().toISOString().slice(0, 10)
     const messages = historyToBedrockMessages(history)
     messages.push({ role: 'user', content: [{ text: message }] })
@@ -1107,7 +1128,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       for (; hop <= MAX_TOOL_HOPS; hop++) {
         const stream = await bedrock.send(new ConverseStreamCommand({
           modelId: MODEL_ID,
-          system: [{ text: CHAT_SYSTEM_PROMPT(locale, today) }],
+          system: [{ text: CHAT_SYSTEM_PROMPT(locale, today, orgInfo) }],
           messages,
           toolConfig: { tools: TOOL_SPECS },
           inferenceConfig: { maxTokens: 2000, temperature: 0.2 },
@@ -1211,20 +1232,22 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // ── CSV Spend Report (from S3) ──────────────────────────────────────────
   // Returns the latest spend-report CSV from s3://<archive>/spend-reports/
   // parsed into a structured JSON with aggregations.
-  router.get('/cost/csv', async (_req, res) => {
+  router.get('/cost/csv', async (req, res) => {
+    const org = orgFromReq(req)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     try {
-      // List objects under spend-reports/ and pick the latest by LastModified
+      // List objects under <org prefix>spend-reports/ and pick the latest by
+      // LastModified (primary keeps the legacy bare prefix — s3PrefixFor).
       const list = await s3.send(new ListObjectsV2Command({
         Bucket: BUCKET,
-        Prefix: 'spend-reports/',
+        Prefix: `${s3PrefixFor(org)}spend-reports/`,
       }))
       const objects = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
       if (objects.length === 0) {
         return res.status(404).json({
           error: 'no_spend_report',
-          message: `Upload a CSV to s3://${BUCKET}/spend-reports/`,
+          message: `Upload a CSV to s3://${BUCKET}/${s3PrefixFor(org)}spend-reports/`,
         })
       }
       const latest = objects.sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0))[0]
@@ -1283,23 +1306,24 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   //   502 upstream_error            → either upstream endpoint returned non-2xx
   //   200 source=live, rows=[]      → empty period (UI handles → CSV fallback)
   router.get('/cost/live', async (req, res) => {
+    const org = orgFromReq(req)
     // Optional group scope: id-shape-validated (never trusted verbatim);
     // an unknown/malformed id is simply ignored → org-wide response.
     const rawGroupId = String(req.query.rbac_group_id || '')
     const rbacGroupId = /^rbac_group_[A-Za-z0-9]{6,}$/.test(rawGroupId) ? rawGroupId : undefined
     // The rbac_group_ids[] filter rides the same membership backend that
-    // flaps for hours (ADR-0011) — keep a per-(window,group) last-good so a
-    // flap degrades the scoped view to stale instead of collapsing the page.
+    // flaps for hours (ADR-0011) — keep a per-(org,window,group) last-good so
+    // a flap degrades the scoped view to stale instead of collapsing the page.
     const scopedKey = rbacGroupId
-      ? `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId}`
+      ? `${org}:cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId}`
       : null
-    const cacheKey = `cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId || 'org'}`
+    const cacheKey = `${org}:cost/live:${req.query.starting_date || ''}:${req.query.ending_date || ''}:${rbacGroupId || 'org'}`
     try {
       const out = await cachedWarm(cacheKey, async () => {
         const fresh = await fetchCostSummary({
           starting_date: req.query.starting_date, ending_date: req.query.ending_date,
           rbac_group_id: rbacGroupId,
-        })
+        }, org)
         if (scopedKey) rememberGroupResult(scopedKey, fresh)
         return fresh
       })
@@ -1326,11 +1350,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Raw emails; the frontend masks via maskEmail. No per-user token counts exist
   // in this endpoint (cost + requests only).
   router.get('/cost/users', async (req, res) => {
+    const org = orgFromReq(req)
     try {
       const by = req.query.by === 'model' ? 'model' : req.query.by === 'product' ? 'product' : null
       const { data, period, data_refreshed_at, stale } = await fetchUserReport({
         starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: by,
-      })
+      }, org)
       const users = userCostToUsers(data, { by }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
       // stale rides through from the cache's degraded-serve contract — an
       // upstream flap must not hide behind unmarked cached data.
@@ -1350,12 +1375,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // responses are kept per window key so a flap serves the most recent
   // successful payload (`stale: true`) instead of blanking the group card.
   const groupLastGood = new Map()
-  const GROUP_LAST_GOOD_CAP = 20
+  // Per-org budget: every key carries an `${org}:` prefix (multi-org
+  // contract), so a second org doubles the population — scale the cap to
+  // keep primary's effective headroom identical to the single-org value.
+  const GROUP_LAST_GOOD_CAP_PER_ORG = 20
+  const groupLastGoodCap = () => GROUP_LAST_GOOD_CAP_PER_ORG * (hasOrg2() ? 2 : 1)
   // Success cache for the cost routes (/cost/live, /cost/groups, the
   // fetchUserReport family, /cost/spend-limits): 10-min TTL +
   // stale-while-revalidate + in-flight dedup (see makeTtlCache). Well inside
   // the upstream's ~4h data_refreshed_at watermark.
-  const cachedCost = makeTtlCache({ ttlMs: 600_000, cap: 40 })
+  const cachedCost = makeTtlCache({ ttlMs: 600_000, cap: hasOrg2() ? 80 : 40 })
   // Keep-warm: every cachedWarm key self-registers with its fetcher, and an
   // 8-min loop (< the 10-min TTL) re-refreshes keys accessed within the last
   // 6h — so under real usage the cache never goes cold OR SWR-stale, on
@@ -1363,11 +1392,13 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // task next door doesn't help). warmCycle() below also seeds the UI's
   // four preset windows at startup, covering the post-deploy cold start.
   const keepWarm = new Map()   // key → { fetcher, lastAccess }
-  // Preset keys (12 org/window + up to 8 group-scoped '1d') are re-tracked
-  // each cycle; the rest is headroom for user-driven keys (custom windows,
-  // non-default scoped windows) so a burst of distinct windows can't evict
-  // the presets between cycles.
-  const KEEP_WARM_CAP = 32
+  // Preset keys (12 org/window + up to 8 group-scoped '1d' — PER ORG) are
+  // re-tracked each cycle; the rest is headroom for user-driven keys (custom
+  // windows, non-default scoped windows) so a burst of distinct windows
+  // can't evict the presets between cycles. Scaled per org so a second org's
+  // preset generation can't evict primary's.
+  const KEEP_WARM_CAP_PER_ORG = 32
+  const keepWarmCap = () => KEEP_WARM_CAP_PER_ORG * (hasOrg2() ? 2 : 1)
   // 90 min: long enough that anyone actively using the dashboard never sees
   // a cold key, short enough that a once-glanced custom window doesn't burn
   // upstream budget for hours. Preset keys never idle out — warmCycle
@@ -1376,7 +1407,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   function trackWarm(key, fetcher) {
     keepWarm.delete(key)
     keepWarm.set(key, { fetcher, lastAccess: Date.now() })
-    if (keepWarm.size > KEEP_WARM_CAP) keepWarm.delete(keepWarm.keys().next().value)
+    if (keepWarm.size > keepWarmCap()) keepWarm.delete(keepWarm.keys().next().value)
   }
   const cachedWarm = (key, fetcher) => {
     trackWarm(key, fetcher)
@@ -1388,11 +1419,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // fresh responses return the original payload) — the /groups fallback
     // picks the fresher of its two entries by this stamp.
     groupLastGood.set(key, { ...payload, remembered_at: Date.now() })
-    if (groupLastGood.size > GROUP_LAST_GOOD_CAP) {
-      // Evict the oldest WINDOWED entry; the membership keys ('groups:*')
+    if (groupLastGood.size > groupLastGoodCap()) {
+      // Evict the oldest WINDOWED entry; the membership keys ('<org>:groups:*')
       // are eviction-immune — a burst of /cost/groups window keys must not
       // silently drop the map GroupTabs falls back on.
-      const victim = [...groupLastGood.keys()].find((k) => !k.startsWith('groups:'))
+      const victim = [...groupLastGood.keys()].find((k) => !k.includes(':groups:'))
       if (victim) groupLastGood.delete(victim)
     }
   }
@@ -1403,21 +1434,22 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Compliance groups listing via the DOCUMENTED endpoint
   // (GET /v1/compliance/groups — scope read:compliance_org_data, carried by
   // the Analytics key). NOT the undocumented /v1/organizations/rbac_groups
-  // (needs an unprovisionable scope). Cached 1h: group edits are rare and
-  // every listing emits audit events (group_list_viewed) into the org's own
-  // feed — don't spam it. Both the name lookup and the members-based mapping
-  // below ride this single cache. Throws on upstream failure; callers decide
-  // whether stale beats missing.
-  let groupsListCache = { at: 0, list: null }
-  const complianceHeaders = () => {
-    const KEY = process.env.ANTHROPIC_COMPLIANCE_KEY || process.env.ANTHROPIC_ANALYTICS_KEY
+  // (needs an unprovisionable scope). Cached 1h PER ORG: group edits are rare
+  // and every listing emits audit events (group_list_viewed) into the org's
+  // own feed — don't spam it. Both the name lookup and the members-based
+  // mapping below ride this single cache. Throws on upstream failure; callers
+  // decide whether stale beats missing.
+  const groupsListCaches = new Map()   // org → { at, list }
+  const complianceHeaders = (org = 'primary') => {
+    const KEY = complianceKeyFor(org)
     if (!KEY) return null
     return { 'x-api-key': KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
   }
-  async function fetchComplianceGroups() {
-    const headers = complianceHeaders()
+  async function fetchComplianceGroups(org = 'primary') {
+    const headers = complianceHeaders(org)
     if (!headers) { const e = new Error('compliance-scoped key required'); e.code = 'compliance_key_required'; throw e }
-    if (groupsListCache.list && Date.now() - groupsListCache.at < 3_600_000) return groupsListCache.list
+    const cached = groupsListCaches.get(org)
+    if (cached?.list && Date.now() - cached.at < 3_600_000) return cached.list
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const list = []
     let page = null
@@ -1435,20 +1467,20 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // A partial listing must never be cached or served — silently dropping
     // groups 1001+ would strip their tabs and mislabel their spend rows.
     if (!complete) throw new Error('compliance/groups page cap (10×100) hit with next_page remaining — refusing partial listing')
-    groupsListCache = { at: Date.now(), list }
+    groupsListCaches.set(org, { at: Date.now(), list })
     return list
   }
 
   // RBAC group id → display name, riding the cached listing. Never throws:
   // stale names beat no names, and {} degrades to grp-<id suffix> labels.
-  async function fetchGroupNames() {
+  async function fetchGroupNames(org = 'primary') {
     try {
       const byId = {}
-      for (const g of await fetchComplianceGroups()) if (g?.name) byId[g.id] = g.name
+      for (const g of await fetchComplianceGroups(org)) if (g?.name) byId[g.id] = g.name
       return byId
     } catch (err) {
       console.warn('[groups] name lookup unavailable, using id-suffix labels:', err?.message || err)
-      const stale = groupsListCache.list || []
+      const stale = groupsListCaches.get(org)?.list || []
       return Object.fromEntries(stale.filter((g) => g?.name).map((g) => [g.id, g.name]))
     }
   }
@@ -1456,8 +1488,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Authoritative per-group membership rows
   // (GET /v1/compliance/groups/{id}/members — probed live 2026-07-12:
   // { user_id, email } rows, next_page cursor like the listing).
-  async function fetchGroupMembers(groupId) {
-    const headers = complianceHeaders()
+  async function fetchGroupMembers(groupId, org = 'primary') {
+    const headers = complianceHeaders(org)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const members = []
     let page = null
@@ -1488,41 +1520,46 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // (in-flight singleton), a failure fails fast for 5 minutes (no per-group
   // re-burst on every SPA load while upstream flaps), and the fan-out is
   // chunked so a many-group org can't blow the shared 60 rpm org budget.
-  let memberMapCache = { at: 0, out: null }
-  let memberMapInflight = null
-  let memberMapFailedAt = 0
-  async function fetchMemberGroupMap() {
-    if (memberMapCache.out && Date.now() - memberMapCache.at < 3_600_000) return memberMapCache.out
-    if (Date.now() - memberMapFailedAt < 300_000) throw new Error('members mapping in failure cooldown')
-    if (memberMapInflight) return memberMapInflight
-    memberMapInflight = (async () => {
-      const list = await fetchComplianceGroups()
+  // All three states are PER ORG (each org has its own membership backend,
+  // rate budget, and flap schedule — one org's cooldown must not gate the other).
+  const memberMapCaches = new Map()     // org → { at, out }
+  const memberMapInflights = new Map()  // org → Promise
+  const memberMapFailedAts = new Map()  // org → epoch ms of last failure
+  async function fetchMemberGroupMap(org = 'primary') {
+    const cached = memberMapCaches.get(org)
+    if (cached?.out && Date.now() - cached.at < 3_600_000) return cached.out
+    if (Date.now() - (memberMapFailedAts.get(org) || 0) < 300_000) throw new Error('members mapping in failure cooldown')
+    const inflight = memberMapInflights.get(org)
+    if (inflight) return inflight
+    const build = (async () => {
+      const list = await fetchComplianceGroups(org)
       const membersByGroupId = {}
       for (let i = 0; i < list.length; i += 5) {
-        await Promise.all(list.slice(i, i + 5).map(async (g) => { membersByGroupId[g.id] = await fetchGroupMembers(g.id) }))
+        await Promise.all(list.slice(i, i + 5).map(async (g) => { membersByGroupId[g.id] = await fetchGroupMembers(g.id, org) }))
       }
       const out = deriveMemberGroupMap(list, membersByGroupId)
       // Expire with the LISTING the map was built from, not the build time —
       // stamping build time compounds the two 1h TTLs into ~2h worst-case
       // staleness for group creates/deletes (moves always refetch live).
-      memberMapCache = { at: groupsListCache.at || Date.now(), out }
+      memberMapCaches.set(org, { at: groupsListCaches.get(org)?.at || Date.now(), out })
       return out
     })()
+    memberMapInflights.set(org, build)
     try {
-      return await memberMapInflight
+      return await build
     } catch (err) {
-      memberMapFailedAt = Date.now()
+      memberMapFailedAts.set(org, Date.now())
       throw err
     } finally {
-      memberMapInflight = null
+      memberMapInflights.delete(org)
     }
   }
 
   // Group-spend fetcher shared by GET /cost/groups and the keep-warm loop.
   // Throws with .status/.upstream attached on failure — callers decide
   // between last-good, the flap 503, and a generic 502.
-  async function fetchGroupCost(starting, ending) {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+  async function fetchGroupCost(starting, ending, org = 'primary') {
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
     const params = new URLSearchParams({
@@ -1543,9 +1580,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       source: 'live',
       period: { starting_date: starting, ending_date: ending },
       data_refreshed_at: r.body.data_refreshed_at ?? null,
-      ...aggregateGroupCost(r.body, await fetchGroupNames()),
+      ...aggregateGroupCost(r.body, await fetchGroupNames(org)),
     }
-    rememberGroupResult(`cost/groups:${starting}:${ending}`, fresh)
+    rememberGroupResult(`${org}:cost/groups:${starting}:${ending}`, fresh)
     return fresh
   }
 
@@ -1558,16 +1595,17 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // successes ride the 10-min TTL cache (stale-while-revalidate + keep-warm);
   // the groupLastGood entry remains the FAILURE fallback beyond that.
   router.get('/cost/groups', async (req, res) => {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+    const org = orgFromReq(req)
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     if (!ANALYTICS_KEY) {
       return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY is required for group cost.' })
     }
     const { starting, ending } = resolveUserCostWindow({
       starting_date: req.query.starting_date, ending_date: req.query.ending_date,
     })
-    const cacheKey = `cost/groups:${starting}:${ending}`
+    const cacheKey = `${org}:cost/groups:${starting}:${ending}`
     try {
-      const out = await cachedWarm(cacheKey, () => fetchGroupCost(starting, ending))
+      const out = await cachedWarm(cacheKey, () => fetchGroupCost(starting, ending, org))
       res.json(out)
     } catch (err) {
       const stale = groupLastGood.get(cacheKey)
@@ -1587,11 +1625,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Replaces the CSV as the primary source of the token-ranked Top tables;
   // same window rules as /cost/users (31-day span cap, buffer served partial).
   router.get('/cost/user-tokens', async (req, res) => {
+    const org = orgFromReq(req)
     try {
       const { data, period, data_refreshed_at, stale } = await fetchUserReport({
         report: 'user_usage_report',
         starting_date: req.query.starting_date, ending_date: req.query.ending_date,
-      })
+      }, org)
       res.json({ source: 'live', period, data_refreshed_at, ...(stale && { stale: true }), users: userUsageToUsers(data) })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
@@ -1608,8 +1647,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // (resets 00:00 UTC on the 1st). Cursor pagination via next_page.
   // Shared by GET /cost/spend-limits and the keep-warm loop. Throws with
   // .upstream attached on failure.
-  async function fetchSpendLimits() {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+  async function fetchSpendLimits(org = 'primary') {
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01' }
     const all = []
@@ -1631,13 +1670,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     return { source: 'live', period: 'monthly', members: spendLimitsToMembers(all) }
   }
 
-  router.get('/cost/spend-limits', async (_req, res) => {
-    const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
+  router.get('/cost/spend-limits', async (req, res) => {
+    const org = orgFromReq(req)
+    const ANALYTICS_KEY = analyticsKeyFor(org)
     if (!ANALYTICS_KEY) {
       return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY (with read:spend_limits) is required.' })
     }
     try {
-      res.json(await cachedWarm('spend-limits', fetchSpendLimits))
+      res.json(await cachedWarm(`${org}:spend-limits`, () => fetchSpendLimits(org)))
     } catch (err) {
       res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }
@@ -1706,6 +1746,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // POST /api/cost/upload (multipart, field name "file")
   router.post('/cost/upload', uploadSingle, async (req, res) => {
+    const org = orgFromReq(req)
     // Diagnostic: confirms the request reached the container. Seen in CW logs.
     console.log(`[cost/upload] received: file=${req.file?.originalname ?? '(none)'} size=${req.file?.size ?? 0}`)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
@@ -1728,7 +1769,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         return res.status(400).json({ error: 'empty_csv', message: 'CSV has no data rows.' })
       }
 
-      const key = safeSpendReportKey(req.file.originalname)
+      const key = s3PrefixFor(org) + safeSpendReportKey(req.file.originalname)
       await s3.send(new PutObjectCommand({
         Bucket: BUCKET,
         Key: key,
@@ -1754,11 +1795,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   })
 
   // GET /api/cost/uploads — list all spend-report CSVs with parsed period.
-  router.get('/cost/uploads', async (_req, res) => {
+  router.get('/cost/uploads', async (req, res) => {
+    const org = orgFromReq(req)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     try {
-      const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'spend-reports/' }))
+      const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${s3PrefixFor(org)}spend-reports/` }))
       const items = (list.Contents || [])
         .filter((o) => o.Key?.endsWith('.csv'))
         .map((o) => {
@@ -1781,6 +1823,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // DELETE /api/cost/uploads/:file — remove a single CSV from spend-reports/.
   router.delete('/cost/uploads/:file', async (req, res) => {
+    const org = orgFromReq(req)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     const file = String(req.params.file || '')
@@ -1789,7 +1832,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       return res.status(400).json({ error: 'bad_filename', message: 'Filename must match [A-Za-z0-9._-]+.csv' })
     }
     try {
-      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `spend-reports/${file}` }))
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `${s3PrefixFor(org)}spend-reports/${file}` }))
       res.json({ ok: true, deleted: file })
     } catch (err) {
       res.status(500).json({ error: 'delete_failed', message: err?.message || String(err) })
@@ -1801,6 +1844,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // Analytics API users/range (per-user LOC, commits, PRs, tool acceptance),
   // then computes cost-efficiency metrics per user.
   router.get('/cost/efficiency', async (req, res) => {
+    const org = orgFromReq(req)
+    // Self-calls forward the org so the productivity side joins the same
+    // org's engagement data; primary omits the param (legacy URL shape).
+    const orgQS = org === 'primary' ? '' : `&org=${org}`
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     // This route DELIBERATELY clamps its whole window to today-3, unlike
     // /cost/users: every metric here is a ratio of spend ÷ productivity, and
@@ -1829,7 +1876,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     let liveUsers = []
     let spendStale = false   // cache served a degraded (post-flap) payload
     try {
-      const live = await fetchUserReport({ starting_date: starting, ending_date: ending })
+      const live = await fetchUserReport({ starting_date: starting, ending_date: ending }, org)
       liveUsers = userCostToUsers(live.data)
       spendStale = live.stale === true
       starting = live.period.starting_date
@@ -1853,7 +1900,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
       let csvRows = []
       try {
-        const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'spend-reports/' }))
+        const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${s3PrefixFor(org)}spend-reports/` }))
         const objs = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
         if (objs.length === 0) {
           return res.status(404).json({ error: 'no_spend_report', message: 'No live per-user cost available and no Spend Report CSV uploaded.' })
@@ -1889,7 +1936,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
     // Productivity over the selected range (same self-call as before).
     const rangeResp = await fetch(
-      `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(starting)}&ending_date=${encodeURIComponent(ending)}`,
+      `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(starting)}&ending_date=${encodeURIComponent(ending)}${orgQS}`,
     ).then((r) => r.json()).catch(() => ({ days: [] }))
 
     // Activity-weighted scaling applies ONLY to the CSV path (a fixed-period
@@ -1901,7 +1948,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const sameRange = isLive ? true : (csvPeriodStart === starting && csvPeriodEnd === ending)
     if (!isLive && !sameRange && csvPeriodStart && csvPeriodEnd) {
       const csvAnalyticsResp = await fetch(
-        `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(csvPeriodStart)}&ending_date=${encodeURIComponent(csvPeriodEnd)}`,
+        `http://127.0.0.1:${PORT}/api/analytics/users/range?starting_date=${encodeURIComponent(csvPeriodStart)}&ending_date=${encodeURIComponent(csvPeriodEnd)}${orgQS}`,
       ).then((r) => r.json()).catch(() => ({ days: [] }))
       for (const d of csvAnalyticsResp.days || []) {
         if (d.source === 'mock') continue
@@ -2094,6 +2141,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // POST /api/groups/upload (multipart, field "file") — validate + store latest-wins.
   router.post('/groups/upload', uploadSingle, async (req, res) => {
+    const org = orgFromReq(req)
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
     if (!BUCKET) return res.status(400).json({ error: 'archive_bucket_not_configured' })
     if (!req.file) return res.status(400).json({ error: 'no_file', message: 'Attach a CSV file under field name "file".' })
@@ -2113,7 +2161,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         return res.status(400).json({ error: 'empty_mapping', message: 'CSV has no valid email,group rows.' })
       }
       const d = new Date().toISOString().slice(0, 10)
-      const key = `group-map/group-map-${d}.csv`
+      const key = `${s3PrefixFor(org)}group-map/group-map-${d}.csv`
       await s3.send(new PutObjectCommand({
         Bucket: BUCKET, Key: key, Body: req.file.buffer, ContentType: 'text/csv',
         Metadata: { uploadedVia: 'dashboard', originalName: req.file.originalname.slice(0, 250) },
@@ -2134,7 +2182,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   //   3. last-good of either, marked stale — absorbs upstream flaps.
   // An uploaded CSV still wins over all of these — it carries admin-chosen
   // names and intent. Nothing anywhere → { source:'empty', ... } (200).
-  router.get('/groups', async (_req, res) => {
+  router.get('/groups', async (req, res) => {
+    const org = orgFromReq(req)
     // The bucket is only needed for the CSV path — auto-derive works without
     // it (local dev has no ARCHIVE_S3_BUCKET but does have the Analytics key).
     // An S3 listing failure also degrades to auto-derive instead of a 500.
@@ -2143,7 +2192,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       let objects = []
       if (BUCKET) {
         try {
-          const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'group-map/' }))
+          const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${s3PrefixFor(org)}group-map/` }))
           objects = (list.Contents || []).filter((o) => o.Key?.endsWith('.csv'))
         } catch (err) {
           console.warn('[groups] S3 list failed, trying auto-derive:', err?.message || err)
@@ -2151,13 +2200,13 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       }
       if (objects.length === 0) {
         try {
-          const derived = await fetchMemberGroupMap()
+          const derived = await fetchMemberGroupMap(org)
           if (derived.groups.length > 0) {
             const out = {
               source: 'members', file: null,
               groups: derived.groups, map: derived.map, group_ids: derived.ids,
             }
-            rememberGroupResult('groups:members', out)
+            rememberGroupResult(`${org}:groups:members`, out)
             return res.json(out)
           }
           // Authoritative zero groups: the org simply has none. Persist the
@@ -2166,28 +2215,28 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           // could only resurrect deleted groups from old usage-time
           // attribution.
           const empty = { source: 'empty', file: null, groups: [], map: {} }
-          groupLastGood.delete('groups:auto')
-          rememberGroupResult('groups:members', empty)
+          groupLastGood.delete(`${org}:groups:auto`)
+          rememberGroupResult(`${org}:groups:members`, empty)
           return res.json(empty)
         } catch (err) {
           console.warn('[groups] members mapping unavailable, trying spend-derive:', err?.message || err)
         }
         // Same rule under an outage: if the LAST authoritative observation
         // was "no groups", spend-derive must not resurrect the deleted ones.
-        const lastMembers = groupLastGood.get('groups:members')
+        const lastMembers = groupLastGood.get(`${org}:groups:members`)
         if (lastMembers && (lastMembers.groups?.length ?? 0) === 0) {
           return res.json({ ...lastMembers, stale: true })
         }
         try {
-          const live = await fetchUserReport({ groupBy: 'rbac_group_id' })
-          const derived = deriveGroupMap(live.data, await fetchGroupNames())
+          const live = await fetchUserReport({ groupBy: 'rbac_group_id' }, org)
+          const derived = deriveGroupMap(live.data, await fetchGroupNames(org))
           if (derived.groups.length > 0) {
             const out = {
               source: 'auto', file: null, period: live.period,
               ...(live.stale && { stale: true }),
               groups: derived.groups, map: derived.map, group_ids: derived.ids,
             }
-            rememberGroupResult('groups:auto', out)
+            rememberGroupResult(`${org}:groups:auto`, out)
             return res.json(out)
           }
         } catch (err) {
@@ -2198,8 +2247,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         // Both live sources failed (or spend-derive found nothing while the
         // members endpoint was down) — the freshest last-good beats empty
         // (rememberGroupResult stamps remembered_at on the stored copy).
-        const m = groupLastGood.get('groups:members')
-        const a = groupLastGood.get('groups:auto')
+        const m = groupLastGood.get(`${org}:groups:members`)
+        const a = groupLastGood.get(`${org}:groups:auto`)
         const stale = m && a ? ((m.remembered_at ?? 0) >= (a.remembered_at ?? 0) ? m : a) : (m || a)
         if (stale) {
           console.warn('[groups] serving last-good map; live membership sources unavailable')
@@ -2227,8 +2276,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // — under the 10-min TTL, so hot keys never expire or serve SWR-stale.
   // Runs per task: both Fargate tasks warm themselves, closing the
   // round-robin cold-task gap and the post-deploy cold start.
-  let lastPresetKeys = new Set()
-  async function warmCycle() {
+  // Multi-org: warmCycle() runs one full cycle PER ORG, sequentially — each
+  // org has its OWN upstream 60 rpm budget, so the inter-key pacing lives
+  // inside the per-org loop and preset generations are pruned per org.
+  const lastPresetKeysByOrg = new Map()   // org → Set(previous cycle's preset keys)
+  async function warmCycleForOrg(org) {
     const minus = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
     const today = minus(0)
     const presets = [
@@ -2241,26 +2293,27 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // Cost page requests on a default open goes FIRST, so the crucial keys
     // are warm within ~90s of task boot; the wider windows follow.
     const [s1, e1] = presets[0]
-    preset(`cost/live:${s1}:${e1}:org`, () => fetchCostSummary({ starting_date: s1, ending_date: e1 }))
-    preset(`cost/groups:${s1}:${e1}`, () => fetchGroupCost(s1, e1))
-    preset(`user_report:user_cost_report:${s1}:${e1}:model`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1, groupBy: 'model' }))
-    preset(`user_report:user_cost_report:${s1}:${e1}:`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1 }))
-    preset(`user_report:user_usage_report:${s1}:${e1}:`, () => fetchUserReportUncached({ report: 'user_usage_report', starting_date: s1, ending_date: e1 }))
-    preset('spend-limits', fetchSpendLimits)
+    preset(`${org}:cost/live:${s1}:${e1}:org`, () => fetchCostSummary({ starting_date: s1, ending_date: e1 }, org))
+    preset(`${org}:cost/groups:${s1}:${e1}`, () => fetchGroupCost(s1, e1, org))
+    preset(`${org}:user_report:user_cost_report:${s1}:${e1}:model`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1, groupBy: 'model' }, org))
+    preset(`${org}:user_report:user_cost_report:${s1}:${e1}:`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1 }, org))
+    preset(`${org}:user_report:user_usage_report:${s1}:${e1}:`, () => fetchUserReportUncached({ report: 'user_usage_report', starting_date: s1, ending_date: e1 }, org))
+    preset(`${org}:spend-limits`, () => fetchSpendLimits(org))
     // GROUP-SCOPED live for the default window: clicking a group tab fires
     // /cost/live?rbac_group_id=<id>, and that filter rides the slow
     // membership backend (~12s cold) — without prewarming, every tab's first
     // visit (per task, per 90-min idle window) stalled the whole page while
-    // the org view stayed instant. One key per group, default window only
-    // (other windows self-register via cachedWarm once visited); capped so a
-    // group-heavy org can't blow the cycle budget. Deleted groups drop out
-    // via the preset-generation pruning below.
+    // the org view stayed instant. One key per group (from THIS org's own
+    // compliance groups listing), default window only (other windows
+    // self-register via cachedWarm once visited); capped so a group-heavy
+    // org can't blow the cycle budget. Deleted groups drop out via the
+    // preset-generation pruning below.
     try {
-      const groupList = await fetchComplianceGroups()
+      const groupList = await fetchComplianceGroups(org)
       for (const g of groupList.slice(0, 8)) {
-        const key = `cost/live:${s1}:${e1}:${g.id}`
+        const key = `${org}:cost/live:${s1}:${e1}:${g.id}`
         preset(key, async () => {
-          const fresh = await fetchCostSummary({ starting_date: s1, ending_date: e1, rbac_group_id: g.id })
+          const fresh = await fetchCostSummary({ starting_date: s1, ending_date: e1, rbac_group_id: g.id }, org)
           rememberGroupResult(key, fresh)   // same bookkeeping as the route's fetcher
           return fresh
         })
@@ -2270,18 +2323,22 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       console.warn('[keep-warm] group list unavailable for scoped prewarm:', err?.message || err)
     }
     for (const [s, e] of presets.slice(1)) {
-      preset(`cost/live:${s}:${e}:org`, () => fetchCostSummary({ starting_date: s, ending_date: e }))
-      preset(`cost/groups:${s}:${e}`, () => fetchGroupCost(s, e))
+      preset(`${org}:cost/live:${s}:${e}:org`, () => fetchCostSummary({ starting_date: s, ending_date: e }, org))
+      preset(`${org}:cost/groups:${s}:${e}`, () => fetchGroupCost(s, e, org))
     }
     // Prune the PREVIOUS UTC day's preset generation — the dated keys change
     // identity at midnight and no client ever recomputes yesterday's window,
     // so without this they'd burn upstream budget until the idle expiry.
-    for (const k of lastPresetKeys) if (!currentPresetKeys.has(k)) keepWarm.delete(k)
-    lastPresetKeys = currentPresetKeys
+    // Per org: pruning against a global set would drop the OTHER org's presets.
+    for (const k of lastPresetKeysByOrg.get(org) || []) if (!currentPresetKeys.has(k)) keepWarm.delete(k)
+    lastPresetKeysByOrg.set(org, currentPresetKeys)
 
     const startedAt = Date.now()
     let ok = 0, skipped = 0, failed = 0
     for (const [key, entry] of [...keepWarm]) {
+      // Each org refreshes only ITS keys — budgets are per org, and the
+      // other org's cycle handles the rest of the registry.
+      if (!key.startsWith(`${org}:`)) continue
       if (Date.now() - entry.lastAccess > KEEP_WARM_IDLE_MS) { keepWarm.delete(key); continue }
       try {
         // topUp skips entries foreground traffic refreshed < 5 min ago, and
@@ -2305,16 +2362,25 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // through the route itself (same self-fetch pattern as the compliance
     // prewarm) so the default window stays end-to-end warm.
     try {
+      const orgQS = org === 'primary' ? '' : `&org=${org}`
       await fetch(
-        `http://127.0.0.1:${Number(process.env.PORT) || 5174}/api/cost/efficiency?starting_date=${s1}&ending_date=${e1}`,
+        `http://127.0.0.1:${Number(process.env.PORT) || 5174}/api/cost/efficiency?starting_date=${s1}&ending_date=${e1}${orgQS}`,
         { signal: AbortSignal.timeout(60_000) },
       )
     } catch (err) {
       console.warn('[keep-warm] efficiency self-warm failed:', err?.message || err)
     }
-    console.log(`[keep-warm] ${ok} refreshed, ${skipped} fresh-skipped, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
+    console.log(`[keep-warm] (${org}) ${ok} refreshed, ${skipped} fresh-skipped, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
   }
-  if (process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY) {
+  async function warmCycle() {
+    // Orgs run SEQUENTIALLY within a tick (multi-org contract) — pacing is
+    // per org; hasOrg2() is re-read each cycle so key rotation needs no restart.
+    for (const org of hasOrg2() ? ['primary', 'org2'] : ['primary']) {
+      if (!analyticsKeyFor(org)) continue   // keyless org: nothing to warm
+      await warmCycleForOrg(org)
+    }
+  }
+  if (analyticsKeyFor('primary') || hasOrg2()) {
     // Random start offset de-phases the two Fargate tasks (they boot within
     // seconds of each other on every deploy) so their cycles don't burst the
     // org rate budget in the same minute.

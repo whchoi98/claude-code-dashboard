@@ -7,6 +7,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { generateMock } from './mock.js'
 import { registerAwsRoutes, makeTtlCache } from './aws.js'
 import { inflateUser } from './inflate.js'
+import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
 
 dotenv.config()
 
@@ -15,18 +16,11 @@ const app = express()
 const PORT = Number(process.env.PORT) || 5174
 const PROD = process.env.NODE_ENV === 'production'
 
-const ANALYTICS_KEY = process.env.ANTHROPIC_ANALYTICS_KEY || process.env.ANTHROPIC_ADMIN_KEY
-const ADMIN_KEY = process.env.ANTHROPIC_ADMIN_KEY_ADMIN || (
-  (process.env.ANTHROPIC_ADMIN_KEY || '').startsWith('sk-ant-admin')
-    ? process.env.ANTHROPIC_ADMIN_KEY
-    : null
-)
-// The Analytics key carries read:compliance_activities (+ the compliance
-// org/user-data read scopes) — verified live against /v1/compliance/activities
-// on 2026-07-03 — so a dedicated Compliance key is optional: fall back to the
-// Analytics key when ANTHROPIC_COMPLIANCE_KEY is absent. The dedicated key's
-// only extra scope (delete:compliance_user_data) is never used here.
-const COMPLIANCE_KEY = process.env.ANTHROPIC_COMPLIANCE_KEY || process.env.ANTHROPIC_ANALYTICS_KEY || null
+// API keys are resolved PER REQUEST via server/orgs.js (orgFromReq +
+// analyticsKeyFor/complianceKeyFor/adminKeyFor) so a second org can ride the
+// same routes through ?org=org2. The old module constants ANALYTICS_KEY /
+// ADMIN_KEY / COMPLIANCE_KEY (and the compliance→analytics scope-fallback
+// chain) live there now. Admin routes stay primary-only by contract.
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
 const UA = 'ClaudeCodeDashboard/0.1.0 (+https://github.com/whchoi98/claude-code-dashboard)'
@@ -35,10 +29,11 @@ const ARCHIVE_BUCKET = process.env.ARCHIVE_S3_BUCKET
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-northeast-2' })
 
 // Try to read one day of user data from S3. Returns null if the partition
-// is missing (caller should fall back to Analytics API).
-async function readUsersFromS3(date) {
+// is missing (caller should fall back to Analytics API). org2 partitions
+// live under the org2/ prefix; primary keeps the legacy layout exactly.
+async function readUsersFromS3(date, org = 'primary') {
   if (!ARCHIVE_BUCKET) return null
-  const Key = `users/date=${date}/users-${date}.json`
+  const Key = `${s3PrefixFor(org)}users/date=${date}/users-${date}.json`
   try {
     const resp = await s3Client.send(new GetObjectCommand({ Bucket: ARCHIVE_BUCKET, Key }))
     const body = await resp.Body.transformToString()
@@ -122,16 +117,24 @@ function rangeDates(startingDate, endingDate) {
   return out
 }
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', (req, res) => {
+  // Key badges reflect the REQUESTED org (?org=) — under org2 the sidebar
+  // must not claim the primary org's Admin key exists.
+  const org = orgFromReq(req)
+  const dedicatedCompliance = org === 'org2'
+    ? process.env.ANTHROPIC_COMPLIANCE_KEY_2
+    : process.env.ANTHROPIC_COMPLIANCE_KEY
   res.json({
     ok: true,
-    analyticsKey: keyClass(ANALYTICS_KEY),
-    adminKey: keyClass(ADMIN_KEY),
+    org,
+    analyticsKey: keyClass(analyticsKeyFor(org)),
+    adminKey: keyClass(adminKeyFor(org)),
     // 'compliance' = dedicated key · 'analytics-fallback' = riding the
     // Analytics key's read:compliance_activities scope · 'none' = audit off.
-    complianceKey: process.env.ANTHROPIC_COMPLIANCE_KEY
+    complianceKey: dedicatedCompliance
       ? 'compliance'
-      : COMPLIANCE_KEY ? 'analytics-fallback' : 'none',
+      : complianceKeyFor(org) ? 'analytics-fallback' : 'none',
+    orgs: orgList(),
     apiUrl: API_URL,
     apiVersion: API_VERSION,
     dataConstraints: {
@@ -144,19 +147,26 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
+// Org switcher discovery: which orgs exist (id/label/capabilities). The
+// frontend renders a switcher only when more than one org is listed.
+app.get('/api/orgs', (_req, res) => {
+  res.json({ orgs: orgList(), default: 'primary' })
+})
+
 // ─── Analytics API ──────────────────────────────────────────────────────────
 
 app.get('/api/analytics/summaries', async (req, res) => {
+  const analyticsKey = analyticsKeyFor(orgFromReq(req))
   const endingDate = clampAnalyticsEnd(req.query.ending_date)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-33))
 
-  if (!ANALYTICS_KEY) {
+  if (!analyticsKey) {
     return res.json({ source: 'mock', ...generateMock.summaries(startingDate, endingDate) })
   }
   const upstream = await fetchJson(
     '/v1/organizations/analytics/summaries',
     { starting_date: startingDate, ending_date: endingDate },
-    ANALYTICS_KEY,
+    analyticsKey,
   )
   if (!upstream.ok) {
     return res.json({
@@ -170,10 +180,11 @@ app.get('/api/analytics/summaries', async (req, res) => {
 })
 
 app.get('/api/analytics/users', async (req, res) => {
+  const analyticsKey = analyticsKeyFor(orgFromReq(req))
   const date = clampAnalyticsEnd(req.query.date)
   const limit = Number(req.query.limit || 1000)
 
-  if (!ANALYTICS_KEY) {
+  if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.users(date) })
   }
 
@@ -184,7 +195,7 @@ app.get('/api/analytics/users', async (req, res) => {
     const upstream = await fetchJson(
       '/v1/organizations/analytics/users',
       { date, limit, ...(page ? { page } : {}) },
-      ANALYTICS_KEY,
+      analyticsKey,
     )
     if (!upstream.ok) {
       return res.json({
@@ -202,14 +213,15 @@ app.get('/api/analytics/users', async (req, res) => {
 })
 
 app.get('/api/analytics/skills', async (req, res) => {
+  const analyticsKey = analyticsKeyFor(orgFromReq(req))
   const date = clampAnalyticsEnd(req.query.date)
-  if (!ANALYTICS_KEY) {
+  if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.skills(date) })
   }
   const upstream = await fetchJson(
     '/v1/organizations/analytics/skills',
     { date, limit: 500 },
-    ANALYTICS_KEY,
+    analyticsKey,
   )
   if (!upstream.ok) {
     return res.json({
@@ -223,14 +235,15 @@ app.get('/api/analytics/skills', async (req, res) => {
 })
 
 app.get('/api/analytics/connectors', async (req, res) => {
+  const analyticsKey = analyticsKeyFor(orgFromReq(req))
   const date = clampAnalyticsEnd(req.query.date)
-  if (!ANALYTICS_KEY) {
+  if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.connectors(date) })
   }
   const upstream = await fetchJson(
     '/v1/organizations/analytics/connectors',
     { date, limit: 500 },
-    ANALYTICS_KEY,
+    analyticsKey,
   )
   if (!upstream.ok) {
     return res.json({
@@ -244,14 +257,15 @@ app.get('/api/analytics/connectors', async (req, res) => {
 })
 
 app.get('/api/analytics/projects', async (req, res) => {
+  const analyticsKey = analyticsKeyFor(orgFromReq(req))
   const date = clampAnalyticsEnd(req.query.date)
-  if (!ANALYTICS_KEY) {
+  if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.projects(date) })
   }
   const upstream = await fetchJson(
     '/v1/organizations/analytics/apps/chat/projects',
     { date, limit: 500 },
-    ANALYTICS_KEY,
+    analyticsKey,
   )
   if (!upstream.ok) {
     return res.json({
@@ -269,14 +283,16 @@ app.get('/api/analytics/projects', async (req, res) => {
 // to the Analytics API only when the partition is missing. All days run in
 // parallel. Fully-archived windows return in <500ms total.
 app.get('/api/analytics/users/range', async (req, res) => {
+  const org = orgFromReq(req)
+  const analyticsKey = analyticsKeyFor(org)
   const endingDate = clampAnalyticsEnd(req.query.ending_date)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
   const dates = rangeDates(startingDate, endingDate).slice(-31)
 
   const results = await Promise.all(dates.map(async (date) => {
-    // 1) Try S3 archive first
+    // 1) Try S3 archive first (org-prefixed partitions for org2)
     try {
-      const s3rows = await readUsersFromS3(date)
+      const s3rows = await readUsersFromS3(date, org)
       if (s3rows) return { date, source: 's3', data: s3rows, error: null }
     } catch { /* fall through */ }
 
@@ -284,13 +300,13 @@ app.get('/api/analytics/users/range', async (req, res) => {
     //    When a real key is set, missing days return empty data rather than
     //    mock placeholders — this prevents @acme.com mock emails from polluting
     //    aggregations on recent days that fall inside the 3-day API buffer.
-    if (!ANALYTICS_KEY) {
+    if (!analyticsKey) {
       return { date, source: 'mock', data: generateMock.users(date).data, error: null }
     }
     const upstream = await fetchJson(
       '/v1/organizations/analytics/users',
       { date, limit: 1000 },
-      ANALYTICS_KEY,
+      analyticsKey,
     )
     return {
       date,
@@ -316,15 +332,16 @@ app.get('/api/analytics/users/range', async (req, res) => {
 // for distinct_user_count which can't be deduped across days without IDs).
 function makeDailyRangeRoute(upstreamPath, mockKey) {
   return async (req, res) => {
+    const analyticsKey = analyticsKeyFor(orgFromReq(req))
     const endingDate = clampAnalyticsEnd(req.query.ending_date)
     const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
     const dates = rangeDates(startingDate, endingDate).slice(-31)
 
     const results = await Promise.all(dates.map(async (date) => {
-      if (!ANALYTICS_KEY) {
+      if (!analyticsKey) {
         return { date, source: 'mock', data: generateMock[mockKey](date).data, error: null }
       }
-      const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, ANALYTICS_KEY)
+      const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, analyticsKey)
       return {
         date,
         source: upstream.ok ? 'live' : 'upstream_error',
@@ -347,8 +364,9 @@ app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organization
 // ─── Admin API (optional — requires sk-ant-admin key) ───────────────────────
 
 app.get('/api/admin/claude-code', async (req, res) => {
+  const adminKey = adminKeyFor('primary') // admin routes are primary-only by contract
   const startingAt = req.query.starting_at || todayUtc(-3)
-  if (!ADMIN_KEY) {
+  if (!adminKey) {
     return res.status(400).json({
       error: 'admin_key_required',
       message: 'This endpoint requires ANTHROPIC_ADMIN_KEY_ADMIN (sk-ant-admin...) to be configured. The Analytics key cannot access per-user cost data.',
@@ -362,7 +380,7 @@ app.get('/api/admin/claude-code', async (req, res) => {
     const upstream = await fetchJson(
       '/v1/organizations/usage_report/claude_code',
       { starting_at: startingAt, limit: 1000, ...(page ? { page } : {}) },
-      ADMIN_KEY,
+      adminKey,
     )
     if (!upstream.ok) return res.status(upstream.status).json(upstream.body)
     if (Array.isArray(upstream.body?.data)) data.push(...upstream.body.data)
@@ -374,7 +392,8 @@ app.get('/api/admin/claude-code', async (req, res) => {
 
 // Fan-out: Claude Code usage across a date range
 app.get('/api/admin/claude-code/range', async (req, res) => {
-  if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
+  const adminKey = adminKeyFor('primary')
+  if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = clampAnalyticsEnd(req.query.ending_date)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
   const dates = rangeDates(startingDate, endingDate).slice(-31)
@@ -387,7 +406,7 @@ app.get('/api/admin/claude-code/range', async (req, res) => {
       const upstream = await fetchJson(
         '/v1/organizations/usage_report/claude_code',
         { starting_at: date, limit: 1000, ...(page ? { page } : {}) },
-        ADMIN_KEY,
+        adminKey,
       )
       if (!upstream.ok) {
         results.push({ date, source: 'error', error: upstream.body, data: [] })
@@ -406,7 +425,8 @@ app.get('/api/admin/claude-code/range', async (req, res) => {
 
 // Usage API — token consumption grouped by model
 app.get('/api/admin/usage', async (req, res) => {
-  if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
+  const adminKey = adminKeyFor('primary')
+  if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-15))
   const params = {
@@ -415,7 +435,7 @@ app.get('/api/admin/usage', async (req, res) => {
     bucket_width: req.query.bucket_width || '1d',
     'group_by[]': req.query.group_by || 'model',
   }
-  const upstream = await fetchJson('/v1/organizations/usage_report/messages', params, ADMIN_KEY)
+  const upstream = await fetchJson('/v1/organizations/usage_report/messages', params, adminKey)
   if (!upstream.ok) return res.status(upstream.status).json(upstream.body)
   res.json({ source: 'live', ...upstream.body })
 })
@@ -445,9 +465,11 @@ const AUDIT_BG_BUDGET_MS = 240_000
 const AUDIT_PAGE_TIMEOUT_MS = 15_000
 
 // One canonical key per walk-parameter tuple — shared by the route and the
-// prewarm so the prewarm genuinely warms the keys real requests use.
+// prewarm so the prewarm genuinely warms the keys real requests use. The org
+// id leads the tuple so the two orgs' audit feeds never share an entry.
 function auditKey(p) {
   return [
+    p.org || 'primary',
     p.startingDate || '', p.endingDate || '',
     p.maxRecords, p.pagesCap, p.limit,
     p.eventType || '', p.initialAfterId || '',
@@ -460,7 +482,9 @@ function auditKey(p) {
 // network errors/timeouts) and budget exhaustion degrade to a partial
 // result instead. A first-page failure throws (status attached) so the
 // cache can serve stale or the route can surface the real upstream error.
-async function walkActivities({ pagesCap, limit, eventType, maxRecords, startingDate, endingDate, initialAfterId }, budgetMs = AUDIT_WALK_BUDGET_MS) {
+// `complianceKey` is the requesting org's key, threaded through walkParams
+// (callers resolve it via complianceKeyFor(org)).
+async function walkActivities({ pagesCap, limit, eventType, maxRecords, startingDate, endingDate, initialAfterId, complianceKey }, budgetMs = AUDIT_WALK_BUDGET_MS) {
   const aggregated = []
   let afterId = initialAfterId
   let lastBody
@@ -481,7 +505,7 @@ async function walkActivities({ pagesCap, limit, eventType, maxRecords, starting
     let upstream
     try {
       const signal = AbortSignal.timeout(Math.min(AUDIT_PAGE_TIMEOUT_MS, Math.max(2000, left)))
-      upstream = await fetchJson('/v1/compliance/activities', params, COMPLIANCE_KEY, { signal })
+      upstream = await fetchJson('/v1/compliance/activities', params, complianceKey, { signal })
     } catch (err) {
       if (aggregated.length === 0) throw err
       stopReason = 'upstream_network'
@@ -541,7 +565,9 @@ async function walkActivities({ pagesCap, limit, eventType, maxRecords, starting
 }
 
 app.get('/api/compliance/activities', async (req, res) => {
-  if (!COMPLIANCE_KEY) {
+  const org = orgFromReq(req)
+  const complianceKey = complianceKeyFor(org)
+  if (!complianceKey) {
     return res.status(400).json({
       error: 'compliance_key_required',
       message: 'Set ANTHROPIC_COMPLIANCE_KEY (Enterprise Compliance API scope).',
@@ -554,6 +580,8 @@ app.get('/api/compliance/activities', async (req, res) => {
   // we cross the lower bound — for noisy orgs this prevents pulling tens of
   // thousands of events when the user only asked for the last 14 days.
   const walkParams = {
+    org,             // leads the auditKey tuple (per-org cache entries)
+    complianceKey,   // the org's key, used by walkActivities (NOT in auditKey)
     pagesCap: Math.min(Number(req.query.pages || 50), 200),
     limit: Math.min(Number(req.query.limit || 100), 100),
     eventType: req.query.type, // single type filter (client-side after fetch)
@@ -589,7 +617,8 @@ function scheduleAuditCompletion(cacheKey, walkParams) {
 
 // Cost API — daily cost breakdown (USD cents)
 app.get('/api/admin/cost', async (req, res) => {
-  if (!ADMIN_KEY) return res.status(400).json({ error: 'admin_key_required' })
+  const adminKey = adminKeyFor('primary')
+  if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-31))
   const params = {
@@ -597,21 +626,30 @@ app.get('/api/admin/cost', async (req, res) => {
     ending_at:    `${endingDate}T00:00:00Z`,
     'group_by[]': req.query.group_by || 'description',
   }
-  const upstream = await fetchJson('/v1/organizations/cost_report', params, ADMIN_KEY)
+  const upstream = await fetchJson('/v1/organizations/cost_report', params, adminKey)
   if (!upstream.ok) return res.status(upstream.status).json(upstream.body)
   res.json({ source: 'live', ...upstream.body })
 })
 
-// Compact snapshot used to ground the AI analyze endpoint
-async function fetchAnalyticsSnapshot() {
+// Compact snapshot used to ground the AI analyze endpoint. `org` selects
+// whose Analytics key grounds the snapshot (chatbot requests pass it through).
+async function fetchAnalyticsSnapshot(org = 'primary') {
+  const analyticsKey = analyticsKeyFor(org)
   const endingDate = todayUtc(-3)
   const startingDate = todayUtc(-16) // 14-day window
   const snap = { window: { starting_date: startingDate, ending_date: endingDate } }
 
   const callOrMock = async (path, params, mock) => {
-    if (!ANALYTICS_KEY) return mock
-    const r = await fetchJson(path, params, ANALYTICS_KEY)
-    return r.ok ? r.body : mock
+    if (!analyticsKey) return mock // keyless local dev only
+    const r = await fetchJson(path, params, analyticsKey)
+    // Upstream FAILURE must throw, not silently substitute mock fixtures:
+    // this snapshot grounds chatbot tool results, and the model presents
+    // tool output as real data — a mistyped org2 key (401) must surface as
+    // a tool error, never as fake numbers in an AI answer.
+    if (!r.ok) {
+      throw new Error(`analytics snapshot upstream ${r.status} for ${path} (org=${org})`)
+    }
+    return r.body
   }
 
   const summaries = await callOrMock(
@@ -645,7 +683,9 @@ async function fetchAnalyticsSnapshot() {
   }
 }
 
-registerAwsRoutes(app, { fetchAnalytics: fetchAnalyticsSnapshot })
+// fetchAnalytics(org?) → snapshot promise; org defaults to 'primary' so
+// existing zero-arg call sites in aws.js keep working unchanged.
+registerAwsRoutes(app, { fetchAnalytics: (org) => fetchAnalyticsSnapshot(org) })
 
 // In production, serve the built Vite SPA and fall back to index.html for client routing.
 if (PROD) {
@@ -658,7 +698,7 @@ if (PROD) {
 
 app.listen(PORT, () => {
   console.log(`\x1b[36m[api]\x1b[0m Claude Code Dashboard proxy on http://localhost:${PORT}`)
-  console.log(`\x1b[36m[api]\x1b[0m Analytics key: ${keyClass(ANALYTICS_KEY)} | Admin key: ${keyClass(ADMIN_KEY)}`)
+  console.log(`\x1b[36m[api]\x1b[0m Analytics key: ${keyClass(analyticsKeyFor('primary'))} | Admin key: ${keyClass(adminKeyFor('primary'))}${hasOrg2() ? ` | org2 key: ${keyClass(analyticsKeyFor('org2'))}` : ''}`)
   // Background prewarm for the Compliance audit feed. Top-ups the
   // response-level auditCache DIRECTLY for the four DateRangeControl preset
   // windows — the key formula MUST match what the frontend sends
@@ -670,7 +710,12 @@ app.listen(PORT, () => {
   // Background walks use the long budget so entries are COMPLETE — a
   // 45s-capped refresh would re-truncate at the same depth forever since
   // the page cache expires in lockstep with the response cache.
-  if (COMPLIANCE_KEY) {
+  // Orgs warm sequentially within a tick — each org has its OWN upstream
+  // 60 rpm budget, so the per-org pacing below is unchanged. hasOrg2()
+  // implies complianceKeyFor('org2') resolves (analytics-key fallback), so
+  // the gate below covers both orgs; without the org2 env this is exactly
+  // the old single-org prewarm.
+  if (complianceKeyFor('primary') || hasOrg2()) {
     const prewarm = async () => {
       const today = todayUtc(0)
       const windows = [
@@ -679,22 +724,29 @@ app.listen(PORT, () => {
         { label: '14d', starting_date: todayUtc(-13) },
         { label: '30d', starting_date: todayUtc(-29) },
       ]
-      for (const w of windows) {
-        const params = {
-          pagesCap: 20, limit: 100, eventType: undefined,
-          maxRecords: 2000, startingDate: w.starting_date, endingDate: today,
-          initialAfterId: undefined,
-        }
-        try {
-          const t0 = Date.now()
-          // minAge 4 min: each 5-min tick refreshes, so entries never age
-          // past ~5 min and user requests always fresh-hit (no SWR
-          // foreground-budget refresh that could re-truncate them).
-          const body = await auditCache.topUp(auditKey(params), () => walkActivities(params, AUDIT_BG_BUDGET_MS), 240_000)
-          const ms = Date.now() - t0
-          console.log(`\x1b[36m[prewarm]\x1b[0m audit ${w.label}: ${body?.in_window ?? 'fail'} events in ${ms}ms (${body?.stop_reason ?? '?'})`)
-        } catch (err) {
-          console.warn(`[prewarm] audit ${w.label} failed:`, err?.message || err)
+      const orgIds = hasOrg2() ? ['primary', 'org2'] : ['primary']
+      for (const org of orgIds) {
+        const complianceKey = complianceKeyFor(org)
+        if (!complianceKey) continue
+        const tag = hasOrg2() ? `${org} ` : ''  // keep single-org log lines identical
+        for (const w of windows) {
+          const params = {
+            org, complianceKey,
+            pagesCap: 20, limit: 100, eventType: undefined,
+            maxRecords: 2000, startingDate: w.starting_date, endingDate: today,
+            initialAfterId: undefined,
+          }
+          try {
+            const t0 = Date.now()
+            // minAge 4 min: each 5-min tick refreshes, so entries never age
+            // past ~5 min and user requests always fresh-hit (no SWR
+            // foreground-budget refresh that could re-truncate them).
+            const body = await auditCache.topUp(auditKey(params), () => walkActivities(params, AUDIT_BG_BUDGET_MS), 240_000)
+            const ms = Date.now() - t0
+            console.log(`\x1b[36m[prewarm]\x1b[0m audit ${tag}${w.label}: ${body?.in_window ?? 'fail'} events in ${ms}ms (${body?.stop_reason ?? '?'})`)
+          } catch (err) {
+            console.warn(`[prewarm] audit ${tag}${w.label} failed:`, err?.message || err)
+          }
         }
       }
     }
@@ -708,12 +760,16 @@ app.listen(PORT, () => {
   // every preset sub-range (1d/7d/14d/30d) on every page. 2s gaps pace the
   // shared 60 rpm org budget; refresh every 5 min (TTL 10 min — one window
   // of overlap, same math as the audit prewarm above).
-  if (ANALYTICS_KEY) {
+  // Same sequential-org rule as the audit prewarm: org2 rides its own
+  // upstream budget, and the org2 pass simply tags the self-call URLs with
+  // &org=org2 so the routes resolve that org's key (every base target
+  // already carries a query string).
+  if (analyticsKeyFor('primary') || hasOrg2()) {
     const analyticsPrewarm = async () => {
       const startedAt = Date.now()
       const end = todayUtc(0)
       const d30 = todayUtc(-29)
-      const targets = [
+      const baseTargets = [
         `/api/analytics/users/range?starting_date=${d30}&ending_date=${end}`,
         `/api/analytics/skills/range?starting_date=${d30}&ending_date=${end}`,
         `/api/analytics/connectors/range?starting_date=${d30}&ending_date=${end}`,
@@ -723,15 +779,20 @@ app.listen(PORT, () => {
         `/api/analytics/summaries?starting_date=${todayUtc(-13)}&ending_date=${end}`,
         `/api/analytics/summaries?starting_date=${todayUtc(-29)}&ending_date=${end}`,
       ]
+      const orgIds = hasOrg2() ? ['primary', 'org2'] : ['primary']
       let ok = 0, failed = 0
-      for (const path of targets) {
-        try {
-          const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { signal: AbortSignal.timeout(60_000) })
-          r.ok ? ok++ : failed++
-        } catch {
-          failed++
+      for (const org of orgIds) {
+        if (!analyticsKeyFor(org)) continue
+        const targets = org === 'org2' ? baseTargets.map((p) => `${p}&org=org2`) : baseTargets
+        for (const path of targets) {
+          try {
+            const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { signal: AbortSignal.timeout(60_000) })
+            r.ok ? ok++ : failed++
+          } catch {
+            failed++
+          }
+          await new Promise((r2) => setTimeout(r2, 2_000).unref?.())
         }
-        await new Promise((r2) => setTimeout(r2, 2_000).unref?.())
       }
       console.log(`\x1b[36m[prewarm]\x1b[0m analytics: ${ok} warmed, ${failed} failed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)
     }
