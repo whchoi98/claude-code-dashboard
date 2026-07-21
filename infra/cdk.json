@@ -3,6 +3,6 @@
   "context": {
     "@aws-cdk/aws-lambda:recognizeVersionProps": true,
     "@aws-cdk/aws-ecs:enableExecuteCommand": true,
-    "enableOrg2": false
+    "enableOrg2": true
   }
 }
