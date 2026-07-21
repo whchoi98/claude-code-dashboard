@@ -89,11 +89,23 @@ export function UserSearch() {
     users: { email: string; by_model: { model: string; spend_usd: number; requests: number }[] }[]
   }>(`/api/cost/users?by=model&starting_date=${LIVE_MODEL_START}&ending_date=${todayUtc(0)}`)
 
-  // Build candidate user list from CSV
+  // The spend-report CSV is OPTIONAL enrichment (token estimates + long-period
+  // spend): org2 has no uploaded CSV at all, and /api/cost/csv answers 404
+  // no_spend_report — the page must run on live sources alone in that case.
+  const hasCsv = !csv.error && !!csv.data
+
+  // Candidate users: everyone in the engagement archive response (the server
+  // clamps users/range to the most recent 31 days — server/index.js — so this
+  // is "recently active users", not all-time), plus anyone in the CSV period.
   const allUsers = useMemo(() => {
-    if (!csv.data) return [] as string[]
-    return [...new Set(csv.data.rows.map((r) => r.user_email))].filter((e) => inGroup(e)).sort()
-  }, [csv.data, inGroup])
+    const set = new Set<string>()
+    for (const d of range.data?.days ?? []) {
+      if (d.source === 'mock') continue
+      for (const r of d.data) if (r.user?.email_address) set.add(r.user.email_address)
+    }
+    for (const r of csv.data?.rows ?? []) set.add(r.user_email)
+    return [...set].filter((e) => inGroup(e)).sort()
+  }, [range.data, csv.data, inGroup])
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -106,19 +118,29 @@ export function UserSearch() {
   // out-of-group user while the dropdown reads blank.
   const activeEmail = (selectedEmail && inGroup(selectedEmail) ? selectedEmail : '') || allUsers[0] || ''
 
+  // First day the engagement archive actually has data — the live-mode window
+  // and heatmap origin (org2's history starts when the org did; a 2026-01-01
+  // span would be months of empty cells).
+  const firstDataDate = useMemo(
+    () => (range.data?.days ?? []).find((d) => d.source !== 'mock' && d.data.length > 0)?.date,
+    [range.data],
+  )
+
   // Effective date window for the selected preset
   const effectiveRange = useMemo(() => {
     if (rangePreset === 'all') {
-      return { start: csv.data?.period?.starting_date ?? RANGE_START, end: RANGE_END, days: -1 }
+      return { start: csv.data?.period?.starting_date ?? firstDataDate ?? RANGE_START, end: RANGE_END, days: -1 }
     }
     const days = rangePreset === '30d' ? 30 : rangePreset === '14d' ? 14 : 7
     const start = new Date(`${RANGE_END}T00:00:00Z`)
     start.setUTCDate(start.getUTCDate() - days + 1)
     return { start: start.toISOString().slice(0, 10), end: RANGE_END, days }
-  }, [rangePreset, csv.data, RANGE_END])
+  }, [rangePreset, csv.data, firstDataDate, RANGE_END])
 
   if (csv.loading || range.loading) return <LoadingState />
-  if (csv.error) return <ErrorState error={csv.error} />
+  // Only the engagement range is load-bearing; a missing/failed spend report
+  // (org2, or a primary outage) degrades to live-only mode instead of dying.
+  if (range.error) return <ErrorState error={range.error} />
   if (allUsers.length === 0) {
     return (
       <div>
@@ -130,7 +152,11 @@ export function UserSearch() {
   }
 
   // ── Per-selected-user data ────────────────────────────────────────────────
-  const userCsvRows = csv.data!.rows.filter((r) => r.user_email === activeEmail)
+  const userCsvRows = (csv.data?.rows ?? []).filter((r) => r.user_email === activeEmail)
+  // CSV coverage is PER-USER: the org can have a CSV while the selected user
+  // (surfaced from the engagement archive) has no rows in it — that user's
+  // cost/token surfaces must degrade to live mode, not render $0 CSV values.
+  const userHasCsv = hasCsv && userCsvRows.length > 0
   const userDays = (range.data?.days ?? [])
     .filter((d) => d.source !== 'mock')
     .map((d) => ({
@@ -140,7 +166,7 @@ export function UserSearch() {
     }))
 
   const inWindow = userDays.filter((d) => d.date >= effectiveRange.start && d.date <= effectiveRange.end)
-  const csvSessionsTotal = userDays.filter((d) => d.date >= (csv.data!.period?.starting_date ?? RANGE_START))
+  const csvSessionsTotal = userDays.filter((d) => d.date >= (csv.data?.period?.starting_date ?? RANGE_START))
                                     .reduce((s, d) => s + d.sessions, 0)
   const sessionsInWindow = inWindow.reduce((s, d) => s + d.sessions, 0)
   const messagesInWindow = inWindow.reduce((s, d) => s + d.messages, 0)
@@ -197,6 +223,13 @@ export function UserSearch() {
   const peakDow = dowSessions.indexOf(Math.max(...dowSessions))
   const peakDowLabel = inWindow.length > 0 && dowSessions[peakDow] > 0 ? dowLabels[peakDow] : '—'
 
+  // Live per-user model rows (spend/requests — no per-user token split). Also
+  // carries the cost card when no CSV exists (window = the live fetch's 30-day
+  // span, not the preset — labeled accordingly).
+  const liveUserModels = liveByModel.data?.users?.find((u) => u.email === activeEmail)?.by_model ?? []
+  const liveSpendTotal = liveUserModels.reduce((s, m) => s + m.spend_usd, 0)
+  const liveRequestsTotal = liveUserModels.reduce((s, m) => s + m.requests, 0)
+
   // Favorite model — by total tokens across the user's CSV rows
   const modelTotals = new Map<string, { tokens: number; input: number; output: number; spend: number }>()
   for (const r of userCsvRows) {
@@ -211,14 +244,15 @@ export function UserSearch() {
   const modelRowsSorted = [...modelTotals.entries()]
     .map(([model, v]) => ({ model, short: shortModel(model), ...v }))
     .sort((a, b) => b.tokens - a.tokens)
-  const favoriteModelShort = modelRowsSorted[0]?.short ?? '—'
+  const favoriteModelShort = modelRowsSorted[0]?.short
+    ?? (liveUserModels.length > 0
+      ? shortModel([...liveUserModels].sort((a, b) => b.spend_usd - a.spend_usd)[0].model)
+      : '—')
   const totalTokensAllModels = modelRowsSorted.reduce((s, r) => s + r.tokens, 0)
 
   // Models the user ran that are missing from the CSV period, filled from the
-  // live cost report (spend/requests only — the live source has no per-user
-  // token split). Keeps newly released models (e.g. Fable 5) visible even
+  // live cost report. Keeps newly released models (e.g. Fable 5) visible even
   // while the uploaded spend report predates them.
-  const liveUserModels = liveByModel.data?.users?.find((u) => u.email === activeEmail)?.by_model ?? []
   const csvModelKeys = new Set(modelRowsSorted.map((m) => m.model))
   const liveOnlyModels = liveUserModels
     .filter((m) => !csvModelKeys.has(m.model))
@@ -237,7 +271,8 @@ export function UserSearch() {
   // Heatmap data: build a 7-rows × N-cols grid for the *entire* known window
   // (we always show the same heatmap shape for orientation; range-preset
   // affects KPIs above, not the heatmap span). Sunday is the top row.
-  const heatmapStart = csv.data!.period?.starting_date ?? RANGE_START
+  // Heatmap span: CSV period when present, else the first archived data day.
+  const heatmapStart = csv.data?.period?.starting_date ?? firstDataDate ?? RANGE_START
   const heatmapEnd = RANGE_END
   const heatmapDays: { date: string; sessions: number }[] = []
   {
@@ -271,8 +306,8 @@ export function UserSearch() {
       <PageHeader
         title={t('user_search.title')}
         subtitle={t('user_search.subtitle')}
-        source="csv"
-        reason={`CSV · ${csv.data!.file ?? ''}`}
+        source={hasCsv ? 'csv' : 'live'}
+        reason={hasCsv ? `CSV · ${csv.data?.file ?? ''}` : t('user_search.source.live')}
       />
       <GroupTabs />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
@@ -340,14 +375,14 @@ export function UserSearch() {
             <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
               <KpiCard accent label={t('user_search.kpi.sessions')}     value={fmtNum(sessionsInWindow)} hint={t('user_search.kpi.sessions.hint')} />
               <KpiCard       label={t('user_search.kpi.messages')}     value={fmtNum(messagesInWindow)} hint={t('user_search.kpi.messages.hint')} />
-              <KpiCard       label={t('user_search.kpi.total_tokens')} value={fmtCompact(tokensInWindow)} hint={t('user_search.kpi.total_tokens.hint')} />
+              <KpiCard       label={t('user_search.kpi.total_tokens')} value={userHasCsv ? fmtCompact(tokensInWindow) : '—'} hint={userHasCsv ? t('user_search.kpi.total_tokens.hint') : t('user_search.kpi.total_tokens.no_csv')} />
               <KpiCard       label={t('user_search.kpi.active_days')}  value={fmtNum(activeDates.length)} hint={t('user_search.kpi.active_days.hint')} />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
               <KpiCard label={t('user_search.kpi.current_streak')}    value={`${currentStreak}${t('user_search.kpi.streak_unit')}`} hint={t('user_search.kpi.current_streak.hint')} />
               <KpiCard label={t('user_search.kpi.longest_streak')}    value={`${longestStreak}${t('user_search.kpi.streak_unit')}`} hint={t('user_search.kpi.longest_streak.hint')} />
               <KpiCard label={t('user_search.kpi.peak_dow')}          value={peakDowLabel} hint={t('user_search.kpi.peak_dow.hint')} />
-              <KpiCard label={t('user_search.kpi.favorite_model')}    value={favoriteModelShort} hint={t('user_search.kpi.favorite_model.hint')} />
+              <KpiCard label={t('user_search.kpi.favorite_model')}    value={favoriteModelShort} hint={userHasCsv ? t('user_search.kpi.favorite_model.hint') : t('user_search.kpi.favorite_model.live_hint')} />
             </div>
 
             <ChartCard
@@ -388,18 +423,39 @@ export function UserSearch() {
               </div>
             </ChartCard>
 
-            {/* ── Cost summary card (CSV-derived, activity-scaled) ──── */}
-            <ChartCard
-              title={t('user_search.cost.title')}
-              subtitle={t('user_search.cost.subtitle', { start: effectiveRange.start, end: effectiveRange.end })}
-            >
-              <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 p-4">
-                <KpiCard accent label={t('user_search.cost.spend')}    value={`$${spendInWindow.toFixed(2)}`} hint={`× ${(ratio * 100).toFixed(1)}%`} />
-                <KpiCard       label={t('user_search.cost.requests')} value={fmtNum(Math.round(requestsInWindow))} hint={t('user_search.cost.requests.hint')} />
-                <KpiCard       label={t('user_search.cost.csv_total_spend')} value={`$${csvTotalSpend.toFixed(2)}`} hint={t('user_search.cost.csv_total_hint')} />
-                <KpiCard       label={t('user_search.cost.models_used')}    value={fmtNum(modelRowsSorted.length + liveOnlyModels.length)} hint={t('user_search.cost.models_used.hint')} />
-              </div>
-            </ChartCard>
+            {/* ── Cost summary card — CSV-derived (activity-scaled) when the
+                 spend report covers THIS user; live user_cost_report totals
+                 otherwise (no CSV at all, or an archive-only user) ── */}
+            {userHasCsv ? (
+              <ChartCard
+                title={t('user_search.cost.title')}
+                subtitle={t('user_search.cost.subtitle', { start: effectiveRange.start, end: effectiveRange.end })}
+              >
+                <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 p-4">
+                  <KpiCard accent label={t('user_search.cost.spend')}    value={`$${spendInWindow.toFixed(2)}`} hint={`× ${(ratio * 100).toFixed(1)}%`} />
+                  <KpiCard       label={t('user_search.cost.requests')} value={fmtNum(Math.round(requestsInWindow))} hint={t('user_search.cost.requests.hint')} />
+                  <KpiCard       label={t('user_search.cost.csv_total_spend')} value={`$${csvTotalSpend.toFixed(2)}`} hint={t('user_search.cost.csv_total_hint')} />
+                  <KpiCard       label={t('user_search.cost.models_used')}    value={fmtNum(modelRowsSorted.length + liveOnlyModels.length)} hint={t('user_search.cost.models_used.hint')} />
+                </div>
+              </ChartCard>
+            ) : (
+              <ChartCard
+                title={t('user_search.cost.live_title')}
+                subtitle={t('user_search.cost.live_subtitle', { start: LIVE_MODEL_START })}
+              >
+                {liveByModel.loading ? (
+                  <div className="p-6 text-sm text-ink-400">{t('user_search.cost.live_loading')}</div>
+                ) : liveByModel.error ? (
+                  <div className="p-6 text-sm text-ink-500">{t('user_search.cost.live_error')}</div>
+                ) : (
+                  <div className="grid grid-cols-2 lg:grid-cols-3 print:grid-cols-3 gap-4 p-4">
+                    <KpiCard accent label={t('user_search.cost.live_spend')}    value={`$${liveSpendTotal.toFixed(2)}`} hint={t('user_search.cost.live_hint')} />
+                    <KpiCard       label={t('user_search.cost.live_requests')} value={fmtNum(liveRequestsTotal)} hint={t('user_search.cost.live_hint')} />
+                    <KpiCard       label={t('user_search.cost.models_used')} value={fmtNum(liveUserModels.length)} hint={t('user_search.cost.live_hint')} />
+                  </div>
+                )}
+              </ChartCard>
+            )}
           </>
         )}
 
@@ -408,13 +464,13 @@ export function UserSearch() {
           <>
             <ChartCard
               title={t('user_search.model.breakdown')}
-              subtitle={t('user_search.model.breakdown.sub')}
+              subtitle={userHasCsv ? t('user_search.model.breakdown.sub') : t('user_search.model.breakdown.sub.live')}
             >
               {modelSpendBars.length > 0 && (
                 <>
                   <div className="px-4 pt-3 text-[10px] text-ink-400">
                     {modelSpendIsLive
-                      ? t('user_search.model.spend_chart.live', { start: LIVE_MODEL_START })
+                      ? t(userHasCsv ? 'user_search.model.spend_chart.live' : 'user_search.model.spend_chart.live_only', { start: LIVE_MODEL_START })
                       : t('user_search.model.spend_chart.csv')}
                   </div>
                   <ResponsiveContainer width="100%" height={Math.max(120, modelSpendBars.length * 34 + 24)}>
@@ -429,6 +485,11 @@ export function UserSearch() {
                 </>
               )}
               <div className="p-4 space-y-2">
+                {modelRowsSorted.length === 0 && liveOnlyModels.length === 0 && (
+                  <div className="text-sm text-ink-400">
+                    {liveByModel.loading ? t('user_search.cost.live_loading') : t('user_search.model.empty')}
+                  </div>
+                )}
                 {modelRowsSorted.map((m, i) => {
                   const share = totalTokensAllModels > 0 ? m.tokens / totalTokensAllModels : 0
                   return (
@@ -450,7 +511,9 @@ export function UserSearch() {
                 {liveOnlyModels.length > 0 && (
                   <>
                     <div className="pt-2 mt-1 border-t border-ink-100 text-[10px] text-ink-400">
-                      {t('user_search.model.live_added', { start: LIVE_MODEL_START })}
+                      {userHasCsv
+                        ? t('user_search.model.live_added', { start: LIVE_MODEL_START })
+                        : t('user_search.model.live_all', { start: LIVE_MODEL_START })}
                     </div>
                     {liveOnlyModels.map((m, i) => (
                       <div key={m.model} className="flex items-center gap-3 text-[12px]">
@@ -470,20 +533,24 @@ export function UserSearch() {
               </div>
             </ChartCard>
 
-            <ChartCard
-              title={t('user_search.model.daily_tokens')}
-              subtitle={t('user_search.model.daily_tokens.sub', { days: inWindow.length })}
-            >
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyBars} margin={{ top: 12, right: 16, left: -12, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="2 4" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v: number) => fmtCompact(v)} />
-                  <Bar dataKey="tokens" fill="#D97757" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+            {/* Daily tokens are estimated from CSV totals — nothing to plot
+                 without CSV rows for this user, so the card hides in live mode. */}
+            {userHasCsv && (
+              <ChartCard
+                title={t('user_search.model.daily_tokens')}
+                subtitle={t('user_search.model.daily_tokens.sub', { days: inWindow.length })}
+              >
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={dailyBars} margin={{ top: 12, right: 16, left: -12, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="2 4" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis tickFormatter={(v: number) => fmtCompact(v)} tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(v: number) => fmtCompact(v)} />
+                    <Bar dataKey="tokens" fill="#D97757" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
 
           </>
         )}
