@@ -106,6 +106,10 @@ export class ComputeStack extends cdk.Stack {
         ATHENA_OUTPUT_LOCATION: `s3://${props.archiveBucket.bucketName}/athena-results/`,
         NODE_ENV: 'production',
         PORT: '8080',
+        // Org display names for the sidebar switcher (server/orgs.js orgList) —
+        // the Anthropic API exposes no org name, so they live here.
+        CCD_ORG_LABEL: 'aws-v-team',
+        CCD_ORG2_LABEL: 'aws-kor-team',
       },
       secrets: {
         ANTHROPIC_ANALYTICS_KEY: ecs.Secret.fromSecretsManager(analyticsSecret),
