@@ -45,6 +45,9 @@ type CsvResp = {
   // Set when the server serves a per-(window,group) last-good payload
   // because the scoped upstream is flapping.
   stale?: boolean
+  // Set when the requested span exceeded the server's chunk cap (186 days) —
+  // `period` then reflects the most recent span actually served.
+  window_clamped?: boolean
   by_cost_type?: { cost_type: string; spend_usd: number }[]
   by_token_type?: { token_type: string; spend_usd: number }[]
   token_tiers?: {
@@ -256,8 +259,10 @@ export function Cost() {
   // auto mapping + live mode) — `groupScoped` below. CSV mode and UNMAPPED
   // can't be filtered upstream → partial-variant note, as before.
   const { group, groupId, setGroup, inGroup } = useGroupScope()
-  // Live API (Claude Code only) with automatic CSV fallback.
-  // The CSV path also handles the >30-day reconciliation use case.
+  // Live API (Claude Code only) with automatic CSV fallback. Windows over 31
+  // days are served live too (the server chunks them into ≤31-day upstream
+  // segments, capped at 186 days); the CSV remains the fallback for live
+  // outages and for history beyond the chunk cap.
   const { data, loading, error, refetch, refreshing, source: dataSource, csvData } = useCostData(range, groupId)
   // True when the org-level numbers on this page reflect ONLY the selected
   // group — requires the server's echo, not just the client's request (see
@@ -629,6 +634,14 @@ export function Cost() {
         {groupScoped && data.totals.net_spend_usd === 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800">
             {t('cost.scope.zero_attribution', { group: group === UNMAPPED ? t('group.unmapped') : group })}
+          </div>
+        )}
+        {/* Requested span exceeded the server's 186-day chunk cap — the
+            numbers below cover the most recent served window, not the full
+            request. Silence here would repeat the >31-day mislabeling bug. */}
+        {data.window_clamped && data.period && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800">
+            {t('cost.window_clamped', { start: data.period.starting_date, end: data.period.ending_date })}
           </div>
         )}
         {group && (usersByModel.data?.users?.length ?? 0) > 0 && liveUserRows === null && (

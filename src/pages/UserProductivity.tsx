@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
@@ -150,7 +152,7 @@ export function UserProductivity() {
       <PageHeader
         title={t('user_prod.title')}
         subtitle={t('user_prod.subtitle', { days: range.days })}
-        source={rangeResp.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
+        source={badgeSource(rangeResp.data?.days?.[0]?.source)}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <DateRangeControl />
@@ -164,6 +166,7 @@ export function UserProductivity() {
         }
       />
       <GroupTabs />
+      <RangeCoverageNote resp={rangeResp.data} />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         {rows.length > 0 && (
           <ChartCard title={t('user_prod.top10')} subtitle={t('user_prod.top10.sub')}>

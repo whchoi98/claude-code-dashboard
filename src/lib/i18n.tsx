@@ -174,6 +174,7 @@ const DICT = {
     'detail.col.commits':    'Commits',
     'detail.col.accept':     'Accept',
     'detail.products':       'Spend by product',
+    'detail.products.clamped': 'served window (186-day live limit)',
     'detail.models':         'Spend by model',
     'detail.cache.title':    'Cache Efficiency',
     'detail.cache.hit_rate': 'Hit rate',
@@ -363,6 +364,7 @@ const DICT = {
     'cost.top_output': 'Top 10 by Output Tokens',
     'cost.top_cost':   'Top 10 by Estimated Cost',
     'cost.source.live':           'Live API',
+    'cost.window_clamped':        'The requested range exceeds the 186-day live-data limit — showing {start} → {end}. Upload a spend-report CSV for older history.',
     'cost.source.csv':            'Reconciliation CSV',
     'cost.data_as_of':            'Data as of',
     'cost.data_as_of.hint':       'Latest finalized analytics timestamp from the API (UTC). The most recent ~3 days settle progressively (Analytics buffer).',
@@ -463,6 +465,9 @@ const DICT = {
     'user_search.model.live_all':          'Live cost report (since {start}) — spend & requests by model; per-user token splits need a spend-report CSV.',
     'user_search.model.spend_chart.live_only': 'Spend by model — live, since {start}',
     'user_search.model.empty':             'No per-model data for this user in the live 30-day window.',
+    // Range coverage (shared banner — RangeCoverageNote)
+    'range.coverage.partial': 'Coverage note: {n} of {total} days in this window have no data ({unarchived} before the archive began · {errors} upstream errors) — they count as zero in the aggregates below.',
+
     'user_search.empty.no_users':          'No users found',
     'user_search.empty.hint':              'No users in the engagement archive or spend-report CSV for this org / group scope.',
 
@@ -546,6 +551,7 @@ const DICT = {
     'exec.kpi.score.hint':         'composite 0-100 (LOC · accept · commits · activity · sessions)',
     'exec.kpi.spend':              'Spend (window)',
     'exec.kpi.spend.hint':         '{perDev}',
+    'exec.kpi.spend.hint.unavailable': 'Live cost report unavailable — refresh to retry',
     'exec.kpi.proj30d':            '30-day projection',
     'exec.kpi.proj30d.hint':       'last 7 days avg {avg}/day × 30',
     'exec.kpi.proj30d.hint.empty': 'live API daily series unavailable',
@@ -857,6 +863,7 @@ const DICT = {
     'detail.col.commits':    '커밋',
     'detail.col.accept':     '수락률',
     'detail.products':       '제품별 지출',
+    'detail.products.clamped': '실제 제공 구간 (라이브 186일 한도)',
     'detail.models':         '모델별 지출',
     'detail.cache.title':    '캐시 효율',
     'detail.cache.hit_rate': '적중률',
@@ -1042,6 +1049,7 @@ const DICT = {
     'cost.top_output': 'Output 토큰 Top 10',
     'cost.top_cost':   '추정 비용 Top 10',
     'cost.source.live':           '라이브 API',
+    'cost.window_clamped':        '요청 기간이 라이브 데이터 한도(186일)를 초과해 {start} → {end} 구간만 표시합니다. 더 오래된 기록은 스펜드 리포트 CSV를 업로드하세요.',
     'cost.source.csv':            '정산 CSV',
     'cost.data_as_of':            '데이터 기준',
     'cost.data_as_of.hint':       'API가 제공한 최신 확정 시각(UTC). 최근 ~3일은 점진적으로 확정됩니다(Analytics 버퍼).',
@@ -1142,6 +1150,9 @@ const DICT = {
     'user_search.model.live_all':          '라이브 비용 리포트 ({start}부터) — 모델별 지출·요청수. 사용자별 토큰 분해는 스펜드 리포트 CSV가 필요합니다.',
     'user_search.model.spend_chart.live_only': '모델별 지출 — 라이브, {start}부터',
     'user_search.model.empty':             '이 사용자의 최근 30일 라이브 모델별 데이터가 없습니다.',
+    // Range coverage (shared banner — RangeCoverageNote)
+    'range.coverage.partial': '커버리지 안내: 이 기간 중 {n}/{total}일에 데이터가 없습니다 (아카이브 이전 {unarchived}일 · 업스트림 오류 {errors}일) — 아래 집계에서 0으로 계산됩니다.',
+
     'user_search.empty.no_users':          '사용자를 찾을 수 없습니다',
     'user_search.empty.hint':              '이 조직/그룹 범위의 엔게이지먼트 아카이브·스펜드 리포트 CSV에 사용자가 없습니다.',
 
@@ -1224,6 +1235,7 @@ const DICT = {
     'exec.kpi.score.hint':         '복합 0-100 (LOC · 수락 · 커밋 · 활동 · 세션)',
     'exec.kpi.spend':              '지출 (윈도우)',
     'exec.kpi.spend.hint':         '{perDev}',
+    'exec.kpi.spend.hint.unavailable': '라이브 비용 리포트를 불러올 수 없음 — 새로고침으로 재시도',
     'exec.kpi.proj30d':            '30일 예상',
     'exec.kpi.proj30d.hint':       '최근 7일 평균 {avg}/일 × 30',
     'exec.kpi.proj30d.hint.empty': '라이브 API 일별 데이터 없음',

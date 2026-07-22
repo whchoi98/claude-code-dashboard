@@ -32,8 +32,21 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
 
 - **`index.js`** — Entry. Loads env, instantiates Express, registers the
   Analytics / Admin / Compliance proxy routes, the S3-first
-  `readUsersFromS3` helper, and the **10-minute in-memory upstream cache**
-  (`cache` Map, `TTL_MS = 600_000`). Schedules a **compliance prewarm** at
+  `readUsersFromS3` / `readRawFromS3` helpers, and the **10-minute in-memory
+  upstream cache** (`cache` Map, `TTL_MS = 600_000`). The engagement `/range`
+  routes serve their WHOLE window via `serveArchiveRange` (ADR-0019): S3
+  archive first for every day (24-wide pool; users from the columnar
+  partitions + `inflateUser`, skills/connectors/projects from the **raw
+  sidecar** `raw/<table>/` — exact live-API-shape rows the columnar tables
+  would lose fields from), live-API fallback bounded to the NEWEST ≤31
+  missing days (5-wide pool — a 31-wide parallel burst measurably 429s the
+  60 rpm org budget), older misses → `source:'unarchived'` empty days, and a
+  `coverage` block in every response (`RangeCoverageNote` renders it).
+  `MAX_RANGE_DAYS = 366` guard. Mock data is served ONLY when no key is
+  configured — keyed upstream failures return
+  `{ source:'upstream_error', data: [] }`, never fake rows (a 429 was
+  observed rendering deterministic mock numbers on Executive as real).
+  Schedules a **compliance prewarm** at
   task startup + every 5 minutes: a direct `auditCache.topUp` (NOT an HTTP
   self-call) of the four DateRangeControl preset windows using the SAME
   key formula the frontend sends (`auditKey`; 1d = today−3, 7d/14d/30d =
@@ -127,12 +140,22 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   - Closure helper inside `registerAwsRoutes`: `fetchUserReport({
     report, starting_date, ending_date, groupBy })` — paginates a per-user
     analytics report (`report`: `'user_cost_report'` default or
-    `'user_usage_report'`; up to 50 pages; `groupBy` appends
+    `'user_usage_report'`; up to 50 pages per chunk; `groupBy` appends
     `group_by[]=<dim>`: `'model'` for chargeback, `'product'` for the
     user-detail product card, `'rbac_group_id'` for group-map derivation), resolves its window via `resolveUserCostWindow`
-    (exclusive `ending_at` via `utcNextDay`; **the upstream cost family caps
-    spans at 31 days** — defaults are `[today−30, today]`, longer selections
-    400→502→CSV fallback), returns `{ data, period, data_refreshed_at }`.
+    (exclusive `ending_at` via `utcNextDay`; defaults `[today−30, today]`),
+    returns `{ data, period, data_refreshed_at, window_clamped? }`.
+    **The upstream cost family caps spans at 31 days — windows beyond that
+    are CHUNKED (ADR-0019)**: `splitCostWindow` cuts ≤31-day segments (max 6
+    = 186 days; longer clamps to the newest 186 + `window_clamped`),
+    `fetchReportPagesChunked` walks them two at a time, and per-user rows
+    re-aggregate via `mergeUserReportRows` (per user × dim; without it the
+    ungrouped `userCostToUsers` 1:1 mapper would emit one row per chunk per
+    user). `fetchCostSummary`/`fetchGroupCost` chunk the same way — their
+    consumers aggregate day buckets via Maps so concatenation is exact; the
+    best-effort cost_type/token_type rollups are fetched only for
+    single-chunk windows. All three helpers + tests live in
+    `tests/server/test-cost-chunking.mjs`.
     Sibling closures: `fetchComplianceGroups()` — the documented
     `GET /v1/compliance/groups` listing (compliance-or-analytics key), 1h
     cache shared by `fetchGroupNames()` (id→name, never throws, stale beats

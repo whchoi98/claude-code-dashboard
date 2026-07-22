@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -37,9 +39,9 @@ export function Users() {
   // engagement columns: the server clamps users/range to the 3-day
   // finalization buffer, so the tokens window must end at today−3 too —
   // mixing regimes in one sortable row is the exact bug class
-  // /cost/efficiency clamps against server-side. The cost family also caps
-  // spans at 31 days — longer custom windows fail upstream and the column
-  // simply shows '—' (tokens.error → empty join map).
+  // /cost/efficiency clamps against server-side. Spans over 31 days are
+  // served too: the server chunks them into ≤31-day upstream segments
+  // (upstream span cap) and re-aggregates per user.
   const tokensEnd = useMemo(() => {
     const d = new Date(); d.setUTCDate(d.getUTCDate() - 3)
     const buffered = d.toISOString().slice(0, 10)
@@ -58,7 +60,7 @@ export function Users() {
     for (const u of tokens.data?.users ?? []) m.set(u.email.toLowerCase(), u.cache_hit_rate ?? null)
     return m
   }, [tokens.data, tokens.loading])
-  const source = data?.days?.[0]?.source as 'live' | 'mock' | undefined
+  const source = badgeSource(data?.days?.[0]?.source)
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -148,6 +150,7 @@ export function Users() {
         }
       />
       <GroupTabs />
+      <RangeCoverageNote resp={data} />
       <div className="p-4 lg:p-8 print:p-8">
         {rows.length === 0 ? (
           <EmptyState title={t('users.empty')} hint={t('users.empty.hint')} />

@@ -16,6 +16,9 @@ type ProductRow = { product: string; spend_usd: number; requests: number }
 type ModelRow = { model: string; spend_usd: number; requests: number }
 type CostUsersResp = {
   period?: { starting_date: string; ending_date: string }
+  // >186-day requests clamp server-side to the newest 186 days (ADR-0019);
+  // period reflects what was served.
+  window_clamped?: boolean
   users: { email: string; net_spend_usd: number; requests: number; by_product?: ProductRow[]; by_model?: ModelRow[] }[]
 }
 // /api/cost/user-tokens (user_usage_report) — per-user token tiers; the
@@ -104,9 +107,9 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     if (!email) return
     let aborted = false
     setLoading(true); setErr(null)
-    // Follow the page-selected window when provided (server still clamps the
-    // engagement family to today−3 / last 31 days); no-param fallback keeps
-    // the old default window.
+    // Follow the page-selected window when provided (the server clamps the
+    // engagement family's dates to today−3 and serves the whole window
+    // S3-archive-first — ADR-0019); no-param fallback keeps the old default.
     const q = pageRange ? `?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}` : ''
     fetch(orgParam(`/api/analytics/users/range${q}`, org))
       .then(async (r) => {
@@ -129,20 +132,23 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     // Reset so a window/user switch never shows the previous window's cards
     // under the new header while the refetch is in flight.
     setCostCur(null); setCostPrev(null); setSkills(null); setCostModels(null); setUserTokens(null)
-    // The upstream cost family caps spans at 31 days — a longer custom window
-    // would 400 on both calls; hide the card instead (the Cost page/CSV covers
-    // >31-day analysis). Skills range is server-clamped, so it still runs.
-    const costOk = pageRange.days <= 31
+    // Windows over 31 days are fine: the server chunks them into ≤31-day
+    // upstream segments (the cost family's span cap) and re-aggregates, so
+    // the cards follow the page range at any width — up to the 186-day chunk
+    // cap. Beyond it the current window clamps server-side (caveat rendered
+    // from window_clamped) and the previous-window Δ is skipped: two clamped
+    // windows wouldn't be the equal-length comparison the Δ claims.
     let aborted = false
     setCostLoading(true)
     const prevEnd = addDaysIso(pageRange.startingDate, -1)
     const prevStart = addDaysIso(pageRange.startingDate, -pageRange.days)
+    const prevOk = pageRange.days <= 186
     Promise.allSettled([
-      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
-      costOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`, org) : Promise.reject(new Error('window > 31d')),
+      cachedGet(`/api/cost/users?by=product&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org),
+      prevOk ? cachedGet(`/api/cost/users?by=product&starting_date=${prevStart}&ending_date=${prevEnd}`, org) : Promise.reject(new Error('window > 186d')),
       cachedGet(`/api/analytics/skills/range?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org),
-      costOk ? cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
-      costOk ? cachedGet(`/api/cost/user-tokens?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org) : Promise.reject(new Error('window > 31d')),
+      cachedGet(`/api/cost/users?by=model&starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org),
+      cachedGet(`/api/cost/user-tokens?starting_date=${pageRange.startingDate}&ending_date=${pageRange.endingDate}`, org),
     ]).then(([cur, prev, sk, models, tokens]) => {
       if (aborted) return
       setCostCur(cur.status === 'fulfilled' ? cur.value : null)
@@ -390,7 +396,14 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                   <div className="rounded-xl border border-ink-100 bg-white p-4">
                     <div className="flex items-baseline justify-between mb-1">
                       <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">{t('detail.products')}</div>
-                      {pageRange && (
+                      {/* Served window beats the page selection: >186-day
+                           requests clamp server-side and the label must not
+                           claim the full window over clamped numbers. */}
+                      {(costCur?.window_clamped && costCur.period) ? (
+                        <div className="text-[11px] text-amber-700">
+                          {fmtDate(costCur.period.starting_date)} – {fmtDate(costCur.period.ending_date)} · {t('detail.products.clamped')}
+                        </div>
+                      ) : pageRange && (
                         <div className="text-[11px] text-ink-400">
                           {fmtDate(pageRange.startingDate)} – {fmtDate(pageRange.endingDate)}
                         </div>
@@ -539,8 +552,8 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                         <div className="flex items-baseline justify-between mb-1">
                           <div className="text-[10px] uppercase tracking-wider text-ink-400">{t('detail.skills.org')}</div>
                           {/* Effective window from the returned days — the server clamps
-                              to today−3 and slices to the last 31 days, so this can be
-                              narrower than the page selection. */}
+                              to today−3 (engagement buffer), so this can be narrower
+                              than the page selection. */}
                           {(skills?.days?.length ?? 0) > 0 && (
                             <div className="text-[10px] text-ink-400 tabular-nums">
                               {fmtDate(skills!.days[0].date)} – {fmtDate(skills!.days[skills!.days.length - 1].date)}

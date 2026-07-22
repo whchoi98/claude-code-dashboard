@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { ChartCard } from '../components/ChartCard'
 import { KpiCard } from '../components/KpiCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -32,7 +34,7 @@ export function ClaudeCode() {
   const { data, loading, error } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
-  const source = data?.days?.[0]?.source as 'live' | 'mock' | undefined
+  const source = badgeSource(data?.days?.[0]?.source)
 
   const agg = useMemo(() => {
     const days = data?.days ?? []
@@ -115,6 +117,7 @@ export function ClaudeCode() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={data} />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('cc.active_devs')} value={fmtNum(agg.activeUsers)} hint={t('cc.active_devs.hint')} />

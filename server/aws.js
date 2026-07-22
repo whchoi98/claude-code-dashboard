@@ -468,6 +468,48 @@ export function userCostToUsers(data, { byModel = false, by = null } = {}) {
   }))
 }
 
+// Merge per-user report rows from multiple disjoint window chunks into one
+// row per (user × dim), so every downstream consumer — userCostToUsers'
+// UNGROUPED 1:1 mapping, the /cost/efficiency email join, deriveGroupMap —
+// sees the same shape a single-window response has. Without this a user
+// appears once per chunk (userCostToUsers only aggregates in grouped mode).
+// amount/list_amount are decimal-string cents (summed as floats, re-stringed);
+// usage-report token fields are numbers. Identity/dim fields come from the
+// first row seen for the key. Pure — unit-tested.
+export function mergeUserReportRows(rows, report = 'user_cost_report') {
+  const merged = new Map()
+  for (const r of rows || []) {
+    const a = r?.actor || {}
+    const dim = r?.model ?? r?.product ?? r?.rbac_group_id ?? ''
+    const key = `${a.user_id || a.email || ''}|${dim}`
+    const cur = merged.get(key)
+    if (!cur) { merged.set(key, { ...r, cache_creation: r?.cache_creation ? { ...r.cache_creation } : r?.cache_creation }); continue }
+    cur.requests = Number(cur.requests || 0) + Number(r?.requests || 0)
+    if (report === 'user_usage_report') {
+      cur.uncached_input_tokens = (cur.uncached_input_tokens ?? 0) + (r?.uncached_input_tokens ?? 0)
+      cur.cache_read_input_tokens = (cur.cache_read_input_tokens ?? 0) + (r?.cache_read_input_tokens ?? 0)
+      cur.output_tokens = (cur.output_tokens ?? 0) + (r?.output_tokens ?? 0)
+      const cc = r?.cache_creation || {}
+      if (cur.cache_creation || r?.cache_creation) {
+        cur.cache_creation = {
+          ...(cur.cache_creation || {}),
+          ephemeral_1h_input_tokens: (cur.cache_creation?.ephemeral_1h_input_tokens ?? 0) + (cc.ephemeral_1h_input_tokens ?? 0),
+          ephemeral_5m_input_tokens: (cur.cache_creation?.ephemeral_5m_input_tokens ?? 0) + (cc.ephemeral_5m_input_tokens ?? 0),
+        }
+      }
+    } else {
+      const sum = (x, y) => String((parseFloat(x ?? '0') || 0) + (parseFloat(y ?? '0') || 0))
+      // list_amount falls back to amount (userCostToUsers convention) — sum it
+      // BEFORE mutating cur.amount, or the fallback would double-count.
+      if (cur.list_amount != null || r?.list_amount != null) {
+        cur.list_amount = sum(cur.list_amount ?? cur.amount, r?.list_amount ?? r?.amount)
+      }
+      cur.amount = sum(cur.amount, r?.amount)
+    }
+  }
+  return [...merged.values()]
+}
+
 // Inclusive end date (YYYY-MM-DD) → the EXCLUSIVE `ending_at` for the Analytics
 // cost endpoints. The picker treats ranges as inclusive ([d, d] = that one day),
 // but cost_report/user_cost_report use an exclusive ending_at — so a single-day
@@ -503,6 +545,39 @@ export function resolveUserCostWindow({ starting_date, ending_date } = {}, now =
   let starting = starting_date || minus(30)
   if (starting > ending) starting = ending
   return { starting, ending }
+}
+
+// The upstream cost family rejects any span over 31 inclusive days, so a
+// longer dashboard window is served by fanning out into consecutive ≤31-day
+// chunks and merging (daily buckets are disjoint across chunks → concat is
+// exact; per-user rows are re-aggregated via mergeUserReportRows). The chunk
+// count is capped: each chunk costs a full paginated report walk against the
+// shared 60 rpm org budget, so a single query must not fan out unbounded —
+// windows beyond maxDays×maxChunks clamp to the most recent span and flag it.
+export const COST_MAX_SPAN_DAYS = 31
+export const COST_MAX_CHUNKS = 6   // ≤ 186 inclusive days per query
+
+// Split inclusive [starting, ending] into inclusive [s, e] chunks, oldest
+// first, each spanning at most maxDays days. Pure — unit-tested.
+export function splitCostWindow(starting, ending, { maxDays = COST_MAX_SPAN_DAYS, maxChunks = COST_MAX_CHUNKS } = {}) {
+  const dayMs = 86400000
+  const toIso = (t) => new Date(t).toISOString().slice(0, 10)
+  const startMs = Date.parse(`${starting}T00:00:00Z`)
+  const endMs = Date.parse(`${ending}T00:00:00Z`)
+  // Defensive: an inverted or unparseable pair must never yield ZERO chunks —
+  // a zero-chunk fetch would return an all-zero 200. Collapse to the single
+  // ending day; a malformed date then fails loudly upstream (400 → 502).
+  if (!(endMs >= startMs)) return { chunks: [[ending, ending]], starting: ending, ending, clamped: false }
+  const spanDays = Math.floor((endMs - startMs) / dayMs) + 1
+  const capDays = maxDays * maxChunks
+  const clamped = spanDays > capDays
+  const effStartMs = clamped ? endMs - (capDays - 1) * dayMs : startMs
+  const chunks = []
+  for (let s = effStartMs; s <= endMs; s += maxDays * dayMs) {
+    const e = Math.min(s + (maxDays - 1) * dayMs, endMs)
+    chunks.push([toIso(s), toIso(e)])
+  }
+  return { chunks, starting: toIso(effStartMs), ending, clamped }
 }
 
 // v3 cost-efficiency scorer. Pure + exported for unit tests. Replaces v2's
@@ -656,6 +731,44 @@ export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, m
     if (i === maxPages - 1) console.warn(`[cost/live] fetchAllReportPages hit ${maxPages}-page cap; total may be truncated`)
   }
   return { ok: true, status, body: { data, data_refreshed_at: refreshedAt } }
+}
+
+// Chunked front for fetchAllReportPages: fetch each ≤31-day window chunk and
+// concatenate the daily buckets. Chunks run `waveSize` at a time (default 2 —
+// same burst shape as fetchCostSummary's report waves) so a 6-chunk (186-day)
+// query paces the shared 60 rpm org budget instead of firing every walk at
+// once; the SLOW rbac dimension passes a wider wave instead (see
+// fetchGroupCost) because its wall-clock, not its request count, is what
+// threatens the CloudFront 60s origin timeout. A chunk that fails with 429
+// retries ONCE after a short backoff — a multi-chunk walk brushing the budget
+// edge should degrade to slightly-slower, not all-or-nothing. Any other
+// failed chunk propagates as-is (callers treat it exactly like a failed
+// single-window fetch); `urlFor(s, e)` builds the per-chunk URL.
+export async function fetchReportPagesChunked(urlFor, headers, chunks, fetchImpl = fetch, { waveSize = 2 } = {}) {
+  if (chunks.length === 1) return fetchAllReportPages(urlFor(chunks[0][0], chunks[0][1]), headers, fetchImpl)
+  const fetchChunk = async ([s, e]) => {
+    let r = await fetchAllReportPages(urlFor(s, e), headers, fetchImpl)
+    if (!r.ok && r.status === 429) {
+      await new Promise((res) => setTimeout(res, 2000 + Math.random() * 1000))
+      r = await fetchAllReportPages(urlFor(s, e), headers, fetchImpl)
+    }
+    return r
+  }
+  const bodies = []
+  for (let i = 0; i < chunks.length; i += waveSize) {
+    const wave = await Promise.all(chunks.slice(i, i + waveSize).map(fetchChunk))
+    for (const r of wave) {
+      if (!r.ok) return r
+      bodies.push(r.body)
+    }
+  }
+  return {
+    ok: true, status: 200,
+    body: {
+      data: bodies.flatMap((b) => b.data || []),
+      data_refreshed_at: bodies.reduce((a, b) => b.data_refreshed_at ?? a, null),
+    },
+  }
 }
 
 // Success-TTL cache with stale-while-revalidate + in-flight dedup, for the
@@ -974,19 +1087,30 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
     const today = new Date()
     const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
-    // 31 inclusive days max — the upstream cost family rejects spans > 31
-    // days (see resolveUserCostWindow). minus(31) was one day over the cap:
-    // a date-less call (chat get_cost_summary, bare /cost/live) hit a 400.
-    const startingDate = starting_date || minus(30)
-    const endingDate = ending_date || minus(0)
+    // Date-less calls (chat get_cost_summary, bare /cost/live) default to the
+    // upstream single-request maximum: 31 inclusive days ([today-30, today]).
+    // Same window pinning as resolveUserCostWindow: ending ≤ today, an
+    // inverted pair pins starting to ending — without this an inverted pair
+    // makes splitCostWindow return ZERO chunks and the response would be a
+    // silent all-zero 200 (the chat tool passes model-supplied dates verbatim).
+    let endingDate = ending_date || minus(0)
+    if (endingDate > minus(0)) endingDate = minus(0)
+    let requestedStart = starting_date || minus(30)
+    if (requestedStart > endingDate) requestedStart = endingDate
+    // Longer windows fan out into ≤31-day chunks (upstream span cap) and merge —
+    // analyticsReportsToCostResp aggregates day buckets via Maps, so disjoint
+    // chunk concatenation is exact. Spans beyond the chunk cap clamp + flag.
+    const { chunks, starting: startingDate, clamped } = splitCostWindow(requestedStart, endingDate)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const buildUrl = (p, dims = ['product', 'model']) => {
-      const params = new URLSearchParams({ starting_at: `${startingDate}T00:00:00Z`, ending_at: `${utcNextDay(endingDate)}T00:00:00Z`, bucket_width: '1d' })
+    const buildUrl = (p, dims, s, e) => {
+      const params = new URLSearchParams({ starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, bucket_width: '1d' })
       for (const dim of dims) params.append('group_by[]', dim)
       if (rbac_group_id) params.append('rbac_group_ids[]', rbac_group_id)
       return `${apiUrl}${p}?${params.toString()}`
     }
+    const chunked = (p, dims = ['product', 'model']) =>
+      fetchReportPagesChunked((s, e) => buildUrl(p, dims, s, e), headers, chunks)
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
     // Each report is PAGINATED via fetchAllReportPages: the Analytics API caps
     // daily buckets at ~7/page, so a 30-day window spans ~5 pages — fetching page 1
@@ -998,13 +1122,18 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // key — matters because the keep-warm loop refreshes many windows and
     // the 60 rpm org budget is shared with real traffic + other prewarms.
     const [cost, usage] = await Promise.all([
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report'), headers),
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/usage_report'), headers),
+      chunked('/v1/organizations/analytics/cost_report'),
+      chunked('/v1/organizations/analytics/usage_report'),
     ])
-    const [ct, tt] = await Promise.all([
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type']), headers),
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['token_type']), headers),
-    ])
+    // The optional rollup cards (cost-type split, cache-tier ratio) are only
+    // fetched for single-chunk windows: on a 6-chunk query they would double
+    // the upstream bill for two best-effort widgets. Multi-chunk responses
+    // simply omit them (the UI hides empty sections).
+    const skipped = { ok: false, status: 0, body: {} }
+    const [ct, tt] = chunks.length === 1 ? await Promise.all([
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type'], chunks[0][0], chunks[0][1]), headers),
+      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['token_type'], chunks[0][0], chunks[0][1]), headers),
+    ]) : [skipped, skipped]
     if (!cost.ok) {
       const e = new Error(`cost_report ${cost.status}`)
       e.code = 'upstream_error'; e.upstream = cost.body
@@ -1023,6 +1152,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     out.by_cost_type = aggregateCostType(ctBody)
     out.by_token_type = aggregateTokenTypeCost(ttBody)
     out.token_tiers = aggregateTokenTiers(usageBody)
+    if (clamped) out.window_clamped = true  // requested span exceeded the chunk cap; period reflects what was served
     if (rbac_group_id) out.rbac_group_id = rbac_group_id  // echo: client can confirm the scope took effect
     return out
   }
@@ -1043,6 +1173,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   const fetchUserReport = (opts = {}, org = 'primary') => cachedWarm(
     `${org}:user_report:${opts.report || 'user_cost_report'}:${opts.starting_date || ''}:${opts.ending_date || ''}:${opts.groupBy || ''}`,
     () => fetchUserReportUncached(opts, org),
+    isSingleChunkWindow(opts.starting_date, opts.ending_date),
   )
   async function fetchUserReportUncached({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}, org = 'primary') {
     const ANALYTICS_KEY = analyticsKeyFor(org)
@@ -1054,27 +1185,63 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
 
-    const all = []
-    let page = null
-    let refreshedAt = null
-    const MAX_PAGES = 50
-    for (let i = 0; i < MAX_PAGES; i++) {
-      const params = new URLSearchParams({ starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, limit: '1000' })
-      if (groupBy) params.append('group_by[]', groupBy)
-      if (page) params.set('page', page)
-      // Same per-page timeout as fetchAllReportPages/fetchSpendLimits — this
-      // fetcher sits behind the TTL cache's in-flight dedup, so a hung
-      // connection here would pin every waiting caller for undici's ~300s.
-      const res = await fetch(`${apiUrl}/v1/organizations/analytics/${report}?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) { const e = new Error(`${report} ${res.status}`); e.code = 'upstream_error'; e.upstream = body; throw e }
-      if (Array.isArray(body.data)) all.push(...body.data)
-      refreshedAt = body.data_refreshed_at ?? refreshedAt
-      if (!body.has_more || !body.next_page) break
-      page = body.next_page
-      if (i === MAX_PAGES - 1) console.warn(`[cost/users] hit ${MAX_PAGES}-page cap; results truncated`)
+    // One fully-paginated walk over a single ≤31-day window.
+    const fetchWindow = async (s, e) => {
+      const rows = []
+      let page = null
+      let refreshedAt = null
+      const MAX_PAGES = 50
+      for (let i = 0; i < MAX_PAGES; i++) {
+        const params = new URLSearchParams({ starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, limit: '1000' })
+        if (groupBy) params.append('group_by[]', groupBy)
+        if (page) params.set('page', page)
+        // Same per-page timeout as fetchAllReportPages/fetchSpendLimits — this
+        // fetcher sits behind the TTL cache's in-flight dedup, so a hung
+        // connection here would pin every waiting caller for undici's ~300s.
+        const res = await fetch(`${apiUrl}/v1/organizations/analytics/${report}?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) { const e2 = new Error(`${report} ${res.status}`); e2.code = 'upstream_error'; e2.upstream = body; throw e2 }
+        if (Array.isArray(body.data)) rows.push(...body.data)
+        refreshedAt = body.data_refreshed_at ?? refreshedAt
+        if (!body.has_more || !body.next_page) break
+        page = body.next_page
+        if (i === MAX_PAGES - 1) console.warn(`[cost/users] hit ${MAX_PAGES}-page cap; results truncated`)
+      }
+      return { rows, refreshedAt }
     }
-    return { data: all, period: { starting_date: starting, ending_date: ending }, data_refreshed_at: refreshedAt }
+
+    // >31-day windows fan out into ≤31-day chunks (upstream span cap, same
+    // policy as fetchCostSummary) and the per-user rows re-aggregate via
+    // mergeUserReportRows — downstream consumers must keep seeing ONE row per
+    // (user × dim), exactly like a single-window response. A chunk that hits
+    // 429 retries once after a short backoff (multi-chunk walks brush the
+    // budget edge by construction); single-window behavior is unchanged.
+    const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
+    const fetchWindowRetrying = async (s, e) => {
+      try { return await fetchWindow(s, e) }
+      catch (err) {
+        if (!/ 429$/.test(err?.message || '')) throw err
+        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000))
+        return fetchWindow(s, e)
+      }
+    }
+    const runChunk = chunks.length > 1 ? fetchWindowRetrying : fetchWindow
+    const all = []
+    let refreshedAt = null
+    for (let i = 0; i < chunks.length; i += 2) {
+      const wave = await Promise.all(chunks.slice(i, i + 2).map(([s, e]) => runChunk(s, e)))
+      for (const w of wave) {
+        all.push(...w.rows)
+        refreshedAt = w.refreshedAt ?? refreshedAt
+      }
+    }
+    const data = chunks.length > 1 ? mergeUserReportRows(all, report) : all
+    return {
+      data,
+      period: { starting_date: effStarting, ending_date: ending },
+      data_refreshed_at: refreshedAt,
+      ...(clamped && { window_clamped: true }),
+    }
   }
 
   async function generateFollowups(userMsg, answer, locale) {
@@ -1326,7 +1493,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         }, org)
         if (scopedKey) rememberGroupResult(scopedKey, fresh)
         return fresh
-      })
+      }, isSingleChunkWindow(req.query.starting_date, req.query.ending_date))
       res.json(out)
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
@@ -1353,13 +1520,13 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const org = orgFromReq(req)
     try {
       const by = req.query.by === 'model' ? 'model' : req.query.by === 'product' ? 'product' : null
-      const { data, period, data_refreshed_at, stale } = await fetchUserReport({
+      const { data, period, data_refreshed_at, stale, window_clamped } = await fetchUserReport({
         starting_date: req.query.starting_date, ending_date: req.query.ending_date, groupBy: by,
       }, org)
       const users = userCostToUsers(data, { by }).sort((a, b) => b.net_spend_usd - a.net_spend_usd)
       // stale rides through from the cache's degraded-serve contract — an
       // upstream flap must not hide behind unmarked cached data.
-      res.json({ source: 'live', period, data_refreshed_at, grouped: by, ...(stale && { stale: true }), users })
+      res.json({ source: 'live', period, data_refreshed_at, grouped: by, ...(stale && { stale: true }), ...(window_clamped && { window_clamped: true }), users })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })
@@ -1409,9 +1576,20 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     keepWarm.set(key, { fetcher, lastAccess: Date.now() })
     if (keepWarm.size > keepWarmCap()) keepWarm.delete(keepWarm.keys().next().value)
   }
-  const cachedWarm = (key, fetcher) => {
-    trackWarm(key, fetcher)
+  // `warm=false` serves through the TTL cache WITHOUT keep-warm registration.
+  // Multi-chunk (>31-day) user-driven keys must never self-register: the
+  // 8-min loop would replay a ~60-110-request upstream walk per cycle per
+  // task for 90 min after one glance — sustained load the shared 60 rpm
+  // budget was never sized for. Preset windows are all single-chunk.
+  const cachedWarm = (key, fetcher, warm = true) => {
+    if (warm) trackWarm(key, fetcher)
     return cachedCost(key, fetcher)
+  }
+  // Single-chunk test for the warm flag: resolves defaults exactly like the
+  // fetchers do, so date-less calls stay warm-eligible.
+  const isSingleChunkWindow = (starting_date, ending_date) => {
+    const { starting, ending } = resolveUserCostWindow({ starting_date, ending_date })
+    return splitCostWindow(starting, ending).chunks.length === 1
   }
   function rememberGroupResult(key, payload) {
     groupLastGood.delete(key)                       // refresh insertion order
@@ -1562,13 +1740,26 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const ANALYTICS_KEY = analyticsKeyFor(org)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const params = new URLSearchParams({
-      starting_at: `${starting}T00:00:00Z`, ending_at: `${utcNextDay(ending)}T00:00:00Z`, bucket_width: '1d',
-    })
-    params.append('group_by[]', 'rbac_group_id')
-    const r = await fetchAllReportPages(
-      `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`,
+    // >31-day windows chunk like /cost/live (aggregateGroupCost accumulates
+    // per group across day buckets, so disjoint-chunk concat is exact).
+    const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
+    const urlFor = (s, e) => {
+      const params = new URLSearchParams({
+        starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, bucket_width: '1d',
+      })
+      params.append('group_by[]', 'rbac_group_id')
+      return `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`
+    }
+    // All chunks in one wave: the rbac dimension's cost is WALL-CLOCK
+    // (12-30s per chunk regardless of span), and sequential waves would push
+    // a 3+-chunk window past the CloudFront 60s origin timeout. Request
+    // count stays modest (~5 pages/chunk).
+    const r = await fetchReportPagesChunked(
+      urlFor,
       { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
+      chunks,
+      fetch,
+      { waveSize: COST_MAX_CHUNKS },
     )
     if (!r.ok) {
       const e = new Error(`cost_report(rbac_group_id) ${r.status}`)
@@ -1578,8 +1769,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
     const fresh = {
       source: 'live',
-      period: { starting_date: starting, ending_date: ending },
+      period: { starting_date: effStarting, ending_date: ending },
       data_refreshed_at: r.body.data_refreshed_at ?? null,
+      ...(clamped && { window_clamped: true }),
       ...aggregateGroupCost(r.body, await fetchGroupNames(org)),
     }
     rememberGroupResult(`${org}:cost/groups:${starting}:${ending}`, fresh)
@@ -1605,7 +1797,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     })
     const cacheKey = `${org}:cost/groups:${starting}:${ending}`
     try {
-      const out = await cachedWarm(cacheKey, () => fetchGroupCost(starting, ending, org))
+      const out = await cachedWarm(
+        cacheKey,
+        () => fetchGroupCost(starting, ending, org),
+        splitCostWindow(starting, ending).chunks.length === 1,
+      )
       res.json(out)
     } catch (err) {
       const stale = groupLastGood.get(cacheKey)
@@ -1627,11 +1823,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   router.get('/cost/user-tokens', async (req, res) => {
     const org = orgFromReq(req)
     try {
-      const { data, period, data_refreshed_at, stale } = await fetchUserReport({
+      const { data, period, data_refreshed_at, stale, window_clamped } = await fetchUserReport({
         report: 'user_usage_report',
         starting_date: req.query.starting_date, ending_date: req.query.ending_date,
       }, org)
-      res.json({ source: 'live', period, data_refreshed_at, ...(stale && { stale: true }), users: userUsageToUsers(data) })
+      res.json({ source: 'live', period, data_refreshed_at, ...(stale && { stale: true }), ...(window_clamped && { window_clamped: true }), users: userUsageToUsers(data) })
     } catch (err) {
       if (err?.code === 'analytics_key_required') {
         return res.status(400).json({ error: 'analytics_key_required', message: err.message })

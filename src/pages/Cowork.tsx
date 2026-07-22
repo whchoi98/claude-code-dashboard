@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
@@ -108,7 +110,7 @@ export function Cowork() {
   if (summaries.error) return <ErrorState error={summaries.error} />
   if (users.error) return <ErrorState error={users.error} />
 
-  const source = users.data?.days?.[0]?.source as 'live' | 'mock' | undefined
+  const source = badgeSource(users.data?.days?.[0]?.source)
 
   return (
     <div>
@@ -119,6 +121,7 @@ export function Cowork() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={users.data} />
       {/* Adoption KPI + DAU/WAU/MAU trend come from org summaries (no per-user
           dimension) and ignore the group — flag it like Cost does. */}
       <GroupScopeNote variant="partial" />

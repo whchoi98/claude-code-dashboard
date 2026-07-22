@@ -45,6 +45,26 @@ async function readUsersFromS3(date, org = 'primary') {
   }
 }
 
+// Read one day of a table's RAW sidecar (unflattened live-API-shape records —
+// collector/handler.js writeRaw). Used by the skills/connectors/projects range
+// routes: the columnar partitions drop fields those consumers need
+// (invocation_count, nested *_metrics, created_by …), while raw/ rows are the
+// exact upstream records, so no inflate step is required. Returns null when
+// the partition is missing (caller falls back to the live API); a present but
+// EMPTY object is a valid zero-row day, NOT a miss.
+async function readRawFromS3(table, date, org = 'primary') {
+  if (!ARCHIVE_BUCKET) return null
+  const Key = `${s3PrefixFor(org)}raw/${table}/date=${date}/${table}-${date}.json`
+  try {
+    const resp = await s3Client.send(new GetObjectCommand({ Bucket: ARCHIVE_BUCKET, Key }))
+    const body = await resp.Body.transformToString()
+    return body.split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  } catch (err) {
+    if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) return null
+    throw err
+  }
+}
+
 const keyClass = (key) =>
   !key ? 'none' : key.startsWith('sk-ant-admin') ? 'admin' : key.startsWith('sk-ant-api') ? 'analytics' : 'unknown'
 
@@ -117,6 +137,107 @@ function rangeDates(startingDate, endingDate) {
   return out
 }
 
+// Run fn over items with at most `limit` in flight. Order-preserving.
+async function mapPool(items, limit, fn) {
+  const out = new Array(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }))
+  return out
+}
+
+// ── Range fan-out policy ─────────────────────────────────────────────────────
+// The engagement /range routes used to slice every request to its last 31
+// days while echoing the full requested window — the ">30-day numbers are
+// wrong" bug. They now serve the whole window S3-archive-first (S3 reads are
+// effectively free: KB-scale objects, no rate limit), with the LIVE Analytics
+// API only as a bounded fallback for days missing from the archive:
+//  - live calls go to the NEWEST missing days (the archive lags ~3-4 days by
+//    design, and recent gaps are the ones inside the API's 90-day lookback),
+//  - at most LIVE_FALLBACK_MAX_DAYS live calls per request, pooled LIVE_POOL
+//    wide — an unbounded 90-day Promise.all burst was measured to blow the
+//    shared 60 rpm org budget and 429 the requests that followed it,
+//  - older missing days come back as source:'unarchived' with empty data.
+// Every response carries a `coverage` block so pages can tell served days
+// from silence instead of trusting the requested-window echo.
+const MAX_RANGE_DAYS = 366
+const LIVE_FALLBACK_MAX_DAYS = 31
+const S3_POOL = 24
+const LIVE_POOL = 5
+// The engagement API rejects dates beyond its ~90-day lookback — live
+// fallback must not burn its per-request budget on days that can NEVER
+// return data (e.g. UserSearch's fixed 2026-01-01 window start).
+const LIVE_LOOKBACK_DAYS = 90
+
+// Serve one date-range fan-out. readS3(date) → rows|null; fetchLive(date) →
+// { source, data, error } day object. Returns { days, coverage }.
+async function serveArchiveRange(dates, { readS3, fetchLive }) {
+  // Phase 1: the whole window from the archive. Only a missing partition
+  // (readS3 → null) is a miss; a REAL S3 failure (AccessDenied, throttle,
+  // truncated body) must not masquerade as "before the archive began" —
+  // record it so unrescued days surface as error_days, not unarchived.
+  const s3Errors = new Map()
+  const s3Days = await mapPool(dates, S3_POOL, async (date) => {
+    try {
+      const rows = await readS3(date)
+      if (rows) return { date, source: 's3', data: rows, error: null }
+    } catch (err) {
+      s3Errors.set(date, err)
+    }
+    return null
+  })
+  if (s3Errors.size > 0) {
+    const sample = s3Errors.values().next().value
+    console.warn(`[range] ${s3Errors.size} archive read(s) failed (${sample?.name || 'error'}: ${String(sample?.message || sample).slice(0, 120)})`)
+  }
+
+  // Phase 2: live fallback for the newest missing days INSIDE the API
+  // lookback, within budget. Both fetchLive and a 429-flagged result get one
+  // retry; any thrown error degrades to an upstream_error day — a rejected
+  // fetch here must never escape (an unhandled rejection exits the process).
+  const liveFloor = todayUtc(-LIVE_LOOKBACK_DAYS)
+  const missing = dates.filter((_, i) => !s3Days[i])
+  const liveDates = new Set(missing.filter((d) => d >= liveFloor).slice(-LIVE_FALLBACK_MAX_DAYS))
+  const liveResults = new Map()
+  await mapPool([...liveDates], LIVE_POOL, async (date) => {
+    const attempt = async () => {
+      try { return await fetchLive(date) }
+      catch (err) {
+        return { date, source: 'upstream_error', data: [], error: { message: String(err?.message || err) } }
+      }
+    }
+    let day = await attempt()
+    if (day.source === 'upstream_error' && JSON.stringify(day.error ?? '').includes('rate_limit')) {
+      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000))
+      day = await attempt()
+    }
+    liveResults.set(date, day)
+  })
+
+  const days = dates.map((date, i) =>
+    s3Days[i]
+    ?? liveResults.get(date)
+    ?? (s3Errors.has(date)
+      ? { date, source: 'upstream_error', data: [], error: { type: 'archive_error', message: String(s3Errors.get(date)?.message || s3Errors.get(date)) } }
+      : { date, source: 'unarchived', data: [], error: null }))
+
+  const count = (src) => days.filter((d) => d.source === src).length
+  return {
+    days,
+    coverage: {
+      requested_days: dates.length,
+      s3_days: count('s3'),
+      live_days: count('live') + count('mock'),
+      unarchived_days: count('unarchived'),
+      error_days: count('upstream_error'),
+    },
+  }
+}
+
 app.get('/api/health', (req, res) => {
   // Key badges reflect the REQUESTED org (?org=) — under org2 the sidebar
   // must not claim the primary org's Admin key exists.
@@ -169,10 +290,13 @@ app.get('/api/analytics/summaries', async (req, res) => {
     analyticsKey,
   )
   if (!upstream.ok) {
+    // Mock is for KEYLESS dev only. A keyed deployment must never substitute
+    // fake rows for a transient upstream failure (a 429 here was observed
+    // rendering deterministic mock numbers on Executive as if they were real).
     return res.json({
-      source: 'mock',
+      source: 'upstream_error',
       reason: `upstream ${upstream.status}: ${JSON.stringify(upstream.body).slice(0, 240)}`,
-      ...generateMock.summaries(startingDate, endingDate),
+      data: [],
     })
   }
   // Upstream returns `{summaries: [...]}`; normalize to `{data: [...]}` to match the dashboard contract.
@@ -198,11 +322,12 @@ app.get('/api/analytics/users', async (req, res) => {
       analyticsKey,
     )
     if (!upstream.ok) {
+      // Keyed deployments degrade to honest empty data — never mock rows.
       return res.json({
-        source: 'mock',
+        source: 'upstream_error',
         date,
         reason: `upstream ${upstream.status}: ${JSON.stringify(upstream.body).slice(0, 240)}`,
-        ...generateMock.users(date),
+        data: [],
       })
     }
     if (Array.isArray(upstream.body?.data)) aggregated.push(...upstream.body.data)
@@ -224,12 +349,7 @@ app.get('/api/analytics/skills', async (req, res) => {
     analyticsKey,
   )
   if (!upstream.ok) {
-    return res.json({
-      source: 'mock',
-      date,
-      reason: `upstream ${upstream.status}`,
-      ...generateMock.skills(date),
-    })
+    return res.json({ source: 'upstream_error', date, reason: `upstream ${upstream.status}`, data: [] })
   }
   res.json({ source: 'live', date, data: upstream.body?.data || [] })
 })
@@ -246,12 +366,7 @@ app.get('/api/analytics/connectors', async (req, res) => {
     analyticsKey,
   )
   if (!upstream.ok) {
-    return res.json({
-      source: 'mock',
-      date,
-      reason: `upstream ${upstream.status}`,
-      ...generateMock.connectors(date),
-    })
+    return res.json({ source: 'upstream_error', date, reason: `upstream ${upstream.status}`, data: [] })
   }
   res.json({ source: 'live', date, data: upstream.body?.data || [] })
 })
@@ -268,59 +383,53 @@ app.get('/api/analytics/projects', async (req, res) => {
     analyticsKey,
   )
   if (!upstream.ok) {
-    return res.json({
-      source: 'mock',
-      date,
-      reason: `upstream ${upstream.status}`,
-      ...generateMock.projects(date),
-    })
+    return res.json({ source: 'upstream_error', date, reason: `upstream ${upstream.status}`, data: [] })
   }
   res.json({ source: 'live', date, data: upstream.body?.data || [] })
 })
 
-// Users across a date range — S3-first archive, Analytics API fallback.
-// For each day: check S3 (collector writes here daily) first, then fall back
-// to the Analytics API only when the partition is missing. All days run in
-// parallel. Fully-archived windows return in <500ms total.
+// Users across a date range — S3-first archive over the WHOLE window,
+// bounded Analytics API fallback for days missing from the archive (see the
+// Range fan-out policy above). Fully-archived windows return in <500ms total.
 app.get('/api/analytics/users/range', async (req, res) => {
   const org = orgFromReq(req)
   const analyticsKey = analyticsKeyFor(org)
   const endingDate = clampAnalyticsEnd(req.query.ending_date)
   const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
-  const dates = rangeDates(startingDate, endingDate).slice(-31)
+  const dates = rangeDates(startingDate, endingDate).slice(-MAX_RANGE_DAYS)
 
-  const results = await Promise.all(dates.map(async (date) => {
-    // 1) Try S3 archive first (org-prefixed partitions for org2)
-    try {
-      const s3rows = await readUsersFromS3(date, org)
-      if (s3rows) return { date, source: 's3', data: s3rows, error: null }
-    } catch { /* fall through */ }
+  const { days, coverage } = await serveArchiveRange(dates, {
+    readS3: (date) => readUsersFromS3(date, org),
+    // Mock only when no key is configured. With a real key, missing days
+    // return empty data rather than mock placeholders — @acme.com mock emails
+    // must not pollute aggregations on days inside the 3-day API buffer.
+    fetchLive: async (date) => {
+      if (!analyticsKey) {
+        return { date, source: 'mock', data: generateMock.users(date).data, error: null }
+      }
+      // Per-call timeout: one hung socket must not pin the whole range
+      // request past the CloudFront 60s origin timeout.
+      const upstream = await fetchJson(
+        '/v1/organizations/analytics/users',
+        { date, limit: 1000 },
+        analyticsKey,
+        { signal: AbortSignal.timeout(20_000) },
+      )
+      return {
+        date,
+        source: upstream.ok ? 'live' : 'upstream_error',
+        data: upstream.ok ? (upstream.body?.data || []) : [],
+        error: upstream.ok ? null : upstream.body,
+      }
+    },
+  })
 
-    // 2) Fallback: Analytics API (or mock only when no key is configured).
-    //    When a real key is set, missing days return empty data rather than
-    //    mock placeholders — this prevents @acme.com mock emails from polluting
-    //    aggregations on recent days that fall inside the 3-day API buffer.
-    if (!analyticsKey) {
-      return { date, source: 'mock', data: generateMock.users(date).data, error: null }
-    }
-    const upstream = await fetchJson(
-      '/v1/organizations/analytics/users',
-      { date, limit: 1000 },
-      analyticsKey,
-    )
-    return {
-      date,
-      source: upstream.ok ? 'live' : 'upstream_error',
-      data: upstream.ok ? (upstream.body?.data || []) : [],
-      error: upstream.ok ? null : upstream.body,
-    }
-  }))
-
-  const s3Hits = results.filter((r) => r.source === 's3').length
   res.json({
-    range: { starting_date: startingDate, ending_date: endingDate },
-    cache: { s3_hits: s3Hits, live_calls: results.length - s3Hits },
-    days: results,
+    range: { starting_date: dates[0], ending_date: endingDate },
+    coverage,
+    // legacy field kept for existing consumers of cache stats
+    cache: { s3_hits: coverage.s3_days, live_calls: dates.length - coverage.s3_days },
+    days,
   })
 })
 
@@ -330,36 +439,45 @@ app.get('/api/analytics/users/range', async (req, res) => {
 // out here so the SPA only makes one round trip per page; client handles the
 // aggregation since semantics differ per page (SUM for usage counts vs MAX
 // for distinct_user_count which can't be deduped across days without IDs).
-function makeDailyRangeRoute(upstreamPath, mockKey) {
+// Archived days are served from the RAW sidecar (raw/<table>/ — exact
+// unflattened upstream records, so no field loss; the columnar partitions
+// drop invocation_count / nested *_metrics these consumers need), with the
+// live API as the bounded fallback per the Range fan-out policy above.
+function makeDailyRangeRoute(upstreamPath, mockKey, rawTable) {
   return async (req, res) => {
-    const analyticsKey = analyticsKeyFor(orgFromReq(req))
+    const org = orgFromReq(req)
+    const analyticsKey = analyticsKeyFor(org)
     const endingDate = clampAnalyticsEnd(req.query.ending_date)
     const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
-    const dates = rangeDates(startingDate, endingDate).slice(-31)
+    const dates = rangeDates(startingDate, endingDate).slice(-MAX_RANGE_DAYS)
 
-    const results = await Promise.all(dates.map(async (date) => {
-      if (!analyticsKey) {
-        return { date, source: 'mock', data: generateMock[mockKey](date).data, error: null }
-      }
-      const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, analyticsKey)
-      return {
-        date,
-        source: upstream.ok ? 'live' : 'upstream_error',
-        data: upstream.ok ? (upstream.body?.data || []) : [],
-        error: upstream.ok ? null : upstream.body,
-      }
-    }))
+    const { days, coverage } = await serveArchiveRange(dates, {
+      readS3: (date) => readRawFromS3(rawTable, date, org),
+      fetchLive: async (date) => {
+        if (!analyticsKey) {
+          return { date, source: 'mock', data: generateMock[mockKey](date).data, error: null }
+        }
+        const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, analyticsKey, { signal: AbortSignal.timeout(20_000) })
+        return {
+          date,
+          source: upstream.ok ? 'live' : 'upstream_error',
+          data: upstream.ok ? (upstream.body?.data || []) : [],
+          error: upstream.ok ? null : upstream.body,
+        }
+      },
+    })
 
     res.json({
-      range: { starting_date: startingDate, ending_date: endingDate },
-      days: results,
+      range: { starting_date: dates[0], ending_date: endingDate },
+      coverage,
+      days,
     })
   }
 }
 
-app.get('/api/analytics/skills/range',     makeDailyRangeRoute('/v1/organizations/analytics/skills',             'skills'))
-app.get('/api/analytics/connectors/range', makeDailyRangeRoute('/v1/organizations/analytics/connectors',         'connectors'))
-app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organizations/analytics/apps/chat/projects', 'projects'))
+app.get('/api/analytics/skills/range',     makeDailyRangeRoute('/v1/organizations/analytics/skills',             'skills',     'skills'))
+app.get('/api/analytics/connectors/range', makeDailyRangeRoute('/v1/organizations/analytics/connectors',         'connectors', 'connectors'))
+app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organizations/analytics/apps/chat/projects', 'projects',   'projects'))
 
 // ─── Admin API (optional — requires sk-ant-admin key) ───────────────────────
 

@@ -4,6 +4,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { GroupScopeNote } from '../components/GroupScopeNote'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -125,10 +127,11 @@ export function Adoption() {
       <PageHeader
         title={t('adopt.title')}
         subtitle={t('adopt.subtitle', { start: range.startingDate, end: range.endingDate, days: range.days })}
-        source={skills.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
+        source={badgeSource(skills.data?.days?.[0]?.source)}
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={[skills.data, connectors.data, projects.data]} />
       <GroupScopeNote />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>

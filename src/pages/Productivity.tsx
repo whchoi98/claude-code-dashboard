@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { ChartCard } from '../components/ChartCard'
 import { KpiCard } from '../components/KpiCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -131,10 +133,11 @@ export function Productivity() {
       <PageHeader
         title={t('prod.title')}
         subtitle={t('prod.subtitle', { days })}
-        source={range.data?.days?.[0]?.source as 'live' | 'mock' | undefined}
+        source={badgeSource(range.data?.days?.[0]?.source)}
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={range.data} />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 print:grid-cols-5 gap-4">
           <ScoreCard score={score} t={t} />

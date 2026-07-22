@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { GroupScopeNote } from '../components/GroupScopeNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
@@ -24,6 +26,9 @@ type RangeResp = { range: { starting_date: string; ending_date: string }; days: 
 type CostResp = {
   rows: { product: string; model: string; total_net_spend_usd: number }[]
   daily: { date: string; model: string; spend: number }[]
+  period?: { starting_date: string; ending_date: string } | null
+  // >186-day requests clamp server-side; period reflects what was served.
+  window_clamped?: boolean
 }
 type UserRow = {
   email: string; prompts: number; actions: number; app: number | null
@@ -118,7 +123,7 @@ export function Agentic() {
   if (users.loading) return <LoadingState />
   if (users.error) return <ErrorState error={users.error} />
 
-  const source = users.data?.days?.[0]?.source as 'live' | 'mock' | undefined
+  const source = badgeSource(users.data?.days?.[0]?.source)
   const hasData = agg.promptsTotal > 0 || agg.ccSessionsTotal > 0
 
   return (
@@ -130,6 +135,12 @@ export function Agentic() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={users.data} />
+      {cost.data?.window_clamped && cost.data.period && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          {t('cost.window_clamped', { start: cost.data.period.starting_date, end: cost.data.period.ending_date })}
+        </div>
+      )}
       {/* Spend section below is org-level cost_report data — flag it. */}
       <GroupScopeNote variant="partial" />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">

@@ -4,6 +4,7 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupScopeNote } from '../components/GroupScopeNote'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -29,6 +30,11 @@ type CostResp = {
     distinct_users: number
   }
   daily?: DailyCost[]
+  period?: { starting_date: string; ending_date: string } | null
+  // Requested span exceeded the server's 186-day chunk cap — `period` is the
+  // window actually served. Without a banner the spend KPIs would silently
+  // mix a clamped spend window with full-window engagement totals.
+  window_clamped?: boolean
 }
 type ComplianceResp = {
   data: { id: string; type: string; created_at: string }[]
@@ -163,10 +169,12 @@ export function Executive() {
       ? undefined
       : { pct: ((latest.daily_active_user_count - prev.daily_active_user_count) / Math.max(1, prev.daily_active_user_count)) * 100 }
 
-    // Cost-side derived metrics
-    const spend = cost.data?.totals.net_spend_usd ?? 0
-    const costPerKLoc = totalLoc > 0 ? spend / (totalLoc / 1000) : null
-    const costPerDevPerDay = activeDevs > 0 && nDays > 0 ? spend / activeDevs / nDays : null
+    // Cost-side derived metrics. A failed cost fetch must surface as
+    // "unavailable" (null → '—'), NEVER as $0 — the silent-zero headline was
+    // exactly how >31-day windows misreported spend before window chunking.
+    const spend = cost.error ? null : cost.data?.totals.net_spend_usd ?? null
+    const costPerKLoc = totalLoc > 0 && spend != null ? spend / (totalLoc / 1000) : null
+    const costPerDevPerDay = spend != null && activeDevs > 0 && nDays > 0 ? spend / activeDevs / nDays : null
 
     // 30-day rolling projection from data.daily (live mode only).
     let proj30d: number | null = null
@@ -228,7 +236,7 @@ export function Executive() {
       // Window meta
       nDays,
     }
-  }, [summaries.data, usersRange.data, cost.data, compliance.data])
+  }, [summaries.data, usersRange.data, cost.data, cost.error, compliance.data])
 
   const loading = summaries.loading || usersRange.loading || cost.loading || compliance.loading
   if (loading && snapshot.activeDevs === 0 && snapshot.totalLoc === 0) return <LoadingState />
@@ -243,6 +251,12 @@ export function Executive() {
         />
       </div>
       <GroupScopeNote />
+      <RangeCoverageNote resp={usersRange.data} />
+      {cost.data?.window_clamped && cost.data.period && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          {t('cost.window_clamped', { start: cost.data.period.starting_date, end: cost.data.period.ending_date })}
+        </div>
+      )}
       <div className="p-4 lg:p-8 print:p-8 space-y-6 print-export">
         <div className="flex items-center justify-end gap-2 print-hide">
           <button
@@ -289,8 +303,10 @@ export function Executive() {
         <div>
           <div className="text-[11px] uppercase tracking-widest text-ink-400 font-medium mb-2">{t('exec.section.cost')}</div>
           <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
-            <KpiCard accent label={t('exec.kpi.spend')} value={fmtUsd(snapshot.spend)}
-              hint={t('exec.kpi.spend.hint', { perDev: snapshot.costPerDevPerDay != null ? fmtUsd(snapshot.costPerDevPerDay, 2) + '/dev/day' : '—' })} />
+            <KpiCard accent label={t('exec.kpi.spend')} value={snapshot.spend != null ? fmtUsd(snapshot.spend) : '—'}
+              hint={snapshot.spend == null && cost.error
+                ? t('exec.kpi.spend.hint.unavailable')
+                : t('exec.kpi.spend.hint', { perDev: snapshot.costPerDevPerDay != null ? fmtUsd(snapshot.costPerDevPerDay, 2) + '/dev/day' : '—' })} />
             <KpiCard label={t('exec.kpi.proj30d')} value={snapshot.proj30d != null ? fmtUsd(snapshot.proj30d) : '—'}
               hint={snapshot.avg7d != null ? t('exec.kpi.proj30d.hint', { avg: fmtUsd(snapshot.avg7d, 2) }) : t('exec.kpi.proj30d.hint.empty')} />
             <KpiCard label={t('exec.kpi.cost_per_kloc')} value={snapshot.costPerKLoc != null ? fmtUsd(snapshot.costPerKLoc, 2) : '—'}
@@ -314,7 +330,7 @@ export function Executive() {
             loc: fmtCompact(snapshot.totalLoc),
             commits: fmtNum(snapshot.totalCommits),
             accept: snapshot.acceptanceRate != null ? fmtPct(snapshot.acceptanceRate) : '—',
-            spend: fmtUsd(snapshot.spend),
+            spend: snapshot.spend != null ? fmtUsd(snapshot.spend) : '—',
             proj: snapshot.proj30d != null ? fmtUsd(snapshot.proj30d) : '—',
             score: snapshot.score,
             risk: fmtNum(snapshot.riskEvents),

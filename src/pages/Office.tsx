@@ -5,6 +5,8 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { badgeSource } from '../lib/format'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -82,7 +84,7 @@ export function Office() {
   if (users.loading) return <LoadingState />
   if (users.error) return <ErrorState error={users.error} />
 
-  const source = users.data?.days?.[0]?.source as 'live' | 'mock' | undefined
+  const source = badgeSource(users.data?.days?.[0]?.source)
   const hasData = agg.sessionsTotal > 0
 
   return (
@@ -94,6 +96,7 @@ export function Office() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
+      <RangeCoverageNote resp={users.data} />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('office.kpi.active_users')} value={fmtNum(agg.activeUsers)} hint={t('office.kpi.active_users.hint')} />

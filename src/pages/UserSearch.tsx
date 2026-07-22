@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
+import { RangeCoverageNote } from '../components/RangeCoverageNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
@@ -94,9 +95,10 @@ export function UserSearch() {
   // no_spend_report — the page must run on live sources alone in that case.
   const hasCsv = !csv.error && !!csv.data
 
-  // Candidate users: everyone in the engagement archive response (the server
-  // clamps users/range to the most recent 31 days — server/index.js — so this
-  // is "recently active users", not all-time), plus anyone in the CSV period.
+  // Candidate users: everyone in the engagement archive response — the server
+  // serves the whole window S3-first (days before the archive floor come back
+  // empty as source:'unarchived'), so this is all archived history — plus
+  // anyone in the CSV period.
   const allUsers = useMemo(() => {
     const set = new Set<string>()
     for (const d of range.data?.days ?? []) {
@@ -146,6 +148,7 @@ export function UserSearch() {
       <div>
         <PageHeader title={t('user_search.title')} subtitle={t('user_search.subtitle')} />
         <GroupTabs />
+        <RangeCoverageNote resp={range.data} />
         <EmptyState title={t('user_search.empty.no_users')} hint={t('user_search.empty.hint')} />
       </div>
     )
@@ -310,6 +313,10 @@ export function UserSearch() {
         reason={hasCsv ? `CSV · ${csv.data?.file ?? ''}` : t('user_search.source.live')}
       />
       <GroupTabs />
+      {/* This page requests from 2026-01-01, so days before the org's archive
+           floor are expected 'unarchived' — the banner explains why the
+           heatmap/'all' totals start months after the requested origin. */}
+      <RangeCoverageNote resp={range.data} />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         {/* ── User selector + range toggle ───────────────────────────── */}
         <div className="rounded-xl border border-ink-100 bg-white p-5">

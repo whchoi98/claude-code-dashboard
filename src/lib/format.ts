@@ -45,3 +45,14 @@ export function maskEmail(email: string | null | undefined): string {
   const masked = local.slice(0, 2) + '*'.repeat(Math.max(3, local.length - 2))
   return masked + domain
 }
+
+/**
+ * Map a range-day `source` value to the PageHeader badge domain. Every
+ * non-mock source ('live', 's3', or a degraded day inside real data) is
+ * REAL data — the old inline cast rendered 's3'/'unarchived' first days as
+ * a "Mock" badge. Mock only ever appears on keyless dev servers.
+ */
+export function badgeSource(source: string | undefined): 'live' | 'mock' | undefined {
+  if (!source) return undefined
+  return source === 'mock' ? 'mock' : 'live'
+}
