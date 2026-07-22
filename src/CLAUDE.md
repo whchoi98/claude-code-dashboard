@@ -17,6 +17,7 @@ src/
 │   ├── CsvUploader.tsx       # multipart upload + preview + period-overlap warning
 │   ├── GroupTabs.tsx         # per-page group scope tabs (All · groups · Unmapped) + email→group CSV upload; URL-synced via useGroupScope. Replaced the former sidebar GroupControl (removed 2026-07) — rendered right after PageHeader on the 10 group-aware pages
 │   ├── GroupScopeNote.tsx    # group-scope banner; self-hides when no group selected. Amber default = "not applied — org-wide data" (note-only org pages); amber variant="partial" = "per-user parts scoped, org aggregates stay org-wide" (Cowork · Agentic, and Cost in CSV/UNMAPPED mode); neutral variant="scoped" = Cost in live mode with a group id (org KPIs genuinely filtered upstream; explains any-membership/usage-time attribution)
+│   ├── RangeCoverageNote.tsx # amber banner for /range responses whose `coverage` block shows unarchived/error days (days before the S3 archive floor, beyond the live budget, or upstream failures — all zero-filled; ADR-0019). Wired into the 12 range-consuming pages right after GroupTabs; accepts a single response or an array (Adoption passes skills+connectors+projects, worst coverage wins). Self-hides on full coverage
 │   ├── SortableTh.tsx        # ▲/▼ header cell — pairs with useSortable; click to sort, click again to flip
 │   ├── Markdown.tsx      # react-markdown@10 + remark-gfm for AI output
 │   └── chat/             # tool-use chatbot UI (shared by Analyze page + FloatingChat)
@@ -35,7 +36,7 @@ src/
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types
 │   ├── useHealth.ts
 │   ├── useSortable.ts    # bidirectional column-sort state for tables; nulls always pinned to bottom; strings via localeCompare, numbers by value
-│   └── format.ts         # fmtNum / fmtCents / fmtDate / maskEmail / acceptRate
+│   └── format.ts         # fmtNum / fmtCents / fmtDate / maskEmail / acceptRate / badgeSource (range-day source → PageHeader badge: everything non-mock is 'live' — 's3'/'unarchived' first days must not render a "Mock" badge)
 │
 │ Page-local hooks (not in lib/ — kept colocated with the consumer page):
 │   - useCostData(range, rbacGroupId?)  # composite: tries /api/cost/live first, falls back to /api/cost/csv;
