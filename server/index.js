@@ -83,6 +83,12 @@ app.use(express.json())
 const cache = new Map()
 const TTL_MS = 600_000  // 10 min — paired with the 5-min compliance prewarm interval below
 
+// NEVER rejects. Network-level failures (DNS, TCP reset, TLS, mid-body cut,
+// abort) return { ok:false, status:0 } like any upstream error — every call
+// site already handles !ok, whereas a rejection out of a bare async Express
+// handler is an unhandledRejection that EXITS the Node 20 process (observed:
+// one dead upstream socket killed the whole task). A default 30s timeout
+// bounds hung sockets when the caller doesn't pass its own signal.
 async function fetchJson(path, params, key, { signal } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
@@ -93,20 +99,24 @@ async function fetchJson(path, params, key, { signal } = {}) {
   const hit = cache.get(cacheKey)
   if (hit && Date.now() - hit.t < TTL_MS) return { ...hit.data, _cached: true }
 
-  const res = await fetch(url, {
-    signal,
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': API_VERSION,
-      'User-Agent': UA,
-    },
-  })
-  const text = await res.text()
-  let json
-  try { json = JSON.parse(text) } catch { json = { raw: text } }
-  const result = { ok: res.ok, status: res.status, body: json }
-  if (res.ok) cache.set(cacheKey, { t: Date.now(), data: result })
-  return result
+  try {
+    const res = await fetch(url, {
+      signal: signal ?? AbortSignal.timeout(30_000),
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': API_VERSION,
+        'User-Agent': UA,
+      },
+    })
+    const text = await res.text()
+    let json
+    try { json = JSON.parse(text) } catch { json = { raw: text } }
+    const result = { ok: res.ok, status: res.status, body: json }
+    if (res.ok) cache.set(cacheKey, { t: Date.now(), data: result })
+    return result
+  } catch (err) {
+    return { ok: false, status: 0, body: { error: { type: 'network_error', message: String(err?.message || err) } } }
+  }
 }
 
 function todayUtc(offsetDays = 0) {

@@ -247,7 +247,11 @@ export function useCostData(range: { startingDate: string; endingDate: string },
     async () => { await live.refetch(); await csv.refetch() },
     [live.refetch, csv.refetch],
   )
-  return { data, loading, error, source, refetch, refreshing, csvData: csv.data }
+  // liveError is exposed even in CSV mode: a fallback triggered by a live
+  // FAILURE (vs genuinely-empty live data) must be distinguishable — the CSV
+  // covers its own export period, not the selected window, and the page has
+  // to say so instead of silently rendering mismatched totals.
+  return { data, loading, error, source, refetch, refreshing, csvData: csv.data, liveError: live.error }
 }
 
 export function Cost() {
@@ -263,7 +267,7 @@ export function Cost() {
   // days are served live too (the server chunks them into ≤31-day upstream
   // segments, capped at 186 days); the CSV remains the fallback for live
   // outages and for history beyond the chunk cap.
-  const { data, loading, error, refetch, refreshing, source: dataSource, csvData } = useCostData(range, groupId)
+  const { data, loading, error, refetch, refreshing, source: dataSource, csvData, liveError } = useCostData(range, groupId)
   // True when the org-level numbers on this page reflect ONLY the selected
   // group — requires the server's echo, not just the client's request (see
   // useCostData). False → per-user surfaces still scope, org aggregates are
@@ -642,6 +646,30 @@ export function Cost() {
         {data.window_clamped && data.period && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800">
             {t('cost.window_clamped', { start: data.period.starting_date, end: data.period.ending_date })}
+          </div>
+        )}
+        {/* CSV fallback whose export period does NOT cover the selected
+            window — after a transient live failure (429 burst, upstream flap)
+            this page used to silently render the CSV's own period totals
+            under the user's selection (e.g. April-only spend labeled
+            Apr→Jul). Say it loudly and offer the retry. */}
+        {dataSource === 'csv' && data.period
+          && (data.period.starting_date > range.startingDate || data.period.ending_date < range.endingDate) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800 flex flex-wrap items-center gap-2">
+            <span>
+              {t(liveError ? 'cost.csv_mismatch.live_failed' : 'cost.csv_mismatch', {
+                csvStart: data.period.starting_date, csvEnd: data.period.ending_date,
+                start: range.startingDate, end: range.endingDate,
+              })}
+            </span>
+            {liveError && (
+              <button
+                onClick={() => refetch()}
+                className="px-2 py-0.5 rounded border border-amber-300 bg-white/60 text-amber-900 hover:bg-white transition text-[12px]"
+              >
+                {t('cost.csv_mismatch.retry')}
+              </button>
+            )}
           </div>
         )}
         {group && (usersByModel.data?.users?.length ?? 0) > 0 && liveUserRows === null && (
