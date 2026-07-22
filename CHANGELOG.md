@@ -11,13 +11,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-22
+
+Multi-org: a second Anthropic subscription becomes a switchable source across every page — plus compliance events on Athena, an audit page that survives its own event volume, and correct numbers on any date window up to 186 days. (Deployed to production 2026-07-22.)
 
 ### Fixed
 
 - **Wrong numbers on every window longer than 31 days (ADR-0019).** Two independent mechanisms: the engagement `/range` routes silently truncated every request to its most recent 31 days while echoing the full requested window (11 pages rendered last-31-day totals under 90-day labels), and the cost family surfaced the upstream 31-day span cap as a 502 — the Cost page then silently substituted whole-CSV-period numbers (primary) or collapsed entirely (org2), and Executive rendered the failure as **$0 spend**. Now: cost windows chunk into ≤31-day upstream segments and merge exactly (per-user rows re-aggregate; verified to the cent against independent sub-windows; 186-day cap with an explicit banner beyond it), and engagement ranges serve the whole window S3-archive-first — skills/connectors/projects read the raw sidecar (full live-API shape) — with live fallback bounded to the newest 31 missing days and a `coverage` block + shared banner for anything unservable. Executive shows '—' instead of $0 on cost failures; the UserDetailPanel's ≤31-day cost-card gating is superseded. Also: keyed deployments no longer substitute deterministic mock rows when `summaries`/single-day analytics calls fail upstream (observed rendering fake Executive numbers under 429) — they degrade to honest empty data. Archive gaps the audit surfaced (org2: 25 scattered days, primary: 2026-06-07) were backfilled inside the API's 90-day lookback.
 
 - **User Search failing on orgs without a spend-report CSV (`no_spend_report`).** The page treated the uploaded spend-report CSV as load-bearing, so org2 — which has never uploaded one — died with "Failed to load data". The CSV is now optional enrichment: candidate users come from the engagement archive ∪ CSV rows, and the cost/token surfaces degrade **per selected user** to the live `user_cost_report` 30-day window — with explicit loading/error states instead of silently rendering $0.00, live-specific labels in both locales, and the CSV-derived daily-token chart hidden when no CSV rows cover the user. This also fixes primary-org users who joined after the last CSV upload: they now show live spend figures instead of $0.00 CSV cards mislabeled as CSV-derived.
+
+- **Silent CSV substitution after a transient live-cost failure.** When the live cost query failed (a 429 burst is the usual cause), the Cost page quietly rendered the uploaded spend report's own period totals under the user's selected range — e.g. April-only $51.4k labeled Apr→Jul. The page now shows a loud amber banner naming both periods plus a "Retry live" button, and `fetchJson` no longer lets a network-level fetch rejection escape as an unhandled rejection (observed killing the whole Node process from one dead upstream socket; default 30s timeout added).
 
 - **Group-scoped Cost page showing $0 for newly created groups.** Upstream cost attribution rides a slow membership snapshot (≥14h behind live membership), so a new group's spend legitimately reads zero until the next daily snapshot; the Cost page now explains this with an amber note instead of looking broken.
 
@@ -42,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 수정
 
+- **31일 초과 모든 조회 창의 수치 오류 (ADR-0019).** 두 갈래의 독립적 원인: 엔게이지먼트 `/range` 라우트가 요청 창을 조용히 최근 31일로 절단하면서 응답에는 전체 창을 반환(11개 페이지가 90일 라벨 아래 31일 합계를 렌더), 비용 계열은 업스트림 31일 스팬 상한이 502로 전파되며 Cost 페이지가 CSV 전체 기간 수치로 조용히 대체(primary)되거나 완전히 붕괴(org2), Executive는 실패를 **$0 지출**로 렌더. 수정: 비용 창은 ≤31일 청크로 분할 후 정확히 병합(사용자별 행 재집계, 독립 부분창 합계와 센트 단위 일치 검증, 186일 상한 + 초과 시 명시 배너), 엔게이지먼트 범위는 전체 창을 S3 아카이브 우선으로 서빙(skills/connectors/projects는 raw 사이드카 — 라이브 API 형태 그대로) + 라이브 폴백은 최신 31일로 제한 + 서빙 불가 일자는 `coverage` 블록·공용 배너로 표시. Executive는 비용 실패 시 $0 대신 '—'; keyed 배포에서 summaries·단일일 라우트가 업스트림 실패 시 mock 행을 반환하던 경로 제거(429 시 가짜 수치가 실제처럼 렌더되는 것을 관측). 감사가 찾은 아카이브 갭(org2 25일, primary 2026-06-07)은 90일 룩백 내 백필 완료.
+
+- **스펜드 리포트 CSV 없는 조직에서 사용자 검색 실패 (`no_spend_report`).** 페이지가 업로드된 CSV를 필수 데이터로 취급해 CSV가 없는 org2에서 "Failed to load data"로 사망. CSV는 이제 선택적 enrichment: 후보 사용자는 엔게이지먼트 아카이브 ∪ CSV 행이고, 비용/토큰 표면은 **선택된 사용자 단위**로 라이브 `user_cost_report` 30일 창으로 강등 — $0.00 조용한 렌더 대신 명시적 로딩/오류 상태, 양 로케일 라이브 전용 라벨, CSV 미커버 사용자의 일별 토큰 차트 숨김. 마지막 CSV 업로드 이후 합류한 primary 사용자도 $0.00 CSV 카드 대신 라이브 지출을 표시.
+
+- **라이브 비용 실패 시 조용한 CSV 대체.** 라이브 비용 조회가 실패하면(429 버스트가 흔한 원인) Cost 페이지가 스펜드 리포트의 자체 기간 합계를 선택 기간 라벨 아래 조용히 렌더 — 예: 4월 한정 $51.4k가 4→7월로 표시. 이제 두 기간을 명시한 앰버 배너 + "라이브 재시도" 버튼을 표시하고, `fetchJson`은 네트워크 수준 fetch 거부를 격리(죽은 업스트림 소켓 하나가 unhandledRejection으로 Node 프로세스 전체를 죽이는 것을 실증; 기본 30초 타임아웃 추가).
+
 - **신규 그룹의 그룹 스코프 비용 페이지가 $0으로 표시.** 업스트림 비용 귀속이 라이브 멤버십보다 ≥14시간 늦은 멤버십 스냅샷을 타므로, 신설 그룹의 지출은 다음 일일 스냅샷까지 정상적으로 0으로 조회됨 — 비용 페이지가 고장처럼 보이는 대신 앰버 안내로 설명.
 
 - **감사 페이지 로딩 실패 (CloudFront 504).** 조직 감사 볼륨이 프리셋 창당 2000건을 초과(일 700건+, `claude_file_viewed` 위주)하면서, 캐시를 비껴간 요청이 Compliance API를 포그라운드에서 30~85초간 재페이지네이션 — CloudFront 60초 오리진 타임아웃 초과. `/api/compliance/activities`에 응답 레벨 SWR 캐시(`makeTtlCache`: in-flight 중복 제거, stale-while-revalidate)를 적용하고, 5분 프리웜이 **프런트엔드가 보내는 것과 동일한 키 수식**으로 4개 프리셋 창을 top-up(기존 프리웜은 인게이지먼트 버퍼 오프셋을 써서 실제 요청 키와 전혀 일치하지 않았음). 포그라운드 워크는 45초 예산 + 페이지당 15초 abort로 60초 아래 하드 바운드, 도중 실패(429/5xx/네트워크)·예산 초과는 `partial: true`로 강등, 백그라운드 워크(프리웜·partial 후 완주 재시도)는 240초 예산으로 완전한 결과에 수렴. 프런트: 잘림 배너가 볼륨 상한/업스트림 실패/시간 예산을 구분(신규 i18n 키), Executive Risk KPI에 부분 데이터 표시, 감사 부제의 `{total}` 보간 버그(`total_fetched` 사용) 수정.
@@ -58,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **GitHub Pages 공개 브로셔.** 자체 완결형 한국어 랜딩 페이지(`site/index.html` — 히어로, 핵심 가치, 기능 9종, 마스킹된 스크린샷 8장 + 라이트박스, 아키텍처 흐름, 보안 포지셔닝, c4e.whchoi.net 라이브 데모 CTA)를 `scripts/deploy-pages.sh`로 `gh-pages` 브랜치에 게시 — https://whchoi98.github.io/claude-code-dashboard/ (nfm-dashboard 브로셔 패턴).
 - **동작 원리 섹션 아키텍처 다이어그램.** model-monitoring 브로셔 스타일의 수제 1400×860 SVG(`site/img/ccd-arch.svg`) — 사용자 경로(CloudFront/Cognito → ALB/Regional WAF → Fargate), Anthropic API 팬아웃, S3-first 리플레이, Bedrock, 수집 파이프라인, 이중 Secrets 주입 — 모바일에서 90° 회전되는 반응형 임베드.
+
+### 변경
+
+- **활동 점수 vs 비용 효율 점수 구분 명확화.** User Productivity 점수 컬럼을 "활동 점수"로 명명하고 "(비용은 요소가 아님)" 수식 주석과 Cost 메뉴 비용 효율 섹션 상호 참조를 추가; 비용 효율 부제는 활동 점수와 의도적으로 다름을 명시. 하드코딩된 영문 차트/수식 문자열 4건을 en/ko i18n으로 이동.
 
 ### 변경
 
