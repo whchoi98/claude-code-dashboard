@@ -11,6 +11,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-07-27
+
+The org switcher now remembers your choice. Reported as "aws-kor-team (org2) data isn't showing" — root-caused to the switcher selection being URL-only and non-persistent, so every fresh visit silently reset to the default org.
+
+### Added
+
+- **Org selection persistence.** The sidebar org switcher's pick is stored in `localStorage` (`ccd.org`) and restored on the next visit. The restore runs synchronously **before React mounts** (`restoreOrgSelection()` in `main.tsx`), so the very first render — and the first fetch wave — already carries the saved `?org=`; no wasted default-org request round. Guardrails, each adversarially reviewed and covered by a 15-case browser E2E: an explicit `?org=` deep link always wins and is never persisted (only switcher clicks are); a `?group=`-carrying link skips the restore entirely (primary is URL-implicit, so a shared group-filtered link must not be hijacked to another org with its filter dropped); and a stored id the server no longer reports (single-org rollback) is auto-removed once `/api/orgs` loads — while an empty list from a transient `/api/orgs` failure keeps the preference.
+
 ## [2.0.0] - 2026-07-22
 
 Multi-org: a second Anthropic subscription becomes a switchable source across every page — plus compliance events on Athena, an audit page that survives its own event volume, and correct numbers on any date window up to 186 days. (Deployed to production 2026-07-22.)
