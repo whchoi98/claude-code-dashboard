@@ -11,6 +11,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-07-28
+
+The Cost page's '1d' preset now means TODAY. Reported as "selecting 1d analyzes July 24, not today" — the preset deliberately anchored to the newest finalized day back when per-user cost data stopped at the 3-day buffer; the cost family has served today (at a ~4h refresh watermark) since 2026-07, so the anchor was stale.
+
+### Changed
+
+- **Cost '1d' targets today (`freshEnd`).** `useDateRange` gains a `freshEnd` option: '1d' still anchors to the newest finalized day (today−3) by default — engagement endpoints clamp server-side to the 3-day buffer, so a "today" label there would mislabel the data — and only Cost opts in (its whole family serves recent days). The '1d' tooltip explains each variant (new i18n keys, en/ko).
+
+### Fixed
+
+Three defects the pre-deploy adversarial review confirmed in the change itself, fixed before it shipped:
+
+- **Server keep-warm presets moved with the frontend.** The cost cache's preset windows still seeded '1d' as `[today−3, today−3]` — with the frontend now requesting `[today, today]`, every default Cost open would have gone cold daily (the group-tab first click regressing to its 12–30s upstream stall) while ~12 dead keys per org kept burning the shared 60 rpm budget every 8 minutes. Presets now warm `[today, today]`; the one exception stays pinned to the finalized day: `/cost/efficiency`'s ungrouped `user_cost_report` key, because that route clamps its whole window to today−3 internally.
+- **Empty "today" no longer falls back to the CSV.** From 00:00 UTC (09:00 KST) until the ~4h watermark ingests today's first usage, the live report legitimately returns zero rows — the old fallback chain would have rendered the uploaded CSV's whole export period (or the "upload a CSV" empty state on CSV-less orgs) under a "today" picker every single morning. A settled-but-empty live response now counts as usable for a today-only window and the page renders zeros plus an explanatory note.
+- **No forecast KPIs or cross-window fallbacks on a partial day.** With a today-only window, the 30-day projection / 7-day average tiles extrapolated a few ingested hours ×30 (understating the run-rate several-fold all day) and the per-user Top tables silently substituted other windows (efficiency's today−3, the CSV's export period). Today-only windows now render forecast placeholders and keep the Top tables on live same-window sources only.
+
 ## [2.0.1] - 2026-07-27
 
 The org switcher now remembers your choice. Reported as "aws-kor-team (org2) data isn't showing" — root-caused to the switcher selection being URL-only and non-persistent, so every fresh visit silently reset to the default org.
