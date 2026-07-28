@@ -86,9 +86,14 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     AbortSignals, `.topUp(key, fetcher, minAge)`; distinct from
     `groupLastGood`, which serves FAILURE fallbacks only). A **keep-warm
     loop** (per task: start-jittered ≤2 min, then every 8 min) re-registers
-    the UI's 4 preset windows (pruning yesterday's generation at UTC
+    the UI's 4 preset windows — '1d' on Cost = `[today, today]` (freshEnd;
+    the frontend's default open) with the ONE exception that the ungrouped
+    `user_cost_report` key stays on the finalized day `[today−3, today−3]`
+    because `/cost/efficiency` clamps its whole window there internally;
+    prewarm windows and frontend presets must stay formula-identical or the
+    cache warms keys nobody requests (pruning yesterday's generation at UTC
     rollover), then `topUp`s every registered key (user-driven keys idle out
-    after 90 min) with a 15s inter-key sleep — pacing the shared 60 rpm org
+    after 90 min) with a 10s inter-key sleep — pacing the shared 60 rpm org
     budget while keeping both Fargate tasks hot (caches are per-task; the
     rbac dimension runs 12–30s upstream, measured 2026-07-12):
     `GET /cost/live` (Analytics `cost_report` + `usage_report`,

@@ -57,7 +57,20 @@ function presetToDays(p: Preset): number {
   }
 }
 
-export function useDateRange(defaultPreset: Preset = '7d') {
+export interface DateRangeOptions {
+  /**
+   * When true, the '1d' preset targets TODAY instead of the most recent
+   * finalized day (today−3). Only pages whose data source serves recent
+   * partial days should opt in — the cost family has no buffer clamp
+   * (~4h refresh watermark), while engagement endpoints clamp server-side
+   * to today−3, so an engagement page opting in would render a label/data
+   * mismatch. Pass the SAME options to the page's own useDateRange call
+   * and to its <DateRangeControl> — each creates its own hook instance.
+   */
+  freshEnd?: boolean
+}
+
+export function useDateRange(defaultPreset: Preset = '7d', { freshEnd = false }: DateRangeOptions = {}) {
   const [params, setParams] = useSearchParams()
 
   const maxEnd = todayMinusDaysUtc(0)         // today (UTC)
@@ -81,14 +94,17 @@ export function useDateRange(defaultPreset: Preset = '7d') {
     }
     const preset: Preset = ['1d', '7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
     const days = presetToDays(preset)
-    // '1d' = the most recent FINALIZED day (today-3), so per-user cost +
-    // efficiency (which only have data up to the 3-day buffer) are populated;
-    // the multi-day presets end at today and rely on the server's per-endpoint
-    // clamping + the "partial recent days" tolerance.
-    const endingDate = preset === '1d' ? todayMinusDaysUtc(3) : maxEnd
+    // '1d' = the most recent FINALIZED day (today-3) by default, so engagement
+    // pages (whose endpoints clamp to the 3-day buffer server-side) show a
+    // label that matches the data. Pages with buffer-free sources (Cost —
+    // user_cost_report/user_usage_report serve today at a ~4h watermark) opt
+    // into freshEnd so '1d' means TODAY. The multi-day presets always end at
+    // today and rely on the server's per-endpoint clamping + the "partial
+    // recent days" tolerance.
+    const endingDate = preset === '1d' && !freshEnd ? todayMinusDaysUtc(3) : maxEnd
     const startingDate = clamp(todayMinusDaysUtc(days - 1), FIRST_AVAILABLE, endingDate)
     return { startingDate, endingDate, preset, days }
-  }, [rawPreset, rawStart, rawEnd, maxEnd, defaultPreset])
+  }, [rawPreset, rawStart, rawEnd, maxEnd, defaultPreset, freshEnd])
 
   const setPreset = useCallback((p: Preset) => {
     const next = new URLSearchParams(params)

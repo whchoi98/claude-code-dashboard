@@ -202,6 +202,19 @@ type CostSource = 'live' | 'csv'
  * /cost/efficiency + ADR-0009); the CSV is a complementary layer for per-user
  * token counts (not exposed live) and old-date reconciliation.
  */
+/**
+ * True when the selected window is exactly [today, today] (UTC) — the only
+ * window whose live cost data can be legitimately absent or partial ALL day
+ * (~4h refresh watermark; guaranteed empty from 00:00 UTC = 09:00 KST until
+ * the watermark ingests today's first usage). startingDate === today implies
+ * endingDate === today, since end ≥ start and the picker caps end at today.
+ * Drives useCostData's empty-live tolerance, the forecast-KPI suppression
+ * and the Top-table window-mixing guards below.
+ */
+function isTodayOnlyWindow(range: { startingDate: string }) {
+  return range.startingDate === new Date().toISOString().slice(0, 10)
+}
+
 export function useCostData(range: { startingDate: string; endingDate: string }, rbacGroupId?: string | null) {
   const liveUrl = `/api/cost/live?starting_date=${range.startingDate}&ending_date=${range.endingDate}`
     + (rbacGroupId ? `&rbac_group_id=${encodeURIComponent(rbacGroupId)}` : '')
@@ -213,7 +226,14 @@ export function useCostData(range: { startingDate: string; endingDate: string },
   // org-wide data, which must not pass as "scoped" (nor may its rows=[]
   // suppress the CSV fallback).
   const scopeConfirmed = !!rbacGroupId && live.data?.rbac_group_id === rbacGroupId
-  const liveUsable = !live.error && ((live.data?.rows.length ?? 0) > 0 || scopeConfirmed)
+  // A settled-but-EMPTY live response is legitimate for a [today, today]
+  // window (watermark hasn't ingested today yet) — falling back to CSV there
+  // would render a completely different export period (or the "upload a CSV"
+  // empty state) under a "today" picker every morning. Render live zeros +
+  // the todayPending note instead.
+  const todayOnly = isTodayOnlyWindow(range)
+  const liveUsable = !live.error
+    && ((live.data?.rows.length ?? 0) > 0 || scopeConfirmed || (todayOnly && live.data != null))
   // Fall back to CSV only once the live fetch has SETTLED — flipping while a
   // group-tab/range change is in flight flashed org-wide CSV numbers (or the
   // no-CSV empty state) for the duration of every refetch.
@@ -251,12 +271,19 @@ export function useCostData(range: { startingDate: string; endingDate: string },
   // FAILURE (vs genuinely-empty live data) must be distinguishable — the CSV
   // covers its own export period, not the selected window, and the page has
   // to say so instead of silently rendering mismatched totals.
-  return { data, loading, error, source, refetch, refreshing, csvData: csv.data, liveError: live.error }
+  // "Today selected, nothing ingested yet" — the page renders an
+  // informational note instead of a misleading zero-wall.
+  const todayPending = todayOnly && !live.loading && !live.error
+    && (live.data?.rows.length ?? 0) === 0
+  return { data, loading, error, source, refetch, refreshing, csvData: csv.data, liveError: live.error, todayPending }
 }
 
 export function Cost() {
   const t = useT()
-  const { range } = useDateRange('1d')
+  // freshEnd: the cost family serves today at a ~4h watermark (no 3-day
+  // buffer), so '1d' means TODAY here — keep in sync with the
+  // <DateRangeControl freshEnd> below.
+  const { range } = useDateRange('1d', { freshEnd: true })
   // Group scope. Per-user tables/charts filter by email (inGroup). The
   // org-level aggregates (KPIs, pies, trends) scope via the upstream
   // rbac_group_ids[] filter when the selected group's id is known (members/
@@ -267,7 +294,10 @@ export function Cost() {
   // days are served live too (the server chunks them into ≤31-day upstream
   // segments, capped at 186 days); the CSV remains the fallback for live
   // outages and for history beyond the chunk cap.
-  const { data, loading, error, refetch, refreshing, source: dataSource, csvData, liveError } = useCostData(range, groupId)
+  const { data, loading, error, refetch, refreshing, source: dataSource, csvData, liveError, todayPending } = useCostData(range, groupId)
+  // [today, today] picker window — partial by definition (~4h watermark).
+  // Forecast KPIs and other-window fallbacks are suppressed below.
+  const todayOnly = isTodayOnlyWindow(range)
   // True when the org-level numbers on this page reflect ONLY the selected
   // group — requires the server's echo, not just the client's request (see
   // useCostData). False → per-user surfaces still scope, org aggregates are
@@ -322,6 +352,12 @@ export function Cost() {
   // Projection only renders when live mode supplies a `daily` series.
   const insights = useMemo(() => {
     if (!data) return null
+    // A [today, today] window is partial ALL day: a ×30 projection or
+    // "7-day avg" built from a few ingested hours understates the real
+    // run-rate several-fold, and per-dev would divide today's partial spend
+    // by the efficiency endpoint's today−3 user count (mismatched windows).
+    // Null everything — the tiles render their placeholders.
+    if (todayOnly) return { costPerDev: null, activeDevs: null, projection30d: null, avg7d: null }
     const totalSpend = data.totals.net_spend_usd
     // Under an active upstream group scope the numerator is group-only, so
     // the denominator must be too — count the group's members from the
@@ -349,7 +385,7 @@ export function Cost() {
       }
     }
     return { costPerDev, activeDevs, projection30d, avg7d }
-  }, [data, eff.data, csvData, groupScoped, inGroup])
+  }, [data, eff.data, csvData, groupScoped, inGroup, todayOnly])
 
   const agg = useMemo(() => {
     if (!data?.rows) return null
@@ -591,7 +627,13 @@ export function Cost() {
   //      the productivity join) or CSV-derived scaled spend in CSV mode
   //   3. csvUserRows (raw CSV totals) when eff is loading / returns no users
   //   4. agg.userRows (live cost rows; user_email empty in live mode → unused)
-  const userRowsForTop = liveUserRows ?? effUserRows ?? csvUserRows ?? agg.userRows
+  // Under a [today, today] window the fallbacks cover DIFFERENT windows
+  // (eff = today−3, CSV = its own export period) — substituting them would
+  // mix three windows on one screen with a "today" picker, so today-only
+  // sticks to the live sources and renders empty tables + the pending note.
+  const userRowsForTop = todayOnly
+    ? (liveUserRows ?? [])
+    : (liveUserRows ?? effUserRows ?? csvUserRows ?? agg.userRows)
   // Per-user TOKEN source priority:
   //   1. liveTokenRows — user_usage_report over the FULL selected range
   //      (live; supersedes the old "tokens exist only in the CSV" constraint)
@@ -600,7 +642,9 @@ export function Cost() {
   //      them). Never the live spend rows (their token fields are 0).
   // (liveTokenRows itself is a hook, so it lives ABOVE the early returns
   //  with the other memos — see the hook-ordering note there.)
-  const tokenRows = liveTokenRows ?? (eff.data?.source?.includes('csv') ? effUserRows : null) ?? csvUserRows
+  const tokenRows = todayOnly
+    ? liveTokenRows
+    : (liveTokenRows ?? (eff.data?.source?.includes('csv') ? effUserRows : null) ?? csvUserRows)
   const hasPerUserTokens = !!(tokenRows && tokenRows.length > 0 && tokenRows[0].email !== '')
   const topSpend  = [...userRowsForTop].sort((a, b) => b.spend - a.spend).slice(0, 10)
   const topInput  = [...(tokenRows ?? [])].sort((a, b) => b.input - a.input).slice(0, 10)
@@ -648,6 +692,14 @@ export function Cost() {
             {t('cost.window_clamped', { start: data.period.starting_date, end: data.period.ending_date })}
           </div>
         )}
+        {/* Today selected but the ~4h watermark hasn't ingested it yet —
+            expected every morning (00:00 UTC = 09:00 KST until first
+            ingest). Without this note the zero KPIs read as an outage. */}
+        {todayPending && (
+          <div className="rounded-lg border border-ink-100 bg-paper-muted/40 px-4 py-3 text-[12px] text-ink-500">
+            {t('cost.today_pending')}
+          </div>
+        )}
         {/* CSV fallback whose export period does NOT cover the selected
             window — after a transient live failure (429 burst, upstream flap)
             this page used to silently render the CSV's own period totals
@@ -691,7 +743,7 @@ export function Cost() {
           {/* Single page-level range control — drives ALL cost content
               (useCostData + efficiency share this URL-synced range). Default
               '1d' = the most recent finalized day (daily live). */}
-          <DateRangeControl defaultPreset="1d" />
+          <DateRangeControl defaultPreset="1d" freshEnd />
           <button
             onClick={exportPdf}
             title={t('cost.export.pdf.hint')}

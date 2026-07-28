@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { useDateRange, type Preset } from '../lib/useDateRange'
+import { useDateRange, type DateRangeOptions, type Preset } from '../lib/useDateRange'
 import { fmtDate } from '../lib/format'
 import { useT } from '../lib/i18n'
 
@@ -12,12 +12,15 @@ const PRESET_BUTTONS: { key: Preset; label: string }[] = [
   { key: 'custom', label: '…' },
 ]
 
-export function DateRangeControl({ defaultPreset }: { defaultPreset?: Preset } = {}) {
+export function DateRangeControl({ defaultPreset, freshEnd }: { defaultPreset?: Preset; freshEnd?: boolean } = {}) {
   const t = useT()
   // defaultPreset only takes effect when the URL carries no ?range= param;
   // pages that want a non-7d default (e.g. Cost → '1d') pass it so the picker's
   // highlighted preset matches the page's own useDateRange(defaultPreset).
-  const { range, setPreset, setCustom, maxEnd, FIRST_AVAILABLE } = useDateRange(defaultPreset)
+  // freshEnd must MATCH the page's own useDateRange options (each is a separate
+  // hook instance) — Cost passes it so '1d' targets today, see DateRangeOptions.
+  const opts: DateRangeOptions = { freshEnd }
+  const { range, setPreset, setCustom, maxEnd, FIRST_AVAILABLE } = useDateRange(defaultPreset, opts)
   const [open, setOpen] = useState(false)
   const [draftStart, setDraftStart] = useState(range.startingDate)
   const [draftEnd,   setDraftEnd]   = useState(range.endingDate)
@@ -54,7 +57,7 @@ export function DateRangeControl({ defaultPreset }: { defaultPreset?: Preset } =
                   ? 'bg-claude-500 text-white shadow-sm'
                   : 'text-ink-500 hover:bg-paper-muted',
               )}
-              title={p.key === 'custom' ? 'Custom range' : p.key === '1d' ? 'Most recent finalized day (today−3, Analytics buffer)' : `Last ${p.label}`}
+              title={p.key === 'custom' ? 'Custom range' : p.key === '1d' ? t(freshEnd ? 'range.tooltip_1d_today' : 'range.tooltip_1d') : `Last ${p.label}`}
             >
               {p.label}
             </button>

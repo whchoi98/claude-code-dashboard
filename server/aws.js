@@ -2465,8 +2465,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
 
   // ── Cost cache keep-warm loop ─────────────────────────────────────────
   // Seeds the UI's four preset windows (matching useDateRange's math:
-  // '1d' = [today−3, today−3] — the most recent finalized day and the Cost
-  // page default; 7d/14d/30d end at today) plus the '1d' per-user reports
+  // '1d' on Cost = [today, today] — freshEnd, a partial day at the ~4h
+  // watermark; 7d/14d/30d end at today) plus the '1d' per-user reports
   // the Cost page requests on mount, then force-refreshes every registered
   // key (preset + anything users actually requested, ≤6h idle) every 8 min
   // — under the 10-min TTL, so hot keys never expire or serve SWR-stale.
@@ -2480,9 +2480,18 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const minus = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
     const today = minus(0)
     const presets = [
-      [minus(3), minus(3)],            // '1d' (Cost page default)
+      // '1d' + freshEnd (Cost page default) — the window the frontend
+      // actually requests. MUST stay formula-identical with useDateRange's
+      // freshEnd math or every default Cost open goes cold (same bug class
+      // as the audit prewarm's −9/−16/−32 offsets).
+      [today, today],
       [minus(6), today], [minus(13), today], [minus(29), today],
     ]
+    // /cost/efficiency clamps its WHOLE window to the newest finalized day
+    // (today−3) internally, so its user_cost_report key lives on that
+    // window — not the picker's. Pinned here so moving presets[0] to
+    // [today, today] doesn't turn it into a dead key.
+    const finalized = minus(3)
     const currentPresetKeys = new Set()
     const preset = (key, fetcher) => { currentPresetKeys.add(key); trackWarm(key, fetcher) }
     // Registration order = refresh order (Map iteration): everything the
@@ -2492,7 +2501,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     preset(`${org}:cost/live:${s1}:${e1}:org`, () => fetchCostSummary({ starting_date: s1, ending_date: e1 }, org))
     preset(`${org}:cost/groups:${s1}:${e1}`, () => fetchGroupCost(s1, e1, org))
     preset(`${org}:user_report:user_cost_report:${s1}:${e1}:model`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1, groupBy: 'model' }, org))
-    preset(`${org}:user_report:user_cost_report:${s1}:${e1}:`, () => fetchUserReportUncached({ starting_date: s1, ending_date: e1 }, org))
+    preset(`${org}:user_report:user_cost_report:${finalized}:${finalized}:`, () => fetchUserReportUncached({ starting_date: finalized, ending_date: finalized }, org))
     preset(`${org}:user_report:user_usage_report:${s1}:${e1}:`, () => fetchUserReportUncached({ report: 'user_usage_report', starting_date: s1, ending_date: e1 }, org))
     preset(`${org}:spend-limits`, () => fetchSpendLimits(org))
     // GROUP-SCOPED live for the default window: clicking a group tab fires
