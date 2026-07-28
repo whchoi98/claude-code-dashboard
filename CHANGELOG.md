@@ -11,6 +11,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-07-28
+
+The AI analysis chatbot can now answer questions about recent days. Reported as: asking "who was most active on July 27" returned "no data for July 27 yet" — even though two sources could answer it (the live `user_usage_report` serves per-user activity through TODAY at a ~4h watermark, and `compliance_daily` has per-actor audit events through yesterday). The system prompt routed every per-user ranking to `search_users`, whose snapshot ends at the 3-day analytics buffer.
+
+### Added
+
+- **`get_user_usage` chat tool.** Per-user request counts and token usage (live `user_usage_report`), ranked by requests, serving recent days including today. The system prompt now carries a buffer-day strategy — a question about today/yesterday must never be answered with a bare "no data": try `get_user_usage` (through today) and `compliance_daily` per-actor event counts (through yesterday), and present the numbers as preliminary. `search_users` is explicitly labeled finalized-days-only.
+
+### Fixed
+
+Three defects the pre-deploy adversarial review confirmed in the new tool, fixed before it shipped:
+
+- **Real names stripped from tool results.** The tool initially forwarded the upstream actor `name` alongside the masked email — a real name next to `wh***@…` fully re-identifies the person, defeating the masking (no other per-user surface, UI or chat, exposes names). Masked email is now the only identity key, matching the `search_users` contract.
+- **Model-picked windows span-capped at 31 days.** A "most active over the last year" question would have fanned out into a silent ≤186-day multi-chunk upstream walk (~60–110 requests on the shared 60 rpm budget) and presented the clamped result as the full ask. `clampChatUserWindow` now caps the window to the newest 31 days, and `span_clamped`/`window_clamped`/`stale` flags flow through to the model so it states the actually-served window.
+- **Chat windows excluded from keep-warm.** A chat-picked window is consumed once per turn, but it self-registered into the cost keep-warm registry — up to ~11 dead background upstream refetches over the next 90 minutes per question, and a burst of distinct windows could evict the Cost page's preset keys. The chat path now passes `warm: false` (same rationale as the existing multi-chunk guard).
+
 ## [2.0.2] - 2026-07-28
 
 The Cost page's '1d' preset now means TODAY. Reported as "selecting 1d analyzes July 24, not today" — the preset deliberately anchored to the newest finalized day back when per-user cost data stopped at the 3-day buffer; the cost family has served today (at a ~4h refresh watermark) since 2026-07, so the anchor was stale.
