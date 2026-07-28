@@ -537,6 +537,20 @@ export function utcNextDay(dateStr) {
 // or not). Longer user-selected ranges surface that 400 as a 502 and the UI
 // falls back to the CSV path, which is the documented >30-day reconciliation
 // story. `now` is injectable for unit tests.
+// Chat-tool window guard (get_user_usage): resolve exactly like the fetchers,
+// then cap the span at the NEWEST 31 days. A model-picked window must never
+// fan out into a multi-chunk (≤186-day ≈ 60-110 upstream requests) walk on
+// the shared 60 rpm budget from one question; span_clamped tells the model
+// the served window differs from the ask. Pure — unit-tested.
+export function clampChatUserWindow({ starting_date, ending_date } = {}, now = new Date()) {
+  const { starting, ending } = resolveUserCostWindow({ starting_date, ending_date }, now)
+  const spanDays = Math.floor((Date.parse(`${ending}T00:00:00Z`) - Date.parse(`${starting}T00:00:00Z`)) / 86400000) + 1
+  if (spanDays <= 31) return { starting_date: starting, ending_date: ending, span_clamped: false }
+  const d = new Date(`${ending}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 30)
+  return { starting_date: d.toISOString().slice(0, 10), ending_date: ending, span_clamped: true }
+}
+
 export function resolveUserCostWindow({ starting_date, ending_date } = {}, now = new Date()) {
   const minus = (n) => { const d = new Date(now); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10) }
   const today = minus(0)
@@ -1170,10 +1184,15 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // /cost/efficiency spend join AND the /api/groups spend-derive fallback.
   // Raw opts key: identical raw opts resolve to the identical window
   // (resolveUserCostWindow is deterministic within a UTC day).
-  const fetchUserReport = (opts = {}, org = 'primary') => cachedWarm(
+  // `warm: false` (chat tools) serves through the TTL cache WITHOUT
+  // keep-warm registration — a model-picked window is consumed once per
+  // SSE turn with no frontend polling it, so an 8-min × 90-min background
+  // replay would be pure dead upstream traffic (same rationale as the
+  // multi-chunk guard below).
+  const fetchUserReport = (opts = {}, org = 'primary', { warm = true } = {}) => cachedWarm(
     `${org}:user_report:${opts.report || 'user_cost_report'}:${opts.starting_date || ''}:${opts.ending_date || ''}:${opts.groupBy || ''}`,
     () => fetchUserReportUncached(opts, org),
-    isSingleChunkWindow(opts.starting_date, opts.ending_date),
+    warm && isSingleChunkWindow(opts.starting_date, opts.ending_date),
   )
   async function fetchUserReportUncached({ report = 'user_cost_report', starting_date, ending_date, groupBy = null } = {}, org = 'primary') {
     const ANALYTICS_KEY = analyticsKeyFor(org)
@@ -1283,6 +1302,25 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       fetchAnalytics: () => fetchAnalytics(org),
       runAthenaSafe,   // account-level: the table name carries the org
       fetchCostSummary: (opts) => fetchCostSummary(opts, org),
+      // Per-user recent-day activity (user_usage_report — serves today, no
+      // 3-day buffer). Aggregation happens HERE via userUsageToUsers so
+      // chat-tools.js never imports from this module (circular concern).
+      // Guards: the model's window is span-capped to the newest 31 days
+      // BEFORE it can trigger a multi-chunk upstream walk, the call rides
+      // the 10-min TTL cache but does NOT register in keep-warm (warm:
+      // false — one-shot consumption), and the clamp/degrade flags are
+      // passed through so the model can state the actually-served window.
+      fetchUserUsage: async (opts) => {
+        const { starting_date, ending_date, span_clamped } = clampChatUserWindow(opts)
+        const { data, period, data_refreshed_at, window_clamped, stale } = await fetchUserReport(
+          { report: 'user_usage_report', starting_date, ending_date }, org, { warm: false })
+        return {
+          period, data_refreshed_at, users: userUsageToUsers(data),
+          ...(span_clamped && { span_clamped: true }),
+          ...(window_clamped && { window_clamped: true }),
+          ...(stale && { stale: true }),
+        }
+      },
     })
     const today = new Date().toISOString().slice(0, 10)
     const messages = historyToBedrockMessages(history)

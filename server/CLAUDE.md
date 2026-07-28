@@ -190,7 +190,17 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
     `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
     `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,
-    `get_cost_summary`, `search_users`; emails masked in tool results
+    `get_cost_summary`, `search_users`, `get_user_usage` (per-user
+    requests/tokens through TODAY via `fetchUserReport`+`userUsageToUsers`
+    — the buffer-day answer path; the prompt forbids a bare "no data" for
+    recent days and also points at `compliance_daily` per-actor counts.
+    Guards: model windows span-cap to the newest 31 days via
+    `clampChatUserWindow` BEFORE any multi-chunk walk, the call passes
+    `warm: false` so chat-picked windows never register in keep-warm, the
+    `span_clamped`/`window_clamped`/`stale` flags pass through to the model,
+    and actor real `name`s are STRIPPED — masked email is the only identity
+    key, a real name beside it would re-identify the person);
+    emails masked in tool results
     before reaching the model; dynamic follow-ups generated after each
     answer). Pure tool helpers + specs live in `server/chat-tools.js`.
     `fetchCostSummary()` is shared by `GET /cost/live` and the cost tool.

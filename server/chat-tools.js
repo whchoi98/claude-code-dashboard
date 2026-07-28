@@ -166,7 +166,7 @@ export const TOOL_SPECS = [
   {
     toolSpec: {
       name: 'search_users',
-      description: 'Top Claude Code contributors (or a lookup by email substring) for the recent snapshot day, ranked by lines of code + commits + PRs. Emails are masked. Use for "who are the most active users" questions.',
+      description: 'Top Claude Code contributors (or a lookup by email substring) for the recent snapshot day, ranked by lines of code + commits + PRs. Emails are masked. Use for "who are the most active users" questions ABOUT FINALIZED DAYS (3+ days ago). For today/yesterday use get_user_usage instead — this snapshot has nothing inside the buffer.',
       inputSchema: {
         json: {
           type: 'object',
@@ -174,6 +174,24 @@ export const TOOL_SPECS = [
             query: { type: 'string', description: 'Optional case-insensitive email substring filter.' },
             limit: { type: 'integer', description: 'Max rows (1-50, default 10).' },
           },
+          additionalProperties: false,
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_user_usage',
+      description: 'Per-user request counts and token usage (live user_usage_report), ranked by requests. Serves RECENT days INCLUDING TODAY at a ~4h refresh watermark — the 3-day analytics buffer does NOT apply. Use for "most active / heaviest member on <recent day>" questions the analytics tables cannot answer yet; label the numbers as preliminary (still ingesting). Requests longer than 31 days are CLAMPED to the newest 31 days (span_clamped:true + the served period come back — always tell the user the actually-served window when it differs from the ask). Emails are masked; no real names are returned.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            starting_date: { type: 'string', description: 'YYYY-MM-DD (UTC), inclusive.' },
+            ending_date: { type: 'string', description: 'YYYY-MM-DD (UTC), inclusive — today is allowed.' },
+            limit: { type: 'integer', description: 'Max users returned (1-100, default 25).' },
+          },
+          required: ['starting_date', 'ending_date'],
           additionalProperties: false,
         },
       },
@@ -195,18 +213,19 @@ export function CHAT_SYSTEM_PROMPT(locale, today, org = null) {
   return [
     'You are an enterprise analytics assistant for Claude Code Enterprise. This is a multi-turn conversation — use the prior turns for context.',
     'Use the provided tools to fetch real data before answering; never invent numbers. Cite exact figures and compute rates/growth explicitly.',
-    'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend.',
+    'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings on finalized days; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend; get_user_usage for per-user activity (requests/tokens) on RECENT days — today and the not-yet-finalized buffer days.',
     ...(orgLine ? [orgLine] : []),
     'Data caveats to respect: a 3-day finalization buffer on the analytics tables, a 90-day live lookback, and no Bedrock usage in cost.',
     'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
     `Today is ${today} (UTC). When writing Athena date filters on the analytics tables, end ranges no later than 3 days ago. EXCEPTION: compliance_daily is event-time partitioned and current through yesterday — end its ranges at yesterday.`,
+    'A question about a day INSIDE the buffer (today or the last ~3 days) is still answerable — NEVER reply "no data" without trying: get_user_usage serves per-user requests/tokens through TODAY (~4h watermark, partial), and compliance_daily has per-actor audit events through YESTERDAY (COUNT(*) GROUP BY actor_email). Present those numbers as preliminary.',
     lang,
   ].join('\n')
 }
 
 // Build a tool dispatcher from injected async deps. Memoizes the analytics
 // snapshot so overview + search_users in one turn share a single fetch.
-export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary }) {
+export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary, fetchUserUsage }) {
   let snapPromise = null
   const snap = () => (snapPromise ||= fetchAnalytics())
   return async function runTool(name, input = {}) {
@@ -230,6 +249,41 @@ export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary
         // tool's contract is unconditionally org-wide.
         const { starting_date, ending_date } = input || {}
         return { ok: true, data: maskEmailsDeep(await fetchCostSummary({ starting_date, ending_date })) }
+      }
+      if (name === 'get_user_usage') {
+        // Dep returns pre-aggregated per-user rows (userUsageToUsers runs on
+        // the aws.js side — importing it here would be a circular concern,
+        // same reason maskEmailSrv is duplicated over there). Ranking + caps
+        // live here so the model's `limit` can never widen the payload.
+        const out = await fetchUserUsage({
+          starting_date: String(input?.starting_date || ''),
+          ending_date: String(input?.ending_date || ''),
+        })
+        const limit = Math.min(Math.max(Number(input?.limit) || 25, 1), 100)
+        // NEVER include actor real names: the masked email is the ONLY
+        // identity key (same contract as search_users) — a real name next
+        // to a masked email would fully re-identify the person, defeating
+        // the masking. maskEmailsDeep only handles email-shaped strings.
+        const users = (out.users || [])
+          .slice()
+          .sort((a, b) => (b.requests - a.requests) || (b.total_tokens - a.total_tokens))
+          .slice(0, limit)
+          .map(({ email, requests, input_tokens, output_tokens, total_tokens }) =>
+            ({ email, requests, input_tokens, output_tokens, total_tokens }))
+        return {
+          ok: true,
+          data: maskEmailsDeep({
+            period: out.period, data_refreshed_at: out.data_refreshed_at,
+            // Degrade/clamp flags pass through so the model can say what
+            // window was ACTUALLY served instead of presenting a clamped
+            // result as the full requested range.
+            ...(out.span_clamped && { span_clamped: true }),
+            ...(out.window_clamped && { window_clamped: true }),
+            ...(out.stale && { stale: true }),
+            user_count: (out.users || []).length, users,
+          }),
+          rowCount: users.length,
+        }
       }
       return { ok: false, data: { error: `Unknown tool: ${name}` } }
     } catch (err) {

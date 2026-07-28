@@ -100,11 +100,16 @@ ok('compactOverview top skills sorted', ov.top_skills[0].skill_name === 'pdf')
 
 import { TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner } from '../../server/chat-tools.js'
 
-ok('TOOL_SPECS has 4 tools', TOOL_SPECS.length === 4)
+ok('TOOL_SPECS has 5 tools', TOOL_SPECS.length === 5)
 ok('TOOL_SPECS names', eq(
   TOOL_SPECS.map((t) => t.toolSpec.name).sort(),
-  ['get_analytics_overview', 'get_cost_summary', 'run_athena_sql', 'search_users'],
+  ['get_analytics_overview', 'get_cost_summary', 'get_user_usage', 'run_athena_sql', 'search_users'],
 ))
+// Recent-day strategy: the prompt must forbid a bare "no data" for buffer
+// days and point at both recent-capable sources.
+const bufPrompt = CHAT_SYSTEM_PROMPT('en', '2026-07-28')
+ok('prompt has buffer-day strategy', bufPrompt.includes('NEVER reply "no data"')
+  && bufPrompt.includes('get_user_usage') && bufPrompt.includes('compliance_daily'))
 ok('system prompt localized ko', CHAT_SYSTEM_PROMPT('ko', '2026-06-09').includes('한국어'))
 // Multi-org: the optional 3rd arg pins the session to one org; omitting it
 // (legacy callers / single-org deployments) leaves the prompt org-free.
@@ -121,10 +126,45 @@ const runner = makeToolRunner({
   fetchAnalytics: async () => snap,
   runAthenaSafe: async (sql) => ({ columns: ['user_email'], rows: [{ user_email: 'xyz@y.com' }] }),
   fetchCostSummary: async () => ({ totals: { net_spend_usd: 5 } }),
+  fetchUserUsage: async ({ starting_date, ending_date }) => ({
+    period: { starting_date, ending_date },
+    data_refreshed_at: '2026-07-28T00:50:00Z',
+    span_clamped: true,   // must survive into the tool payload
+    stale: true,
+    users: [
+      { email: 'light@x.com', name: null, requests: 3, input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      { email: 'heavy@x.com', name: 'Real Person Name', requests: 900, input_tokens: 999, output_tokens: 500, total_tokens: 1499 },
+      { email: 'mid@x.com', name: null, requests: 40, input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+    ],
+  }),
 })
 ok('runner overview ok', (await runner('get_analytics_overview', {})).data.active_user_count === 2)
 ok('runner athena masks emails', (await runner('run_athena_sql', { sql: 'SELECT 1' })).data.rows[0].user_email.includes('*'))
 ok('runner unknown tool → error', (await runner('nope', {})).ok === false)
+// get_user_usage: ranked by requests desc, masked, period passthrough, limit clamped
+const uu = await runner('get_user_usage', { starting_date: '2026-07-27', ending_date: '2026-07-27', limit: 2 })
+ok('user_usage ok + rowCount respects limit', uu.ok === true && uu.rowCount === 2)
+ok('user_usage ranked by requests desc', uu.data.users[0].requests === 900 && uu.data.users[1].requests === 40)
+ok('user_usage masks emails', uu.data.users[0].email.includes('*') && !uu.data.users[0].email.startsWith('heavy@'))
+ok('user_usage keeps full user_count + period', uu.data.user_count === 3 && uu.data.period.starting_date === '2026-07-27')
+const uuBadLimit = await runner('get_user_usage', { starting_date: '2026-07-27', ending_date: '2026-07-27', limit: 9999 })
+ok('user_usage limit hard-capped at 100', uuBadLimit.rowCount === 3) // 3 users < cap, no throw
+// Privacy: real names must NEVER reach the model — masked email is the only
+// identity key (a name next to a masked email fully re-identifies the person).
+ok('user_usage strips real names', uu.data.users.every((u) => !('name' in u))
+  && !JSON.stringify(uu.data).includes('Real Person Name'))
+// Degrade/clamp flags pass through so the model can state the served window.
+ok('user_usage passes span_clamped + stale through', uu.data.span_clamped === true && uu.data.stale === true)
+
+// clampChatUserWindow (aws.js pure export) — the chat-side 31-day span cap.
+const { clampChatUserWindow } = await import('../../server/aws.js')
+const NOW = new Date('2026-07-28T12:00:00Z')
+const c1 = clampChatUserWindow({ starting_date: '2026-07-27', ending_date: '2026-07-27' }, NOW)
+ok('clamp: single day untouched', c1.starting_date === '2026-07-27' && c1.ending_date === '2026-07-27' && c1.span_clamped === false)
+const c2 = clampChatUserWindow({ starting_date: '2026-06-28', ending_date: '2026-07-28' }, NOW)
+ok('clamp: exactly 31 days untouched', c2.span_clamped === false && c2.starting_date === '2026-06-28')
+const c3 = clampChatUserWindow({ starting_date: '2025-07-28', ending_date: '2026-07-28' }, NOW)
+ok('clamp: 1-year ask → newest 31 days + flag', c3.span_clamped === true && c3.starting_date === '2026-06-28' && c3.ending_date === '2026-07-28')
 
 console.log(`\n1..${testNum}`)
 process.exit(failed === 0 ? 0 : 1)
