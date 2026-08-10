@@ -531,6 +531,18 @@ export function Cost() {
     return rows.length ? rows : null
   }, [csvData, inGroup])
 
+  // Console-facing MTD per member (Spend Limits API `period_to_date_spend` —
+  // near-real-time, calendar month, resets 1st 00:00 UTC) joined into the
+  // Top-10 cost table, so the range-windowed live estimate (~4h watermark)
+  // can be read against the number the Anthropic Console member list shows.
+  // Lower-cased join key: email case variants across Anthropic surfaces are
+  // a documented join hazard (metrics-catalog §6.4).
+  const mtdByEmail = useMemo(() => {
+    const members = spendLimits.data?.members
+    if (!members?.length) return undefined
+    return new Map(members.map((m) => [m.email.toLowerCase(), m.spent_usd]))
+  }, [spendLimits.data])
+
   // Live per-user token rows (user_usage_report). MUST stay above the early
   // returns below — hooks after a conditional return violate the Rules of
   // Hooks and crash the page on the loading→loaded transition.
@@ -1028,8 +1040,19 @@ export function Cost() {
             {!hasPerUserTokens && (
               <p className="text-[11px] text-ink-400 mb-2 px-1">{t('cost.top.live_caveat')}</p>
             )}
+            {/* The MTD-vs-Value pairing sentence is only true when the spend
+                table's source is liveUserRows (user_cost_report over the
+                selected range) — the fallback sources (eff scaling / CSV
+                totals) carry their own caveats above, and pairing text
+                asserting a live watermark would contradict them on the same
+                screen (the pre-split range_caveat had exactly that bug). */}
+            {mtdByEmail && (
+              <p className="text-[11px] text-ink-400 mb-2 px-1">
+                {t('cost.top.mtd_caveat')}{liveUserRows ? ` ${t('cost.top.mtd_caveat_live')}` : ''}
+              </p>
+            )}
             <div className={hasPerUserTokens ? 'grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6 max-w-md'}>
-              <TopTable title={t('cost.top_cost')} rows={topSpend} metric="spend" formatter={fmtUsd} accent t={t} />
+              <TopTable title={t('cost.top_cost')} rows={topSpend} metric="spend" formatter={fmtUsd} accent t={t} mtdByEmail={mtdByEmail} />
               {hasPerUserTokens && (
                 <>
                   <TopTable title={t('cost.top_total')}  rows={topTotal}  metric="total_tokens" formatter={fmtCompact} t={t} />
@@ -1415,14 +1438,18 @@ function FullEfficiencyTable({ users }: { users: EfficiencyUser[] }) {
 }
 
 function TopTable({
-  title, rows, metric, formatter, accent, t,
+  title, rows, metric, formatter, accent, t, mtdByEmail,
 }: {
   title: string
-  rows: { masked: string; spend: number; input: number; output: number; total_tokens: number; requests: number; products: number; models: number }[]
+  rows: { email: string; masked: string; spend: number; input: number; output: number; total_tokens: number; requests: number; products: number; models: number }[]
   metric: 'spend' | 'input' | 'output' | 'total_tokens'
   formatter: (n: number) => string
   accent?: boolean
   t: (k: any, p?: any) => string
+  // email(lower-cased) → Spend Limits month-to-date USD. When provided, an
+  // extra MTD column renders next to Value (spend table only) so the
+  // range-windowed figure can be cross-read against the Console MTD number.
+  mtdByEmail?: Map<string, number>
 }) {
   return (
     <ChartCard title={title}>
@@ -1433,6 +1460,9 @@ function TopTable({
               <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">#</th>
               <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('user_prod.col.user')}</th>
               <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">Value</th>
+              {mtdByEmail && (
+                <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">{t('cost.top.col.mtd')}</th>
+              )}
               <th className="text-right px-3 py-2 text-[11px] font-semibold uppercase tracking-wider">Req</th>
             </tr>
           </thead>
@@ -1444,6 +1474,14 @@ function TopTable({
                 <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${accent ? 'text-claude-600' : 'text-ink-700'}`}>
                   {formatter(r[metric] ?? 0)}
                 </td>
+                {mtdByEmail && (() => {
+                  const mtd = mtdByEmail.get(r.email.toLowerCase())
+                  return (
+                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">
+                      {mtd != null ? fmtUsd(mtd) : '—'}
+                    </td>
+                  )
+                })()}
                 <td className="px-3 py-1.5 text-right tabular-nums text-ink-400">{fmtNum(r.requests)}</td>
               </tr>
             ))}

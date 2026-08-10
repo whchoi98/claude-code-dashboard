@@ -66,7 +66,12 @@ src/
 │                         # Compliance groups endpoint, grp-<id suffix> fallback; any-membership
 │                         # semantics — group rows can sum above the org total) and a
 │                         # "Spend Limits (Monthly)" card from /api/cost/spend-limits (month-to-date
-│                         # spend vs effective limit; independent of the page date range).
+│                         # spend vs effective limit; independent of the page date range). The
+│                         # "Top by Cost" table ALSO joins that spend-limits response by
+│                         # lower-cased email into an MTD column (mtdByEmail) — the Console
+│                         # member list shows the same near-real-time calendar-month figure,
+│                         # while the Value column follows the picker range at a ~4h
+│                         # watermark, so the two can legitimately differ for active users.
 ├── types.ts              # Analytics API schema types
 ├── App.tsx / main.tsx
 └── index.css             # Tailwind entry + custom utilities + the generic `@media print` block (visibility-based isolation of `.print-export`, `.print-hide` opt-out, auto-expanded `<details>`) used by Analyze/Cost/Executive

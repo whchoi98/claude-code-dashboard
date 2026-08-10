@@ -406,6 +406,9 @@ const DICT = {
     'cost.top.range_caveat':      'Per-user values scaled to the selected date range by session-activity weighting. CSV period: {start} → {end}.',
     'cost.top.tokens_csv_caveat': 'Token tables reflect the full uploaded-CSV period ({start} → {end}) and do not follow the selected date range — the live API has no per-user token counts.',
     'cost.top.live_caveat':       'Per-user spend is live from the Analytics API for the selected range. Per-user token data is temporarily unavailable (live user_usage_report and CSV both missing).',
+    'cost.top.col.mtd':           'MTD',
+    'cost.top.mtd_caveat':        'MTD column: calendar month-to-date per member from the Spend Limits API — the same near-real-time figure the Anthropic Console member list shows (resets on the 1st, 00:00 UTC; independent of the selected range).',
+    'cost.top.mtd_caveat_live':   'The Value column follows the selected range at a ~4h refresh watermark, so it can trail MTD for currently-active users.',
     'cost.export.pdf':            'PDF',
     'cost.export.pdf.hint':       'Open the print dialog — pick "Save as PDF"',
 
@@ -1097,6 +1100,9 @@ const DICT = {
     'cost.top.range_caveat':      '사용자별 값은 세션 활동량 가중치로 선택 기간에 분배됩니다. CSV 기간: {start} → {end}.',
     'cost.top.tokens_csv_caveat': '토큰 테이블은 업로드된 CSV 전체 기간({start} → {end}) 기준이며 선택한 기간을 따르지 않습니다 — 라이브 API는 사용자별 토큰 수를 제공하지 않습니다.',
     'cost.top.live_caveat':       '사용자별 지출은 선택 범위에 대해 Analytics API에서 라이브로 가져옵니다. 사용자별 토큰 데이터는 일시적으로 사용할 수 없습니다 (라이브 user_usage_report와 CSV 모두 부재).',
+    'cost.top.col.mtd':           'MTD',
+    'cost.top.mtd_caveat':        'MTD 컬럼: Spend Limits API의 멤버별 월초~현재 누적 — Anthropic Console 멤버 화면과 동일한 거의 실시간 수치입니다 (매월 1일 00:00 UTC 리셋, 선택 기간과 무관).',
+    'cost.top.mtd_caveat_live':   'Value 컬럼은 선택 기간 기준이며 ~4시간 워터마크로 갱신되므로, 현재 활동 중인 사용자는 MTD보다 작게 보일 수 있습니다.',
     'cost.export.pdf':            'PDF',
     'cost.export.pdf.hint':       '인쇄 대화상자 열기 — "PDF로 저장" 선택',
 
