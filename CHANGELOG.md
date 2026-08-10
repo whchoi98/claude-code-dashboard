@@ -11,6 +11,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-08-10
+
+The Cost page's Top-10 estimated-cost table now shows the Anthropic Console's month-to-date number next to each user. Reported as: "the dashboard's estimated cost differs from the Claude Code admin console — one user shows $972 MTD there." Root-caused live against both upstream systems: the Console member list reads the Spend Limits system (`period_to_date_spend` — near-real-time, calendar month, resets on the 1st 00:00 UTC), while the dashboard's per-user cost reads the Analytics `user_cost_report` (range-windowed, ~4h `data_refreshed_at` watermark, 30-day correction window). Measured during the investigation: the Console figure ticked $975.00 → $976.63 within minutes while `user_cost_report` still summed $546 — the entire gap was usage after the watermark by a currently-active user, and org-wide the gap concentrated exclusively on users active at that moment. Neither number is wrong; they answer different questions at different freshness.
+
+### Added
+
+- **MTD column on the "Top 10 by Estimated Cost" table.** Joined by lower-cased email (email case variants across Anthropic surfaces are a documented join hazard) from the already-fetched `/api/cost/spend-limits` response — the same figure the Console member list shows, so a freshness or window gap between "estimate" and "Console" is now self-explanatory on one screen. Members absent from the spend-limits response render `—`; the column disappears (table unaffected) if the spend-limits fetch fails. A caveat line explains the column's calendar-month, picker-independent semantics (new i18n keys, en/ko).
+
+### Fixed
+
+- **MTD caveat's pairing sentence gated on the live source.** The pre-deploy adversarial review confirmed the caveat's second sentence ("the Value column follows the selected range at a ~4h watermark") would be false whenever the spend table degrades to its CSV-fallback sources (activity-scaled efficiency rows or whole-export-period CSV totals) — spend-limits rides its own keep-warm cache, so it stays populated during exactly the live-report flaps that activate those fallbacks, and the screen would have shown two contradictory provenance captions (the same defect class the pre-split `range_caveat` fix addressed). The sentence now renders only when the live `user_cost_report` rows are the actual source.
+
 ## [2.0.3] - 2026-07-28
 
 The AI analysis chatbot can now answer questions about recent days. Reported as: asking "who was most active on July 27" returned "no data for July 27 yet" — even though two sources could answer it (the live `user_usage_report` serves per-user activity through TODAY at a ~4h watermark, and `compliance_daily` has per-actor audit events through yesterday). The system prompt routed every per-user ranking to `search_users`, whose snapshot ends at the 3-day analytics buffer.
