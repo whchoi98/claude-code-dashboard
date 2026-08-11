@@ -75,6 +75,20 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   row (written by `collector/flatten.js`) → nested Analytics-API user shape.
   Imported by `index.js` `readUsersFromS3`; unit-tested in
   `tests/server/test-flatten-inflate.mjs`.
+- **`identity.js`** — identity-aware masking (ADR-0020).
+  `makeIdentityResolver({ userPoolId, clientId, region })` verifies the
+  Cognito ID token from the `ccd_id` HttpOnly cookie (CloudFront `ALL_VIEWER`
+  forwards it) with the SAME checks as the edge (`JWKS` RS256 + iss/aud/exp/
+  token_use; Node 20 crypto, no deps, JWKS cached 1h) →
+  `{ email, unmask, groups }`; `unmask` = membership in the `unmasked`
+  Cognito group. **Every failure fails CLOSED to masked** (missing env =
+  local dev, bad/expired token, JWKS outage). `index.js` registers an
+  `/api`-wide middleware attaching `req.identity` + `GET /api/me`; consumers:
+  the chat route (binds `unmask` into `makeToolRunner` AND the
+  `CHAT_SYSTEM_PROMPT` 4th arg — the prompt's privacy line must match what
+  the tools serve) and `/archive/query` (raw rows for unmasked). unmask must
+  ONLY ever come from `req.identity` — never from model/tool input.
+  Unit-tested in `tests/server/test-identity.mjs`.
 - **`aws.js`** — AWS integrations registered via
   `registerAwsRoutes(app, { fetchAnalytics })`. Owns:
   - Cost routes — `/cost/live`, `/cost/groups`, `/cost/spend-limits` and the

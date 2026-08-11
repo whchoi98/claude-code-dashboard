@@ -35,8 +35,21 @@ export const acceptRate = (a: number, r: number) => {
  *   a@x.com             →  a@x.com          unchanged — nothing to mask
  *                                            without erasing the whole local)
  */
+// Identity-aware masking (ADR-0020): main.tsx resolves GET /api/me BEFORE
+// React mounts and flips this flag for the Cognito 'unmasked' group. Fixed
+// pre-mount, so every maskEmail call site behaves consistently without
+// re-render plumbing; the server decides (fail-closed) — this flag only
+// mirrors its verdict for display.
+let UNMASKED = false
+export function setUnmasked(v: boolean): void { UNMASKED = v }
+// For maskers that live outside this module (Compliance's maskEmailsInText
+// handles %40-encoded emails inside recorded url/request_body text) — they
+// must follow the same identity verdict as maskEmail.
+export function isUnmasked(): boolean { return UNMASKED }
+
 export function maskEmail(email: string | null | undefined): string {
   if (!email) return ''
+  if (UNMASKED) return email
   const at = email.lastIndexOf('@')
   if (at < 1) return email
   const local = email.slice(0, at)

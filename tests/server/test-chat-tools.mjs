@@ -156,6 +156,38 @@ ok('user_usage strips real names', uu.data.users.every((u) => !('name' in u))
 // Degrade/clamp flags pass through so the model can state the served window.
 ok('user_usage passes span_clamped + stale through', uu.data.span_clamped === true && uu.data.stale === true)
 
+// ── unmask option (identity-aware masking, ADR-0020) ───────────────────────
+// A runner built with unmask:true serves an 'unmasked'-group admin session:
+// tool results keep RAW emails. Real-name stripping is NOT relaxed — the raw
+// email already identifies, names stay out of the model context either way.
+const unmaskedRunner = makeToolRunner({
+  // maskable local part (>2 chars) — 'a@x.com'-style fixtures mask to
+  // themselves and would make the raw-email assertions vacuous.
+  fetchAnalytics: async () => ({ ...snap, users_today: [U('longname@x.com', 1, 0)] }),
+  runAthenaSafe: async () => ({ columns: ['user_email'], rows: [{ user_email: 'xyz@y.com' }] }),
+  fetchCostSummary: async () => ({ totals: { net_spend_usd: 5 } }),
+  fetchUserUsage: async ({ starting_date, ending_date }) => ({
+    period: { starting_date, ending_date },
+    users: [{ email: 'heavy@x.com', name: 'Real Person Name', requests: 900, input_tokens: 999, output_tokens: 500, total_tokens: 1499 }],
+  }),
+  unmask: true,
+})
+ok('unmask: athena rows keep raw emails',
+  (await unmaskedRunner('run_athena_sql', { sql: 'SELECT 1' })).data.rows[0].user_email === 'xyz@y.com')
+const unmaskSearch = await unmaskedRunner('search_users', {})
+ok('unmask: search_users keeps raw emails', unmaskSearch.data.users[0].email === 'longname@x.com')
+const unmaskUu = await unmaskedRunner('get_user_usage', { starting_date: '2026-08-10', ending_date: '2026-08-10' })
+ok('unmask: user_usage keeps raw emails', unmaskUu.data.users[0].email === 'heavy@x.com')
+ok('unmask: user_usage STILL strips real names', unmaskUu.data.users.every((u) => !('name' in u))
+  && !JSON.stringify(unmaskUu.data).includes('Real Person Name'))
+// The system prompt must match the session: masked sessions keep the
+// echo-masked-emails mandate; unmasked sessions must NOT instruct the model
+// that emails are masked (it would hedge or refuse to show them).
+ok('default prompt keeps masked-email mandate', CHAT_SYSTEM_PROMPT('en', '2026-08-11').includes('already masked'))
+const unmaskPrompt = CHAT_SYSTEM_PROMPT('en', '2026-08-11', null, true)
+ok('unmask prompt drops masked-email mandate', !unmaskPrompt.includes('already masked'))
+ok('unmask prompt states emails are real', unmaskPrompt.includes('REAL') || unmaskPrompt.includes('unmasked'))
+
 // clampChatUserWindow (aws.js pure export) — the chat-side 31-day span cap.
 const { clampChatUserWindow } = await import('../../server/aws.js')
 const NOW = new Date('2026-07-28T12:00:00Z')

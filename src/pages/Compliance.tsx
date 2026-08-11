@@ -13,7 +13,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
-import { fmtNum, fmtDate, maskEmail } from '../lib/format'
+import { fmtNum, fmtDate, maskEmail, isUnmasked } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
 
@@ -418,6 +418,9 @@ function AuditFeedTable({ events, onSelect }: { events: ActivityEvent[]; onSelec
 // record other clients' request url/request_body verbatim, where emails
 // arrive URL-encoded — a literal-@ regex would let those through.
 function maskEmailsInText(s: string): string {
+  // Identity-aware (ADR-0020): same verdict as maskEmail — an 'unmasked'
+  // admin sees recorded url/request_body text raw, everyone else masked.
+  if (isUnmasked()) return s
   return s.replace(
     /([A-Za-z0-9._+-]{1,2})[A-Za-z0-9._%+-]*(@|%40)([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi,
     '$1***$2$3',

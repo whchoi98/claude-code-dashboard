@@ -20,6 +20,10 @@ Special path handlers (never gated by `check-auth`):
 
 Returns key presence flags and Analytics API data constraints. `complianceKey` is `compliance` (dedicated key), **`analytics-fallback`** (no dedicated key — audit rides the Analytics key's `read:compliance_activities` scope, verified live 2026-07-03), or `none`.
 
+### `GET /api/me`
+
+The caller's own verified identity (ADR-0020): `{ email, unmask }` from the `ccd_id` Cognito ID-token cookie (JWKS RS256 + iss/aud/exp/token_use checks in `server/identity.js`; `unmask` = membership in the `unmasked` Cognito group). Every failure path — no cookie, bad/expired token, missing `COGNITO_*` env (local dev), JWKS outage — fails closed to `{ email: null, unmask: false }`. Served `Cache-Control: no-store`; consumed once by the frontend before React mounts to flip `maskEmail()` into passthrough for unmasked admins.
+
 ## Analytics API (Enterprise key)
 
 | Method | Path | Notes |
@@ -108,7 +112,7 @@ See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/api/archive/query` | Body `{ query }`. Only `SELECT` / `WITH` allowed (sanitizer in `server/aws.js` rejects multi-statement queries, forbidden keywords, and any FROM/JOIN target outside the six allowed tables; result rows are email-masked server-side, including `%40`-encoded emails inside `compliance_daily` payload strings). The polling budget is 60 seconds — beyond that the route throws `"Athena query did not finish within 60 s. Try a narrower date range."` rather than calling `GetQueryResultsCommand` on a still-RUNNING query (which previously surfaced as a generic `athena_error`). Note: the partition column `date` is `varchar`, so filter with plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`) — wrapping in `DATE '…'` raises `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date` on Athena Engine v3. The `run_athena_sql` chat tool and the Archive page's pre-filled query both enforce the same rule. Returns rows array. |
+| POST | `/api/archive/query` | Body `{ query }`. Only `SELECT` / `WITH` allowed (sanitizer in `server/aws.js` rejects multi-statement queries, forbidden keywords, and any FROM/JOIN target outside the six allowed tables; result rows are email-masked server-side, including `%40`-encoded emails inside `compliance_daily` payload strings — EXCEPT for a verified `unmasked`-group identity, which receives raw rows per ADR-0020). The polling budget is 60 seconds — beyond that the route throws `"Athena query did not finish within 60 s. Try a narrower date range."` rather than calling `GetQueryResultsCommand` on a still-RUNNING query (which previously surfaced as a generic `athena_error`). Note: the partition column `date` is `varchar`, so filter with plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`) — wrapping in `DATE '…'` raises `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date` on Athena Engine v3. The `run_athena_sql` chat tool and the Archive page's pre-filled query both enforce the same rule. Returns rows array. |
 
 ## Response shape conventions
 

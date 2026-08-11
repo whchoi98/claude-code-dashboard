@@ -8,6 +8,7 @@ import { generateMock } from './mock.js'
 import { registerAwsRoutes, makeTtlCache } from './aws.js'
 import { inflateUser } from './inflate.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
+import { makeIdentityResolver } from './identity.js'
 
 dotenv.config()
 
@@ -75,6 +76,36 @@ const keyClass = (key) =>
 // middleware honors (no buffering of the event stream).
 app.use(compression())
 app.use(express.json())
+
+// ── Identity (ADR-0020): who is logged in, may they see unmasked emails? ──
+// The Lambda@Edge auth gate stores the Cognito ID token in the ccd_id
+// HttpOnly cookie and CloudFront's ALL_VIEWER origin-request policy forwards
+// it here. verifyJwt-equivalent checks live in server/identity.js
+// (unit-tested); every failure fails CLOSED to { unmask: false } — local dev
+// (no COGNITO_* env) and direct-ALB probes therefore always see masked data.
+// Registered before every /api route so req.identity is uniformly available
+// (chat + archive read it; RSA verify is sub-ms, JWKS cached 1h).
+const resolveIdentity = makeIdentityResolver({
+  userPoolId: process.env.COGNITO_USER_POOL_ID,
+  clientId: process.env.COGNITO_CLIENT_ID,
+  region: process.env.COGNITO_REGION || process.env.AWS_REGION || 'ap-northeast-2',
+})
+app.use('/api', async (req, _res, next) => {
+  req.identity = await resolveIdentity(req.headers.cookie)
+  next()
+})
+// The caller's own identity — consumed once by the frontend BEFORE React
+// mounts (src/main.tsx) to flip maskEmail() into passthrough for the
+// 'unmasked' Cognito group. email here is the caller's own address, not
+// another user's PII.
+app.get('/api/me', (req, res) => {
+  const { email, unmask } = req.identity || { email: null, unmask: false }
+  // no-store: this body varies by the ccd_id cookie. CloudFront's dynamic
+  // behaviors are CACHING_DISABLED today, but a per-user payload must never
+  // be one cache-policy edit away from cross-user contamination.
+  res.set('Cache-Control', 'no-store')
+  res.json({ email, unmask })
+})
 
 // Simple in-memory cache: key → { t, data }.
 // 5-minute TTL fits the Analytics API's 3-day buffer comfortably — the data

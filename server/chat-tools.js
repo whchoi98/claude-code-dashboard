@@ -12,7 +12,11 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 // because maskEmail() can't parse a %40 string (no literal '@').
 const ENCODED_EMAIL_RE = /([A-Za-z0-9._+-]{1,2})[A-Za-z0-9._%+-]*(%40)([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi
 
-// Mirror of src/lib/format.ts maskEmail — keep the two in sync.
+// Mirror of src/lib/format.ts maskEmail's TRANSFORM only — keep the masking
+// shape in sync, but NEVER port format.ts's module-global UNMASKED flag here:
+// server-side unmask is per-request (req.identity → makeToolRunner's guard).
+// A process-global flag would let one admin request flip every later demo
+// session to raw emails — the exact leak ADR-0020 is designed to prevent.
 export function maskEmail(email) {
   if (!email) return ''
   const at = email.lastIndexOf('@')
@@ -79,7 +83,9 @@ const locTotal = (u) => (cc(u).lines_of_code?.added_count || 0) + (cc(u).lines_o
 const userScore = (u) => locTotal(u) + (cc(u).commit_count || 0) * 20 + (cc(u).pull_request_count || 0) * 50
 
 // Rank UserRecord[] by Claude Code activity, mask emails, return compact rows.
-export function rankUsers(users, { query, limit = 10 } = {}) {
+// The maskEmails escape hatch is a SEPARATE options object — the second arg
+// is model-controlled tool input, so masking must not be togglable there.
+export function rankUsers(users, { query, limit = 10 } = {}, { maskEmails = true } = {}) {
   const q = (query || '').toLowerCase().trim()
   const list = (Array.isArray(users) ? users : [])
     .filter((u) => !q || (u?.user?.email_address || '').toLowerCase().includes(q))
@@ -90,7 +96,7 @@ export function rankUsers(users, { query, limit = 10 } = {}) {
     const acc = Object.values(ta).reduce((s, t) => s + (t?.accepted_count || 0), 0)
     const rej = Object.values(ta).reduce((s, t) => s + (t?.rejected_count || 0), 0)
     return {
-      email: maskEmail(u?.user?.email_address || ''),
+      email: maskEmails ? maskEmail(u?.user?.email_address || '') : (u?.user?.email_address || ''),
       lines_of_code: locTotal(u),
       commits: cc(u).commit_count || 0,
       prs: cc(u).pull_request_count || 0,
@@ -199,7 +205,7 @@ export const TOOL_SPECS = [
   },
 ]
 
-export function CHAT_SYSTEM_PROMPT(locale, today, org = null) {
+export function CHAT_SYSTEM_PROMPT(locale, today, org = null, unmask = false) {
   const lang = locale === 'ko'
     ? '답변은 반드시 한국어로, 간결한 마크다운(필요 시 ## 헤더·`-` 목록·표)으로 작성하세요.'
     : 'Answer in clear English as concise Markdown (use ## headings, "-" lists, and GFM tables where they help).'
@@ -216,7 +222,13 @@ export function CHAT_SYSTEM_PROMPT(locale, today, org = null) {
     'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings on finalized days; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend; get_user_usage for per-user activity (requests/tokens) on RECENT days — today and the not-yet-finalized buffer days.',
     ...(orgLine ? [orgLine] : []),
     'Data caveats to respect: a 3-day finalization buffer on the analytics tables, a 90-day live lookback, and no Bedrock usage in cost.',
-    'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
+    // The privacy line must match how the runner actually serves this
+    // session (ADR-0020): telling the model emails are masked when they are
+    // raw makes it hedge or refuse to show them — and vice versa would make
+    // it "reconstruct" masked strings.
+    unmask
+      ? 'PRIVACY: this session belongs to an administrator in the unmasked group. Emails returned by tools are REAL addresses — show them as-is when relevant.'
+      : 'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
     `Today is ${today} (UTC). When writing Athena date filters on the analytics tables, end ranges no later than 3 days ago. EXCEPTION: compliance_daily is event-time partitioned and current through yesterday — end its ranges at yesterday.`,
     'A question about a day INSIDE the buffer (today or the last ~3 days) is still answerable — NEVER reply "no data" without trying: get_user_usage serves per-user requests/tokens through TODAY (~4h watermark, partial), and compliance_daily has per-actor audit events through YESTERDAY (COUNT(*) GROUP BY actor_email). Present those numbers as preliminary.',
     lang,
@@ -225,22 +237,26 @@ export function CHAT_SYSTEM_PROMPT(locale, today, org = null) {
 
 // Build a tool dispatcher from injected async deps. Memoizes the analytics
 // snapshot so overview + search_users in one turn share a single fetch.
-export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary, fetchUserUsage }) {
+export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary, fetchUserUsage, unmask = false }) {
   let snapPromise = null
   const snap = () => (snapPromise ||= fetchAnalytics())
+  // Identity-aware masking (ADR-0020): unmask comes from the VERIFIED
+  // req.identity (Cognito 'unmasked' group), never from model input — tool
+  // inputs are model-controlled and must not be able to widen visibility.
+  const guard = (v) => (unmask ? v : maskEmailsDeep(v))
   return async function runTool(name, input = {}) {
     try {
       if (name === 'get_analytics_overview') {
         return { ok: true, data: compactOverview(await snap()) }
       }
       if (name === 'search_users') {
-        const rows = rankUsers((await snap()).users_today, input)
+        const rows = rankUsers((await snap()).users_today, input, { maskEmails: !unmask })
         return { ok: true, data: { users: rows }, rowCount: rows.length }
       }
       if (name === 'run_athena_sql') {
         const { columns, rows } = await runAthenaSafe(String(input.sql || ''))
         const capped = rows.slice(0, 200)
-        return { ok: true, data: maskEmailsDeep({ columns, rows: capped, row_count: rows.length }), rowCount: rows.length }
+        return { ok: true, data: guard({ columns, rows: capped, row_count: rows.length }), rowCount: rows.length }
       }
       if (name === 'get_cost_summary') {
         // Allowlist the schema-declared fields — fetchCostSummary now also
@@ -248,7 +264,7 @@ export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary
         // and the model-controlled input must not reach that filter: this
         // tool's contract is unconditionally org-wide.
         const { starting_date, ending_date } = input || {}
-        return { ok: true, data: maskEmailsDeep(await fetchCostSummary({ starting_date, ending_date })) }
+        return { ok: true, data: guard(await fetchCostSummary({ starting_date, ending_date })) }
       }
       if (name === 'get_user_usage') {
         // Dep returns pre-aggregated per-user rows (userUsageToUsers runs on
@@ -272,7 +288,7 @@ export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary
             ({ email, requests, input_tokens, output_tokens, total_tokens }))
         return {
           ok: true,
-          data: maskEmailsDeep({
+          data: guard({
             period: out.period, data_refreshed_at: out.data_refreshed_at,
             // Degrade/clamp flags pass through so the model can say what
             // window was ACTUALLY served instead of presenting a clamped

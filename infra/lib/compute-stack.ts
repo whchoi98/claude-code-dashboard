@@ -70,6 +70,22 @@ export class ComputeStack extends cdk.Stack {
     const analyticsSecret2 = (enableOrg2Ctx === true || enableOrg2Ctx === 'true')
       ? secrets.Secret.fromSecretNameV2(this, 'AnalyticsSecret2', `${props.analyticsSecretName}-2`)
       : undefined
+    // Identity-aware masking (ADR-0020): the server verifies the ccd_id
+    // Cognito ID-token cookie itself, which needs the pool id + client id.
+    // Both come from the SAME ccd/cognito-config secret the edge build reads
+    // (single source of truth); clientSecret is deliberately NOT injected —
+    // JWT verification only needs public identifiers.
+    // COMPLETE ARN on purpose: the name ends in hyphen+6 chars ('-config'),
+    // which fromSecretNameV2's partial ARN mis-parses as the Secrets Manager
+    // random suffix (CDK's own docstring: "If your secret name ends with a
+    // hyphen and 6 characters, you should always use fromSecretCompleteArn()
+    // to avoid potential AccessDeniedException") — the review caught this
+    // before it broke task startup. Same hardcoded-ARN precedent as the
+    // us-east-1 alias cert below.
+    const cognitoConfigSecret = secrets.Secret.fromSecretCompleteArn(
+      this, 'CognitoConfigSecret',
+      'arn:aws:secretsmanager:ap-northeast-2:061525506239:secret:ccd/cognito-config-SGUykq',
+    )
 
     const cluster = new ecs.Cluster(this, 'Cluster', {
       vpc: props.vpc,
@@ -122,6 +138,8 @@ export class ComputeStack extends cdk.Stack {
         ...(analyticsSecret2
           ? { ANTHROPIC_ANALYTICS_KEY_2: ecs.Secret.fromSecretsManager(analyticsSecret2) }
           : {}),
+        COGNITO_USER_POOL_ID: ecs.Secret.fromSecretsManager(cognitoConfigSecret, 'userPoolId'),
+        COGNITO_CLIENT_ID: ecs.Secret.fromSecretsManager(cognitoConfigSecret, 'clientId'),
       },
       healthCheck: {
         command: ['CMD-SHELL', 'node -e "fetch(\'http://localhost:8080/api/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'],

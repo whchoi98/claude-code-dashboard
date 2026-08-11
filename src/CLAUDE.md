@@ -36,7 +36,7 @@ src/
 │   ├── useChatStream.ts  # multi-turn chat state + SSE parser; sends `POST /api/chat/stream` with { message, history[], locale }; parses status/tool_call/tool_result/text/followups/error/done events; exports ChatMessage, ToolCall, ChatStream types
 │   ├── useHealth.ts
 │   ├── useSortable.ts    # bidirectional column-sort state for tables; nulls always pinned to bottom; strings via localeCompare, numbers by value
-│   └── format.ts         # fmtNum / fmtCents / fmtDate / maskEmail / acceptRate / badgeSource (range-day source → PageHeader badge: everything non-mock is 'live' — 's3'/'unarchived' first days must not render a "Mock" badge)
+│   └── format.ts         # fmtNum / fmtCents / fmtDate / maskEmail / acceptRate / badgeSource (range-day source → PageHeader badge: everything non-mock is 'live' — 's3'/'unarchived' first days must not render a "Mock" badge). maskEmail is identity-aware (ADR-0020): main.tsx awaits GET /api/me BEFORE createRoot and calls setUnmasked(true) for the 'unmasked' Cognito group, turning maskEmail into a passthrough — fixed pre-mount, so no re-render plumbing and zero call-site changes; every failure keeps masking
 │
 │ Page-local hooks (not in lib/ — kept colocated with the consumer page):
 │   - useCostData(range, rbacGroupId?)  # composite: tries /api/cost/live first, falls back to /api/cost/csv;

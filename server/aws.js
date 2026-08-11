@@ -1297,8 +1297,14 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // is told which org it is scoped to so run_athena_sql picks the right
     // table family (*_org2 twins).
     const orgInfo = hasOrg2() ? orgList().find((o) => o.id === org) || null : null
+    // Identity-aware masking (ADR-0020): the VERIFIED identity middleware
+    // (server/index.js) attached req.identity from the Cognito ID-token
+    // cookie. unmask binds the whole session — tool results AND the system
+    // prompt's privacy stance must agree. Absent identity → masked.
+    const unmask = req.identity?.unmask === true
     sseInit(res)
     const runTool = makeToolRunner({
+      unmask,
       fetchAnalytics: () => fetchAnalytics(org),
       runAthenaSafe,   // account-level: the table name carries the org
       fetchCostSummary: (opts) => fetchCostSummary(opts, org),
@@ -1333,7 +1339,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       for (; hop <= MAX_TOOL_HOPS; hop++) {
         const stream = await bedrock.send(new ConverseStreamCommand({
           modelId: MODEL_ID,
-          system: [{ text: CHAT_SYSTEM_PROMPT(locale, today, orgInfo) }],
+          system: [{ text: CHAT_SYSTEM_PROMPT(locale, today, orgInfo, unmask) }],
           messages,
           toolConfig: { tools: TOOL_SPECS },
           inferenceConfig: { maxTokens: 2000, temperature: 0.2 },
@@ -1416,8 +1422,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       const { rows } = await runAthenaSafe(query)
       // Mask emails server-side (incl. %40-encoded inside compliance_daily
       // payload/url strings) — the "always mask in UI" rule must hold even
-      // for free-form SQL results the frontend can't anticipate.
-      res.json({ rows: maskEmailsDeep(rows) })
+      // for free-form SQL results the frontend can't anticipate. Exception
+      // (ADR-0020): a VERIFIED 'unmasked'-group identity gets raw rows.
+      res.json({ rows: req.identity?.unmask === true ? rows : maskEmailsDeep(rows) })
     } catch (err) {
       // sanitizeAthenaQuery throws Error with a helpful message — surface as 400.
       const msg = err?.message || String(err)

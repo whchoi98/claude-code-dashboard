@@ -135,3 +135,27 @@ To change it (note `update-user-pool` is a full replace — pass through other f
 - [ADR-0001](../decisions/0001-cognito-lambda-edge-auth.md) — why Cognito + Lambda@Edge.
 - Secrets Manager: `ccd/cognito-config` holds `userPoolId`, `clientId`, `clientSecret`, `domain`, `region`.
 - Hosted UI: `https://ccd-dashboard-061525506239.auth.ap-northeast-2.amazoncognito.com` (login, forgot password).
+
+## Manage the `unmasked` group (ADR-0020)
+
+Members of the `unmasked` group see raw (unmasked) emails across the UI, the
+AI chat, and archive query results. Everyone else — including every failure
+mode — stays masked. Membership changes take effect on the member's next
+login (the group claim rides the ID token, ~1h max cookie lifetime).
+
+```bash
+# Grant unmasked view
+aws cognito-idp admin-add-user-to-group \
+  --region ap-northeast-2 --user-pool-id "$POOL" \
+  --username admin@whchoi.net --group-name unmasked
+
+# Revoke
+aws cognito-idp admin-remove-user-from-group \
+  --region ap-northeast-2 --user-pool-id "$POOL" \
+  --username admin@whchoi.net --group-name unmasked
+
+# Audit who currently has it
+aws cognito-idp list-users-in-group \
+  --region ap-northeast-2 --user-pool-id "$POOL" --group-name unmasked \
+  --query 'Users[].Attributes[?Name==`email`].Value' --output text
+```
