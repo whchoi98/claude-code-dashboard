@@ -79,7 +79,11 @@ export function Layout() {
       <aside
         id="app-nav"
         className={clsx(
-          'w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/95 lg:bg-paper-muted/60 backdrop-blur px-5 py-6 flex flex-col',
+          'w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/95 lg:bg-paper-muted/60 backdrop-blur flex flex-col',
+          // Standalone-PWA safe areas (env() = 0 in regular browsers, so
+          // desktop/browser rendering is byte-identical): keep the drawer
+          // clear of the status bar, home indicator, and landscape notch.
+          'pr-5 pl-[calc(1.25rem+env(safe-area-inset-left))] pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))]',
           // Drawer on mobile, static column on lg+. z-auto on lg — a z-index
           // on a flex item creates a stacking context even when static, which
           // would float the desktop sidebar above the UserDetailPanel
@@ -254,9 +258,17 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 h-full overflow-y-auto">
-        {/* Mobile top bar — hamburger + product identity (hidden on lg+) */}
-        <div className="lg:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-ink-100 bg-paper-muted/90 backdrop-blur px-4 py-3">
+      {/* Safe-area split (review-settled): main carries ONLY the bottom
+          inset. The SIDE insets live on the sticky top bar (whose background
+          must paint full-bleed under the notch — side padding on main would
+          stop it env() short of the display edge) and on the Outlet wrapper
+          (which protects scrolled page content). Putting them on main too
+          would double-count the landscape insets. */}
+      <main className="flex-1 min-w-0 h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        {/* Mobile top bar — hamburger + product identity (hidden on lg+).
+            pt carries the standalone-PWA status-bar inset (sticky top-0 sits
+            flush under the notch otherwise); pl/pr cover the landscape notch. */}
+        <div className="lg:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-ink-100 bg-paper-muted/90 backdrop-blur pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))]">
           <button
             onClick={() => setNavOpen(true)}
             aria-label={t('nav.open_menu')}
@@ -277,7 +289,11 @@ export function Layout() {
             v{APP_VERSION}
           </Link>
         </div>
-        <Outlet />
+        {/* Side safe-area insets for page content (landscape notch/rounded
+            corners) — env() = 0 everywhere except notched iPhones. */}
+        <div className="pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+          <Outlet />
+        </div>
       </main>
       {/* Hidden (not unmounted — keeps the conversation) while the mobile
           drawer is open: both are z-40 fixed and the chat pill overlaps the

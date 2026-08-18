@@ -3,8 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/claude.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: standalone PWA draws under the notch/home bar;
+         Layout.tsx pads with env(safe-area-inset-*) (2026-08-18 PWA spec) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Claude Code · Enterprise Analytics</title>
+    <!-- PWA (manifest-only — deliberately NO service worker: a cached shell
+         would bypass the Cognito check-auth edge on navigation and break
+         session refresh). use-credentials is REQUIRED: the manifest request
+         passes the same edge gate and 302s to Cognito without cookies. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <meta name="theme-color" content="#FAF9F5" />
+    <!-- Apple meta tags are the reliable iOS baseline even when the manifest
+         fetch fails — deliberate double coverage. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CC Analytics" />
   </head>
   <body class="bg-paper text-ink-800 antialiased">
     <div id="root"></div>

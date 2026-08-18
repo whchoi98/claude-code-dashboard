@@ -18,6 +18,16 @@ exports.handler = async (event) => {
     return req
   }
 
+  // Non-sensitive PWA/static brand assets (2026-08-18 PWA spec): iOS fetches
+  // apple-touch-icon — and sometimes the manifest — OUTSIDE the page's
+  // cookie context when adding to the home screen; a 302-to-Cognito here
+  // degrades the home-screen icon to a page screenshot. EXACT-match
+  // allowlist only (brand tile PNGs + manifest, no data): everything else
+  // stays gated.
+  if (/^\/(apple-touch-icon\.png|icon-192\.png|icon-512\.png|icon-512-maskable\.png|manifest\.webmanifest|claude\.svg)$/.test(uri)) {
+    return req
+  }
+
   const cookies = shared.parseCookies(req.headers)
   const accessToken = cookies[shared.COOKIE.access]
 

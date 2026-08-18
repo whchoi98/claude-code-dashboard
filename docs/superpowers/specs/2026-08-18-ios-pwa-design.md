@@ -11,9 +11,12 @@
    edge `check-auth` on navigation, breaking session refresh (expired cookies →
    every API call silently 302s). iOS needs no SW for A2HS/standalone. Offline =
    normal network error.
-2. **Icons generated from the existing `claude.svg`** (orange asterisk mark) on
-   the paper background `#FAF9F5` — iOS fills transparency with black, so
-   full-bleed background PNGs are required.
+2. **Icons generated from the existing `claude.svg`** — iOS fills transparency
+   with black, so full-bleed background PNGs are required. Implementation
+   note: claude.svg is itself an orange rounded tile (`#D97757`) with a cream
+   asterisk, so the icons composite it over a same-color `#D97757` square
+   (corners blend invisibly) — the tile look, full-bleed. The manifest's
+   `background_color`/`theme_color` stay paper `#FAF9F5` (app UI colors).
 
 ## Components
 
@@ -62,6 +65,27 @@ SW; Android users keep using the browser).
   in built HTML.
 - Real-device check after deploy (owner): Safari 공유 → 홈 화면에 추가 →
   standalone launch + login + safe-area visual.
+
+## Review amendments (adversarial review, 2026-08-18)
+
+The find→verify review confirmed four defects, all fixed pre-ship:
+
+1. **Safe-area split settled**: `main` keeps ONLY the bottom inset; the SIDE
+   insets live on the sticky top bar (its background must paint full-bleed
+   under the notch — side padding on main stopped it `env()` short of the
+   display edge) and on a new `<Outlet>` wrapper (protects scrolled page
+   content). The first cut double-counted the right inset (main + top bar)
+   and missed the left entirely — and since `viewport-fit=cover` applies to
+   REGULAR mobile Safari too (not just standalone), the missing left inset
+   was a landscape regression for existing browser users.
+2. **Fixed overlays covered**: FloatingChat pill/panel move to
+   `calc(1.5rem+env(...))` offsets (portrait home-indicator inset ~34px >
+   the old 24px offset); UserDetailPanel pads its scroll box top/bottom/right.
+3. **check-auth allowlists the icon/manifest paths** (exact-match regex,
+   non-sensitive brand assets only): iOS fetches `apple-touch-icon` outside
+   the page's cookie context during add-to-home-screen, and a 302-to-Cognito
+   would degrade the icon to a page screenshot. Requires `npm run build:edge`
+   before the deploy (Lambda@Edge new version).
 
 ## Rollout
 

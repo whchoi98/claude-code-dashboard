@@ -340,6 +340,10 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       <aside
         className={clsx(
           'fixed right-0 top-0 bottom-0 w-[560px] max-w-[90vw] bg-paper border-l border-ink-100 shadow-2xl z-40 transition-transform duration-200 overflow-y-auto',
+          // Standalone-PWA safe areas: the panel is fixed to the right/top/
+          // bottom viewport edges, so pad its scroll box clear of the
+          // landscape notch and home indicator (env()=0 elsewhere).
+          'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)]',
           email ? 'translate-x-0' : 'translate-x-full',
         )}
       >

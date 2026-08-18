@@ -42,10 +42,10 @@ claude-code-dashboard/
 ├── infra/                  CDK (TypeScript)
 │   ├── bin/app.ts          Entry — 4 stacks with context-driven VPC selection
 │   └── lib/                network-stack · storage-stack · compute-stack · collector-stack
-├── public/claude.svg       Favicon
+├── public/                 Favicon (claude.svg) + iOS/iPadOS PWA assets: manifest.webmanifest (display standalone; the index.html link carries crossorigin="use-credentials" because the manifest fetch passes the Cognito check-auth edge) + apple-touch-icon/icon-192/512/512-maskable PNGs (regenerate via scripts/generate-pwa-icons.mjs). Manifest-only PWA — deliberately NO service worker (a cached shell would break edge session refresh)
 ├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots; publish via scripts/deploy-pages.sh → gh-pages branch)
 ├── docs/                   Architecture, ADRs, runbooks, onboarding, API reference
-├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish)
+├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish) + generate-pwa-icons.mjs (sharp via `npm i --no-save` — NOT a package.json dep)
 ├── tests/                  Harness tests (hooks, structure, secrets)
 └── tools/prompts/          AI prompt templates
 ```
