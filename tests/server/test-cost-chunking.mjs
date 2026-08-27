@@ -4,6 +4,7 @@
 import {
   splitCostWindow, fetchReportPagesChunked, mergeUserReportRows,
   userCostToUsers, userUsageToUsers, COST_MAX_SPAN_DAYS, COST_MAX_CHUNKS,
+  dailyReportParams, DAILY_BUCKET_LIMIT, RETRY_WAITS_429,
 } from '../../server/aws.js'
 
 let n = 0, failed = 0
@@ -80,15 +81,68 @@ const eqf = (a, b) => Math.abs(a - b) < 1e-6
   ok('one upstream call per chunk (no pagination in fake)', calls.length === 3)
 }
 {
-  // failure in any chunk propagates as a failed fetch
+  // failure in any chunk propagates as a failed fetch (persistent 429 —
+  // survives the full retry ladder; waits injected so the test stays fast)
   const fetchImpl = async (url) => {
     const s = new URL(url).searchParams.get('starting_at').slice(0, 10)
     if (s === '2026-06-01') return { ok: false, status: 429, json: async () => ({ error: 'rate' }) }
     return { ok: true, status: 200, json: async () => ({ data: [], has_more: false }) }
   }
   const urlFor = (s, e) => `https://x.test/report?starting_at=${s}T00%3A00%3A00Z&ending_at=${e}`
-  const r = await fetchReportPagesChunked(urlFor, {}, [['2026-05-01', '2026-05-31'], ['2026-06-01', '2026-07-01']], fetchImpl)
-  ok('a failed chunk fails the whole chunked fetch', r.ok === false && r.status === 429)
+  const r = await fetchReportPagesChunked(urlFor, {}, [['2026-05-01', '2026-05-31'], ['2026-06-01', '2026-07-01']], fetchImpl, { retryWaits429: [5, 5] })
+  ok('a persistently-429 chunk fails the whole chunked fetch', r.ok === false && r.status === 429)
+}
+{
+  // a chunk that 429s TWICE then succeeds must survive the retry ladder —
+  // the 2026-08-27 incident: a 119-day load saturates the 60rpm budget and a
+  // single 2s retry lands inside the same saturated minute.
+  let attempts = 0
+  const fetchImpl = async (url) => {
+    const s = new URL(url).searchParams.get('starting_at').slice(0, 10)
+    if (s === '2026-06-01' && ++attempts <= 2) {
+      return { ok: false, status: 429, json: async () => ({ error: 'rate' }) }
+    }
+    return { ok: true, status: 200, json: async () => ({ data: [{ starting_at: `${s}T00:00:00Z` }], has_more: false }) }
+  }
+  const urlFor = (s, e) => `https://x.test/report?starting_at=${s}T00%3A00%3A00Z&ending_at=${e}`
+  const r = await fetchReportPagesChunked(urlFor, {}, [['2026-05-01', '2026-05-31'], ['2026-06-01', '2026-07-01']], fetchImpl, { retryWaits429: [5, 5] })
+  ok('double-429-then-200 chunk recovers via the retry ladder', r.ok === true && r.body.data.length === 2)
+  ok('exactly 3 attempts were made for the flapping chunk (2×429 + 1 success)', attempts === 3)
+}
+
+{
+  // Per-walk retry sleep budget: with a 0ms budget the ladder must not sleep
+  // at all — a persistent-429 chunk fails after its FIRST attempt (pre-fix
+  // fail-fast shape). Guards the CloudFront 60s origin timeout: without the
+  // cap, a 6-chunk walk's ladder sleeps sum to ~47s+ under saturation.
+  let calls429 = 0
+  const fetchImpl = async (url) => {
+    const s = new URL(url).searchParams.get('starting_at').slice(0, 10)
+    if (s === '2026-06-01') { calls429++; return { ok: false, status: 429, json: async () => ({ error: 'rate' }) } }
+    return { ok: true, status: 200, json: async () => ({ data: [], has_more: false }) }
+  }
+  const urlFor = (s, e) => `https://x.test/report?starting_at=${s}T00%3A00%3A00Z&ending_at=${e}`
+  const r = await fetchReportPagesChunked(urlFor, {}, [['2026-05-01', '2026-05-31'], ['2026-06-01', '2026-07-01']], fetchImpl, { retryWaits429: [5, 5], retrySleepBudgetMs: 0 })
+  ok('exhausted sleep budget skips retries (fail-fast)', r.ok === false && calls429 === 1)
+}
+{
+  // The default ladder is the incident-tuned constant — a silent revert to
+  // the pre-incident single short retry must fail this assertion.
+  ok('RETRY_WAITS_429 default is the two-step [2500, 8000] ladder',
+    Array.isArray(RETRY_WAITS_429) && RETRY_WAITS_429.length === 2 && RETRY_WAITS_429[0] === 2500 && RETRY_WAITS_429[1] === 8000)
+}
+
+// ── dailyReportParams — request shaping for daily-bucket report walks ───────
+{
+  const p = dailyReportParams('2026-05-01', '2026-05-31', ['product', 'model'])
+  ok('daily params carry limit=31 (max daily buckets/page — 5x fewer pages)', p.get('limit') === String(DAILY_BUCKET_LIMIT) && DAILY_BUCKET_LIMIT === 31)
+  ok('daily params keep bucket_width=1d', p.get('bucket_width') === '1d')
+  ok('daily params use exclusive ending_at (next UTC day)', p.get('starting_at') === '2026-05-01T00:00:00Z' && p.get('ending_at') === '2026-06-01T00:00:00Z')
+  ok('daily params append every group_by dim', p.getAll('group_by[]').join(',') === 'product,model')
+  const scoped = dailyReportParams('2026-05-01', '2026-05-31', ['product'], { rbacGroupId: 'rbac_group_x' })
+  ok('rbac scope rides rbac_group_ids[]', scoped.getAll('rbac_group_ids[]').join(',') === 'rbac_group_x')
+  const bare = dailyReportParams('2026-05-01', '2026-05-31')
+  ok('dims optional; no rbac filter when unscoped', bare.getAll('group_by[]').length === 0 && bare.getAll('rbac_group_ids[]').length === 0)
 }
 
 // ── mergeUserReportRows — user_cost_report ──────────────────────────────────

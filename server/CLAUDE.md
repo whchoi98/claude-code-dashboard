@@ -115,9 +115,21 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     `by_cost_type` (tokens/web_search/code_execution), `by_token_type` +
     `token_tiers` (cache-hit ratio) from best-effort secondary `cost_report`
     rollups + the usage body. **All four reports are paginated via
-    `fetchAllReportPages` — the API caps daily buckets at ~7/page, so a window
-    > 7 days MUST follow `has_more`/`next_page` or the total truncates to its
-    first week; fetching page 1 only was the v1.1.1 monthly-total bug.**),
+    `fetchAllReportPages`, and every daily-bucket URL is shaped by
+    `dailyReportParams` (pure, exported) which requests `limit=31` — the
+    daily-bucket max, probed live 2026-08-27. The API DEFAULT is 7/page,
+    which made each ≤31-day chunk a ~5-page walk; a 119-day custom window
+    then fanned out ~70-90 upstream requests, saturated the shared 60rpm
+    org budget, and collapsed the whole live cost path to the CSV fallback
+    (the 2026-08-27 incident — collateral 429s even killed keep-warm preset
+    refreshes). Pagination must STILL follow `has_more`/`next_page` as
+    defense; fetching page 1 only was the v1.1.1 monthly-total bug. 429s in
+    multi-chunk walks retry on the shared `RETRY_WAITS_429` two-step ladder
+    (~2.5s then ~8s, jittered; injectable as `retryWaits429` on
+    `fetchReportPagesChunked`) — a single short retry lands inside the same
+    saturated minute — and ladder sleeps draw from a per-walk ~20s budget so
+    a 6-chunk walk under sustained saturation stays inside the CloudFront
+    60s origin timeout.**),
     `/cost/users` (live per-user USD spend via `user_cost_report`, paginated,
     raw emails, sorted by `net_spend_usd` desc; no per-user token counts.
     **`?by=model` / `?by=product`** → per-user × model / × product breakdown

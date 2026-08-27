@@ -522,6 +522,30 @@ export function utcNextDay(dateStr) {
   return d.toISOString().slice(0, 10)
 }
 
+// Max daily buckets per page on the cost family (probed live 2026-08-27:
+// limit=31 → a 14-day window returns all 14 buckets on ONE page). The API's
+// DEFAULT is 7/page, which made every 31-day chunk a ~5-page walk — a 119-day
+// Cost load fanned out into ~70-90 upstream requests and saturated the shared
+// 60 rpm org budget (the 2026-08-27 CSV-fallback incident). Always request
+// the max.
+export const DAILY_BUCKET_LIMIT = 31
+
+// Shared query-shaping for every daily-bucket report walk (cost_report /
+// usage_report, plain or rbac-scoped). Exclusive ending_at via utcNextDay —
+// same [d, d+1) convention as the rest of the cost family. Pure — unit-tested
+// in tests/server/test-cost-chunking.mjs.
+export function dailyReportParams(s, e, dims = [], { rbacGroupId = null } = {}) {
+  const params = new URLSearchParams({
+    starting_at: `${s}T00:00:00Z`,
+    ending_at: `${utcNextDay(e)}T00:00:00Z`,
+    bucket_width: '1d',
+    limit: String(DAILY_BUCKET_LIMIT),
+  })
+  for (const dim of dims) params.append('group_by[]', dim)
+  if (rbacGroupId) params.append('rbac_group_ids[]', rbacGroupId)
+  return params
+}
+
 // Resolve the inclusive [starting, ending] window for user_cost_report.
 // The endpoint serves the recent 3-day finalization buffer with PARTIAL data
 // (same semantics as cost_report; verified against the live API 2026-07-03),
@@ -712,10 +736,13 @@ export function scoreEconomicProductivity(joined, opts = {}) {
 }
 
 // Paginate an Analytics report (cost_report / usage_report) by following
-// has_more/next_page and merging every page's `data[]`. The API caps daily
-// buckets at ~7 per page, so a window > 7 days spans multiple pages — fetching
-// only page 1 silently truncates a 30-day total to its first week (the bug this
-// fixes). Mirrors fetchUserReport's pagination loop. `fetchImpl` is
+// has_more/next_page and merging every page's `data[]`. The API DEFAULTS to
+// ~7 daily buckets per page when no `limit` is sent — every current caller
+// shapes its URL via dailyReportParams (limit=31, the daily-bucket max), so a
+// ≤31-day chunk is one page; a caller that omits limit re-inherits the 7/page
+// default and its ~5x page fanout. Pagination must still be followed —
+// fetching only page 1 silently truncates a 30-day total to its first week
+// (the v1.1.1 bug this fixes). Mirrors fetchUserReport's pagination loop. `fetchImpl` is
 // injectable for unit tests. Never throws on a network error: returns
 // `{ ok:false }` so best-effort callers (cost_type/token_type) degrade and
 // primary callers (cost/usage) can surface the HTTP status.
@@ -754,16 +781,29 @@ export async function fetchAllReportPages(baseUrl, headers, fetchImpl = fetch, m
 // once; the SLOW rbac dimension passes a wider wave instead (see
 // fetchGroupCost) because its wall-clock, not its request count, is what
 // threatens the CloudFront 60s origin timeout. A chunk that fails with 429
-// retries ONCE after a short backoff — a multi-chunk walk brushing the budget
-// edge should degrade to slightly-slower, not all-or-nothing. Any other
-// failed chunk propagates as-is (callers treat it exactly like a failed
-// single-window fetch); `urlFor(s, e)` builds the per-chunk URL.
-export async function fetchReportPagesChunked(urlFor, headers, chunks, fetchImpl = fetch, { waveSize = 2 } = {}) {
+// walks the RETRY_WAITS_429 two-step ladder — a single short retry lands
+// inside the same saturated 60rpm minute and fails again (the 2026-08-27
+// incident); the second, longer wait clears it. The ladder draws its sleeps
+// from a per-WALK budget (retrySleepBudgetMs, shared across chunks) so the
+// worst case stays bounded under the CloudFront 60s origin timeout even on a
+// 6-chunk walk under sustained saturation (unbudgeted, 3 sequential waves of
+// ladder sleeps sum to ~47s+). Concurrent chunks in one wave may slightly
+// overshoot the budget (benign — it is a cap, not an accounting ledger).
+// Waits are injectable so tests stay fast. Any other failed chunk propagates
+// as-is (callers treat it exactly like a failed single-window fetch);
+// `urlFor(s, e)` builds the per-chunk URL.
+export const RETRY_WAITS_429 = [2500, 8000]
+export async function fetchReportPagesChunked(urlFor, headers, chunks, fetchImpl = fetch, { waveSize = 2, retryWaits429 = RETRY_WAITS_429, retrySleepBudgetMs = 20_000 } = {}) {
   if (chunks.length === 1) return fetchAllReportPages(urlFor(chunks[0][0], chunks[0][1]), headers, fetchImpl)
+  let sleepBudget = retrySleepBudgetMs
   const fetchChunk = async ([s, e]) => {
     let r = await fetchAllReportPages(urlFor(s, e), headers, fetchImpl)
-    if (!r.ok && r.status === 429) {
-      await new Promise((res) => setTimeout(res, 2000 + Math.random() * 1000))
+    for (const wait of retryWaits429) {
+      if (r.ok || r.status !== 429) break
+      const jittered = wait + Math.random() * wait * 0.5
+      if (jittered > sleepBudget) break   // budget spent → fail fast (pre-fix shape)
+      sleepBudget -= jittered
+      await new Promise((res) => setTimeout(res, jittered))
       r = await fetchAllReportPages(urlFor(s, e), headers, fetchImpl)
     }
     return r
@@ -1117,18 +1157,17 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const { chunks, starting: startingDate, clamped } = splitCostWindow(requestedStart, endingDate)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const buildUrl = (p, dims, s, e) => {
-      const params = new URLSearchParams({ starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, bucket_width: '1d' })
-      for (const dim of dims) params.append('group_by[]', dim)
-      if (rbac_group_id) params.append('rbac_group_ids[]', rbac_group_id)
-      return `${apiUrl}${p}?${params.toString()}`
-    }
+    const buildUrl = (p, dims, s, e) =>
+      `${apiUrl}${p}?${dailyReportParams(s, e, dims, { rbacGroupId: rbac_group_id }).toString()}`
     const chunked = (p, dims = ['product', 'model']) =>
       fetchReportPagesChunked((s, e) => buildUrl(p, dims, s, e), headers, chunks)
     const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-    // Each report is PAGINATED via fetchAllReportPages: the Analytics API caps
-    // daily buckets at ~7/page, so a 30-day window spans ~5 pages — fetching page 1
-    // only truncated the month to its first week. cost_type/token_type are
+    // Each report is PAGINATED via fetchAllReportPages. dailyReportParams
+    // requests limit=31 (the daily-bucket max) so a ≤31-day chunk is ONE page
+    // — the API DEFAULT is 7/page, which made every chunk a ~5-page walk and
+    // saturated the 60rpm budget on long windows (2026-08-27 incident).
+    // Pagination stays as defense (fetching page 1 only once truncated the
+    // month to its first week). cost_type/token_type are
     // best-effort rollups: fetchAllReportPages returns { ok:false } (never rejects)
     // on a network error, so a failure leaves them empty without breaking the
     // primary product×model cost view.
@@ -1232,17 +1271,28 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // >31-day windows fan out into ≤31-day chunks (upstream span cap, same
     // policy as fetchCostSummary) and the per-user rows re-aggregate via
     // mergeUserReportRows — downstream consumers must keep seeing ONE row per
-    // (user × dim), exactly like a single-window response. A chunk that hits
-    // 429 retries once after a short backoff (multi-chunk walks brush the
-    // budget edge by construction); single-window behavior is unchanged.
+    // (user × dim), exactly like a single-window response. Multi-chunk walks
+    // brush the budget edge by construction, so 429s ride the retry ladder
+    // below; single-window behavior is unchanged.
     const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
+    // Same RETRY_WAITS_429 ladder + per-walk sleep budget as
+    // fetchReportPagesChunked: one short retry lands inside the same
+    // saturated 60rpm minute (2026-08-27 incident); the second, longer wait
+    // clears it, and the shared budget keeps a 6-chunk walk's worst case
+    // under the CloudFront 60s origin timeout.
+    let retrySleepBudget = 20_000
     const fetchWindowRetrying = async (s, e) => {
-      try { return await fetchWindow(s, e) }
-      catch (err) {
-        if (!/ 429$/.test(err?.message || '')) throw err
-        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000))
-        return fetchWindow(s, e)
+      let lastErr
+      try { return await fetchWindow(s, e) } catch (err) { lastErr = err }
+      for (const wait of RETRY_WAITS_429) {
+        if (!/ 429$/.test(lastErr?.message || '')) throw lastErr
+        const jittered = wait + Math.random() * wait * 0.5
+        if (jittered > retrySleepBudget) throw lastErr
+        retrySleepBudget -= jittered
+        await new Promise((r) => setTimeout(r, jittered))
+        try { return await fetchWindow(s, e) } catch (err) { lastErr = err }
       }
+      throw lastErr
     }
     const runChunk = chunks.length > 1 ? fetchWindowRetrying : fetchWindow
     const all = []
@@ -1788,17 +1838,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // >31-day windows chunk like /cost/live (aggregateGroupCost accumulates
     // per group across day buckets, so disjoint-chunk concat is exact).
     const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
-    const urlFor = (s, e) => {
-      const params = new URLSearchParams({
-        starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, bucket_width: '1d',
-      })
-      params.append('group_by[]', 'rbac_group_id')
-      return `${apiUrl}/v1/organizations/analytics/cost_report?${params.toString()}`
-    }
+    const urlFor = (s, e) =>
+      `${apiUrl}/v1/organizations/analytics/cost_report?${dailyReportParams(s, e, ['rbac_group_id']).toString()}`
     // All chunks in one wave: the rbac dimension's cost is WALL-CLOCK
     // (12-30s per chunk regardless of span), and sequential waves would push
     // a 3+-chunk window past the CloudFront 60s origin timeout. Request
-    // count stays modest (~5 pages/chunk).
+    // count stays modest (limit=31 → ~1 page/chunk).
     const r = await fetchReportPagesChunked(
       urlFor,
       { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
