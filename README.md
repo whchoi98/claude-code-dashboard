@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.4-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](./CHANGELOG.md)
 [![한국어](https://img.shields.io/badge/README-한국어-informational)](./README.ko.md)
 
 Enterprise analytics dashboard for Claude Code — engagement, productivity, cost, and audit insights with an AI query layer.

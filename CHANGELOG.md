@@ -11,6 +11,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-09-01
+
+Everything unreleased since 2.0.4, headlined by a real-time cost menu and a fresher engagement pipeline. Two of the features answer questions raised the same day they shipped: "MTD 총액이 다르다" (the Console-vs-dashboard freshness gap, now a dedicated page reading the Console's own source) and "그룹 총액이 Top 10 합보다 작다" (same-day spend starts group-unattributed upstream and settles retroactively — measured live: $655 attributed of $4,050 total on the day, converged by the next day).
+
+### Added
+
+- **Cost Live (MTD) page** (`/cost-live`, sidebar "비용 실시간"). Per-member calendar-month spend from the Spend Limits API — the same near-real-time figure the Anthropic Console member list shows (resets on the 1st, 00:00 UTC). MTD total / members-with-spend / top-spender / near-limit KPIs, a sortable all-members table with a total row, and group-tab scoping that re-scopes the totals. A 60s auto-refresh (plus a manual button) sends `?fresh=1`, which bypasses the server's 10-min TTL with a 15s floor; the response carries `fetched_at` as the on-screen "as of" stamp. A failed refresh degrades server-side to the last-good payload (`stale: true`) and the page keeps the previous snapshot with an inline note instead of blanking — a defect the pre-deploy adversarial review caught.
+- **Dynamic engagement finalization horizon** (`server/freshness.js`). The Analytics engagement buffer is no longer hardcoded at today−3: the server learns each org's real newest served day (typically today−2 since Anthropic's 2026-08 buffer shortening) via an hourly `users?date=today−1` probe plus opportunistic parsing of any 400 that names a day, and `clampAnalyticsEnd` follows it. `/api/health` now reports the effective `bufferDays` live, Users.tsx window-aligns its tokens join to it, and the analytics prewarm warms the learned day instead of a key nobody is served anymore. Multi-day presets gain a day of freshness automatically; the '1d' preset deliberately stays on the guaranteed-finalized today−3 (the compliance prewarm must predict its exact cache key).
+- **v2.2 analytics data expansion.** The collector now captures the `analytics/plugins` endpoint (sixth table, `plugins_daily`, additive-only Glue migration) with a `/api/analytics/plugins/range` route and an Adoption-page plugins card; user records gain the 2026-08 upstream fields — cowork plugin/artifact counters and `last_activity_date` (null-vs-zero feature-flag semantics preserved end to end).
+- **Identity-aware email masking** (ADR-0020). Members of the `unmasked` Cognito group see raw emails across UI, chat, and Athena results; everyone else keeps first-2-chars masking. Every verification failure fails closed to masked.
+- **iOS/iPadOS installable PWA** (manifest-only). Home-screen install with standalone display; deliberately no service worker, so the Cognito edge session refresh keeps working.
+
+### Fixed
+
+- **Long custom windows' live cost queries no longer collapse under 429s.** Daily-bucket report pages now request `limit=31` (the API default of 7 made a 119-day window fan out ~70–90 upstream requests, saturating the shared 60 rpm budget — the 2026-08-27 incident), and multi-chunk walks retry 429s on a jittered two-step ladder inside a per-walk budget.
+
 ## [2.0.4] - 2026-08-10
 
 The Cost page's Top-10 estimated-cost table now shows the Anthropic Console's month-to-date number next to each user. Reported as: "the dashboard's estimated cost differs from the Claude Code admin console — one user shows $972 MTD there." Root-caused live against both upstream systems: the Console member list reads the Spend Limits system (`period_to_date_spend` — near-real-time, calendar month, resets on the 1st 00:00 UTC), while the dashboard's per-user cost reads the Analytics `user_cost_report` (range-windowed, ~4h `data_refreshed_at` watermark, 30-day correction window). Measured during the investigation: the Console figure ticked $975.00 → $976.63 within minutes while `user_cost_report` still summed $546 — the entire gap was usage after the watermark by a currently-active user, and org-wide the gap concentrated exclusively on users active at that moment. Neither number is wrong; they answer different questions at different freshness.
