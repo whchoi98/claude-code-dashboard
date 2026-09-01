@@ -112,8 +112,10 @@ const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. 
 • skills_daily: skill_name, distinct_users, chat_uses, claude_code_uses
 • connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses
 • projects_daily: project_id, project_name, distinct_user_count, distinct_conversation_count, message_count, created_at, created_by_id, created_by_email (created_by_* nullable)
+• plugins_daily (per-plugin-per-day, data starts 2026-08): plugin_name, plugin_id (nullable), distinct_users, install_count, invocation_count, claude_code_uses, cowork_uses
+• claude_code_analytics also carries (since 2026-08, NULLABLE — null means the org feature is not enabled, NOT zero activity): last_activity_date (YYYY-MM-DD, user's absolute last active day), cowork_plugins_used, cowork_distinct_plugins, cowork_artifacts_created
 • compliance_daily (audit events, partition day = event created_at day): id, type, created_at (ISO timestamp string), actor_type (user_actor|api_actor), actor_email, actor_user_id, actor_api_key_id, actor_ip_address, actor_user_agent, organization_id, payload (FULL original event as a JSON string — reach type-specific fields via json_extract_scalar(payload, '$.field')). Mask actor_email in any answer. compliance_daily is EVENT-TIME partitioned and current through YESTERDAY — the 3-day finalization rule below does NOT apply to it.
-Every table has an *_org2 twin (claude_code_analytics_org2, summaries_daily_org2, skills_daily_org2, connectors_daily_org2, projects_daily_org2, compliance_daily_org2) with the IDENTICAL layout holding the second organization's (org2) data — query the table family matching the session's org.
+Every table has an *_org2 twin (claude_code_analytics_org2, summaries_daily_org2, skills_daily_org2, connectors_daily_org2, projects_daily_org2, plugins_daily_org2, compliance_daily_org2) with the IDENTICAL layout holding the second organization's (org2) data — query the table family matching the session's org.
 Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
 
 // Strip the heavy per-user array from the snapshot to keep tokens low; keep the

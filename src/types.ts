@@ -58,6 +58,11 @@ export type CoworkMetrics = {
   distinct_skills_used_count: number
   connectors_used_count: number
   distinct_connectors_used_count: number
+  // Shipped 2026-08; absent upstream (older archive days / feature not
+  // enabled for the org) → null. null means "no data", NOT zero activity.
+  plugins_used_count?: number | null
+  distinct_plugins_used_count?: number | null
+  artifacts_created_count?: number | null
 }
 
 export type DesignMetrics = {
@@ -80,6 +85,9 @@ export type UserRecord = {
   cowork_metrics: CoworkMetrics
   design_metrics: DesignMetrics
   web_search_count: number
+  // Absolute last-active day (YYYY-MM-DD, independent of the query window).
+  // Shipped 2026-08 — absent on older archive days → treat as unknown.
+  last_activity_date?: string | null
 }
 
 export type Summary = {
@@ -122,6 +130,16 @@ export type Connector = {
     word?: { distinct_session_connector_used_count: number }
   }
   cowork_metrics: { distinct_session_connector_used_count: number }
+}
+
+export type Plugin = {
+  plugin_name: string
+  plugin_id?: string | null
+  distinct_user_count: number
+  install_count: number
+  invocation_count: number
+  claude_code_metrics: { distinct_session_plugin_used_count: number }
+  cowork_metrics?: { distinct_session_plugin_used_count: number }
 }
 
 export type ChatProject = {

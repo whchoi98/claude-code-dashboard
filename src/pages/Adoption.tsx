@@ -16,12 +16,13 @@ import { useT } from '../lib/i18n'
 import { fmtNum, maskEmail } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
-import type { Skill, Connector, ChatProject } from '../types'
+import type { Skill, Connector, ChatProject, Plugin } from '../types'
 
 type DayEntry<T> = { date: string; source: string; data: T[] }
 type RangeResp<T> = { range: { starting_date: string; ending_date: string }; days: DayEntry<T>[] }
 
 type Row = { name: string; Users: number; Chat: number; Code: number; Cowork: number; lastSeen: string; staleInWindow: boolean }
+type PluginRow = { name: string; Users: number; Installs: number; Invocations: number; Code: number; lastSeen: string; staleInWindow: boolean }
 type ProjectRow = Pick<ChatProject, 'project_id' | 'project_name' | 'message_count' | 'distinct_conversation_count' | 'distinct_user_count' | 'created_by'>
 
 // An item is "stale within the window" if it had usage in the earlier
@@ -42,6 +43,7 @@ export function Adoption() {
   const skills     = useFetch<RangeResp<Skill>>(`/api/analytics/skills/range${q}`)
   const connectors = useFetch<RangeResp<Connector>>(`/api/analytics/connectors/range${q}`)
   const projects   = useFetch<RangeResp<ChatProject>>(`/api/analytics/projects/range${q}`)
+  const plugins    = useFetch<RangeResp<Plugin>>(`/api/analytics/plugins/range${q}`)
 
   // Distinct user counts can't be deduped across days because the API doesn't
   // return user IDs at the skill/connector level — MAX (peak day) is the honest
@@ -86,8 +88,37 @@ export function Adoption() {
     return flagStale(Array.from(by.values()).sort((a, b) => b.Users - a.Users), connectors.data?.days ?? [])
   }, [connectors.data])
 
+  // Installs (like distinct users) are a stock — the same install base shows
+  // up every day, so MAX (peak day) is honest and SUM would multiply it by
+  // the window length. Invocations/Code sessions are flows and SUM.
+  const pluginRows = useMemo<PluginRow[]>(() => {
+    const by = new Map<string, PluginRow>()
+    for (const day of plugins.data?.days ?? []) {
+      for (const p of day.data) {
+        // Raw-sidecar/live rows are exact upstream shapes — sparse rows (e.g.
+        // hash-id Cowork commands) can omit these counters entirely, and one
+        // undefined would NaN-poison the whole window's aggregate.
+        const users  = p.distinct_user_count ?? 0
+        const inst   = p.install_count ?? 0
+        const invoc  = p.invocation_count ?? 0
+        const code   = p.claude_code_metrics?.distinct_session_plugin_used_count ?? 0
+        const cowork = p.cowork_metrics?.distinct_session_plugin_used_count ?? 0
+        const used = users > 0 || invoc > 0 || code > 0 || cowork > 0
+        const cur = by.get(p.plugin_name) ?? { name: p.plugin_name, Users: 0, Installs: 0, Invocations: 0, Code: 0, lastSeen: '', staleInWindow: false }
+        cur.Users        = Math.max(cur.Users, users)
+        cur.Installs     = Math.max(cur.Installs, inst)
+        cur.Invocations += invoc
+        cur.Code        += code
+        if (used && day.date > cur.lastSeen) cur.lastSeen = day.date
+        by.set(p.plugin_name, cur)
+      }
+    }
+    return flagStale(Array.from(by.values()).sort((a, b) => b.Users - a.Users), plugins.data?.days ?? [])
+  }, [plugins.data])
+
   const staleSkills = useMemo(() => skillRows.filter((r) => r.staleInWindow), [skillRows])
   const staleConnectors = useMemo(() => connectorRows.filter((r) => r.staleInWindow), [connectorRows])
+  const stalePlugins = useMemo(() => pluginRows.filter((r) => r.staleInWindow), [pluginRows])
 
   // Same uniqueness caveat as skills/connectors. project_name and created_by
   // are taken from the latest day to handle mid-window renames.
@@ -117,10 +148,11 @@ export function Adoption() {
     return Array.from(by.values()).sort((a, b) => b.message_count - a.message_count).slice(0, 10)
   }, [projects.data])
 
-  if (skills.loading || connectors.loading || projects.loading) return <LoadingState />
+  if (skills.loading || connectors.loading || projects.loading || plugins.loading) return <LoadingState />
   if (skills.error) return <ErrorState error={skills.error} />
   if (connectors.error) return <ErrorState error={connectors.error} />
   if (projects.error) return <ErrorState error={projects.error} />
+  if (plugins.error) return <ErrorState error={plugins.error} />
 
   return (
     <div>
@@ -131,7 +163,7 @@ export function Adoption() {
         right={<DateRangeControl />}
       />
       <GroupTabs />
-      <RangeCoverageNote resp={[skills.data, connectors.data, projects.data]} />
+      <RangeCoverageNote resp={[skills.data, connectors.data, projects.data, plugins.data]} />
       <GroupScopeNote />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>
@@ -175,6 +207,35 @@ export function Adoption() {
               {' — '}
               {staleConnectors.map((c) => `${c.name} (${c.lastSeen || t('adopt.never')})`).join(', ')}
             </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title={t('adopt.plugins')} subtitle={t('adopt.plugins.sub')}>
+          {pluginRows.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-ink-400">{t('adopt.plugins.empty')}</div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={Math.max(220, pluginRows.length * 40)}>
+                <BarChart data={pluginRows} layout="vertical" margin={{ top: 8, right: 16, left: 40, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="2 4" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Users"       name={t('adopt.bar.users')}    fill="#D97757" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="Installs"    name={t('adopt.bar.installs')} fill="#B5AFA0" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="Invocations" name={t('adopt.bar.invoc')}    fill="#6B6960" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="Code"        name={t('adopt.bar.code')}     fill="#1F1E1D" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              {stalePlugins.length > 0 && (
+                <div className="mx-3 mt-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <span className="font-semibold">{t('adopt.stale.plugins', { count: stalePlugins.length })}</span>
+                  {' — '}
+                  {stalePlugins.map((p) => `${p.name} (${p.lastSeen || t('adopt.never')})`).join(', ')}
+                </div>
+              )}
+            </>
           )}
         </ChartCard>
 

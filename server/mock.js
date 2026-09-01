@@ -29,6 +29,7 @@ const SKILLS = [
   'doc-writer', 'data-analysis', 'diagram-builder', 'test-generator',
 ]
 const CONNECTORS = ['github', 'gitlab', 'jira', 'confluence', 'slack', 'notion', 'google-drive']
+const PLUGINS = ['superpowers', 'pr-review-toolkit', 'context7', 'playwright', 'deploy-on-aws', 'serena']
 const PROJECTS = [
   'billing-service-refactor', 'mobile-app-v3', 'data-pipeline',
   'customer-support-bot', 'infra-migration', 'security-audit',
@@ -189,6 +190,23 @@ export const generateMock = {
           word: { distinct_session_skill_used_count: 0 },
         },
         cowork_metrics: { distinct_session_skill_used_count: Math.floor(rand() * 3) },
+      }
+    })
+    return { data, has_more: false, next_page: null }
+  },
+
+  plugins(date) {
+    const rand = rng(hashSeed(date) ^ 0x91C)
+    const data = PLUGINS.map((name, i) => {
+      const distinctUsers = Math.floor(1 + rand() * 12)
+      return {
+        plugin_name: name,
+        plugin_id: `plg_${String(i + 1).padStart(3, '0')}`,
+        distinct_user_count: distinctUsers,
+        install_count: Math.floor(distinctUsers * (1 + rand())),
+        invocation_count: Math.floor(distinctUsers * (2 + rand() * 6)),
+        claude_code_metrics: { distinct_session_plugin_used_count: Math.floor(distinctUsers * (1 + rand() * 2)) },
+        cowork_metrics: { distinct_session_plugin_used_count: Math.floor(rand() * 3) },
       }
     })
     return { data, has_more: false, next_page: null }

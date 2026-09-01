@@ -72,9 +72,20 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 | design_projects_used                | bigint  |
 | design_projects_created             | bigint  |
 | design_messages                     | bigint  |
+| cowork_plugins_used                 | bigint  |
+| cowork_distinct_plugins             | bigint  |
+| cowork_artifacts_created            | bigint  |
+| last_activity_date                  | string  |
 | snapshot_date                | string  |
 
 Partition: `date` (string, YYYY-MM-DD)
+
+The last four data columns are v2.2 additions (2026-08). They are NULL on
+partitions written before the raw-sidecar re-flatten backfill
+(`_local/reflatten-users-from-raw.mjs`) reaches them — NULL means "not
+collected / feature not enabled", never zero activity. `last_activity_date`
+is the user's ABSOLUTE last active day (YYYY-MM-DD), independent of the
+snapshot window — the dormant-seat signal.
 
 ## `projects_daily` (daily per chat project)
 
@@ -91,6 +102,27 @@ Partition: `date` (string, YYYY-MM-DD)
 | snapshot_date               | string |
 
 Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenProject` in `flatten.js`.
+
+## `plugins_daily` (daily per plugin — since 2026-08, v2.2)
+
+| Column            | Type   |
+|-------------------|--------|
+| plugin_name       | string |
+| plugin_id         | string |
+| distinct_users    | bigint |
+| install_count     | bigint |
+| invocation_count  | bigint |
+| claude_code_uses  | bigint |
+| cowork_uses       | bigint |
+| snapshot_date     | string |
+
+Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenPlugin` in
+`flatten.js`. `plugin_id` is nullable (third-party Claude Code plugins and
+hash-id Cowork commands ship without one). `install_count` is a STOCK
+(install base as of the snapshot day — aggregate with MAX across days);
+`invocation_count` and the `*_uses` session counts are flows (SUM).
+No partitions exist before the v2.2 collector deploy — the plugins endpoint
+was never snapshotted earlier and has no raw sidecar to backfill from.
 
 ## `summaries_daily` (org-wide daily)
 

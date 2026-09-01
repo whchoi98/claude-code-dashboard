@@ -75,6 +75,11 @@ export function Cowork() {
       write_tool_count: 0, notebook_edit_tool_count: 0, sessions_with_file_edits_count: 0,
     }
     let anyNonNull = false
+    // Plugin/artifact counters shipped 2026-08 — null (or absent on older
+    // archive days) means "not collected", never zero activity; each KPI
+    // gates on its own non-null sighting.
+    let pluginUses = 0, artifactsCreated = 0
+    let pluginsNonNull = false, artifactsNonNull = false
     for (const d of days) {
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
@@ -94,6 +99,10 @@ export function Cowork() {
           if (v != null) anyNonNull = true
           fe[k] += v ?? 0
         }
+        const pu = c.plugins_used_count
+        if (pu != null) { pluginsNonNull = true; pluginUses += pu }
+        const ac = c.artifacts_created_count
+        if (ac != null) { artifactsNonNull = true; artifactsCreated += ac }
       }
     }
     const feBars = FE_KEYS.map((k) => ({ key: k, value: fe[k] }))
@@ -103,6 +112,7 @@ export function Cowork() {
       activeUsers: activeEmails.size,
       sessionsTotal, messagesTotal,
       feBars, feHasData: anyNonNull,
+      pluginUses, artifactsCreated, pluginsNonNull, artifactsNonNull,
     }
   }, [summaries.data, users.data, inGroup])
 
@@ -131,6 +141,20 @@ export function Cowork() {
           <KpiCard label={t('cowork.kpi.sessions')} value={fmtCompact(agg.sessionsTotal)} />
           <KpiCard label={t('cowork.kpi.messages')} value={fmtCompact(agg.messagesTotal)} />
           <KpiCard label={t('cowork.kpi.adoption')} value={fmtPct(agg.adoption)} hint={t('cowork.kpi.adoption.hint')} />
+          {(agg.pluginsNonNull || agg.artifactsNonNull) && (
+            <>
+              <KpiCard
+                label={t('cowork.kpi.plugin_uses')}
+                value={agg.pluginsNonNull ? fmtCompact(agg.pluginUses) : '—'}
+                hint={t('cowork.kpi.plugin_uses.hint')}
+              />
+              <KpiCard
+                label={t('cowork.kpi.artifacts')}
+                value={agg.artifactsNonNull ? fmtCompact(agg.artifactsCreated) : '—'}
+                hint={t('cowork.kpi.artifacts.hint')}
+              />
+            </>
+          )}
         </div>
 
         <ChartCard title={t('cowork.trend.title')} subtitle={t('cowork.trend.sub')}>

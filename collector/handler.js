@@ -16,7 +16,7 @@
  */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
-import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenActivity } from './flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin, flattenActivity } from './flatten.js'
 
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
@@ -115,7 +115,10 @@ async function fetchAllPages(path, params, org = 'primary') {
     const body = await fetchJson(path, { ...params, limit: 1000, ...(page ? { page } : {}) },
       { org, signal: AbortSignal.timeout(20_000) })
     if (Array.isArray(body.data)) out.push(...body.data)
-    if (!body.has_more || !body.next_page) break
+    // Envelope drift: analytics/plugins returns next_page WITHOUT has_more
+    // (probed 2026-08-27) — treat a missing has_more as "trust next_page".
+    // Endpoints that do send has_more keep their exact prior behavior.
+    if (!(body.has_more ?? true) || !body.next_page) break
     page = body.next_page
   }
   return out
@@ -247,11 +250,20 @@ export const handler = async (event = {}, context = {}) => {
         toNdjson(projects.map(flattenProject), { snapshot_date: date }), s3Prefix)
       orgResults.projects_raw = await writeRaw('projects', date, projects, s3Prefix)
 
+      // Sixth analytics endpoint (v2.2): plugin install/invocation usage.
+      // Envelope has next_page but NO has_more — covered by the ?? true
+      // fallback in fetchAllPages (probed 2026-08-27).
+      const plugins = await fetchAllPages('/v1/organizations/analytics/plugins', { date }, org)
+      orgResults.plugins = await writePartition('plugins', date,
+        toNdjson(plugins.map(flattenPlugin), { snapshot_date: date }), s3Prefix)
+      orgResults.plugins_raw = await writeRaw('plugins', date, plugins, s3Prefix)
+
       orgCounts.users = users.length
       orgCounts.summaries = summaryRows.length
       orgCounts.skills = skills.length
       orgCounts.connectors = connectors.length
       orgCounts.projects = projects.length
+      orgCounts.plugins = plugins.length
     }
 
     const compliance = await archiveComplianceEvents(event, context, today, orgResults, org)

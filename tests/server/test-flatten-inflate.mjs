@@ -1,6 +1,6 @@
 // Round-trip test for the collector flatten ↔ server inflate contract.
 // node tests/server/test-flatten-inflate.mjs — exit 0 on success, 1 on failure.
-import { flattenUser, flattenSkill, flattenConnector, flattenProject } from '../../collector/flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin } from '../../collector/flatten.js'
 import { inflateUser } from '../../server/inflate.js'
 
 let n = 0, failed = 0
@@ -99,6 +99,53 @@ ok('flattenProject sparse → null/0', projSparse.created_by_id === null && proj
 // drift guard: flattenProject must emit exactly the 8 documented PROJECT_COLUMNS (+ snapshot_date added by the writer)
 const PROJECT_COLUMN_NAMES = ['project_id','project_name','distinct_user_count','distinct_conversation_count','message_count','created_at','created_by_id','created_by_email']
 ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES.every((c) => c in proj) && Object.keys(proj).length === 8)
+
+// --- Step 8: v2.2 additions — last_activity_date + cowork plugins/artifacts ---
+// Feature-flag semantics: absent upstream field must flatten to NULL, never 0
+// (null = org not enabled, 0 = no activity — the UI renders them differently).
+{
+  const rich = flattenUser({
+    user: { id: 'u3', email_address: 'c@acme.com' },
+    last_activity_date: '2026-08-23',
+    cowork_metrics: { plugins_used_count: 7, distinct_plugins_used_count: 2, artifacts_created_count: 5 },
+  })
+  ok('flattenUser maps last_activity_date', rich.last_activity_date === '2026-08-23')
+  ok('flattenUser maps cowork plugin counters', rich.cowork_plugins_used === 7 && rich.cowork_distinct_plugins === 2)
+  ok('flattenUser maps cowork artifacts_created', rich.cowork_artifacts_created === 5)
+
+  const sparse = flattenUser({ user: { id: 'u4', email_address: 'd@acme.com' } })
+  ok('absent last_activity_date → null (staged rollout, never 0/empty)', sparse.last_activity_date === null)
+  ok('absent cowork plugin/artifact counters → null, never 0',
+    sparse.cowork_plugins_used === null && sparse.cowork_distinct_plugins === null && sparse.cowork_artifacts_created === null)
+
+  const round = inflateUser(rich)
+  ok('inflate restores last_activity_date', round.last_activity_date === '2026-08-23')
+  ok('inflate restores cowork plugin/artifact counters',
+    round.cowork_metrics.plugins_used_count === 7 && round.cowork_metrics.distinct_plugins_used_count === 2
+    && round.cowork_metrics.artifacts_created_count === 5)
+  const roundSparse = inflateUser(sparse)
+  ok('inflate keeps null semantics for feature-flag fields',
+    roundSparse.last_activity_date === null && roundSparse.cowork_metrics.plugins_used_count === null
+    && roundSparse.cowork_metrics.artifacts_created_count === null)
+}
+
+// --- Step 9: flattenPlugin (new plugins_daily table, probed 2026-08-27) ---
+{
+  const p = flattenPlugin({
+    plugin_name: 'serena', plugin_id: 'serena@claude-plugins-official',
+    distinct_user_count: 4, install_count: 2, invocation_count: 19,
+    claude_code_metrics: { distinct_session_plugin_used_count: 6 },
+    cowork_metrics: { distinct_session_plugin_used_count: 1 },
+  })
+  ok('flattenPlugin maps scalars', p.plugin_name === 'serena' && p.plugin_id === 'serena@claude-plugins-official'
+    && p.distinct_users === 4 && p.install_count === 2 && p.invocation_count === 19)
+  ok('flattenPlugin maps surface uses', p.claude_code_uses === 6 && p.cowork_uses === 1)
+  const sparse = flattenPlugin({ plugin_name: 'co-agent' })
+  ok('flattenPlugin sparse → null id, 0 counts', sparse.plugin_id === null && sparse.distinct_users === 0
+    && sparse.install_count === 0 && sparse.invocation_count === 0 && sparse.claude_code_uses === 0 && sparse.cowork_uses === 0)
+  const PLUGIN_COLUMN_NAMES = ['plugin_name', 'plugin_id', 'distinct_users', 'install_count', 'invocation_count', 'claude_code_uses', 'cowork_uses']
+  ok('flattenPlugin emits exactly its 7 documented columns', PLUGIN_COLUMN_NAMES.every((c) => c in p) && Object.keys(p).length === 7)
+}
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

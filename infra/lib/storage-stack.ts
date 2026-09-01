@@ -69,6 +69,13 @@ const USER_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'design_projects_used', type: 'bigint' },
   { name: 'design_projects_created', type: 'bigint' },
   { name: 'design_messages', type: 'bigint' },
+  // v2.2 additions (additive-only — existing names/order untouched; JsonSerDe
+  // reads absent keys as NULL, so pre-addition partitions stay queryable and
+  // null keeps its feature-flag meaning: org not enabled ≠ 0 activity).
+  { name: 'cowork_plugins_used', type: 'bigint' },
+  { name: 'cowork_distinct_plugins', type: 'bigint' },
+  { name: 'cowork_artifacts_created', type: 'bigint' },
+  { name: 'last_activity_date', type: 'string' },
   { name: 'snapshot_date', type: 'string' },
 ]
 
@@ -95,6 +102,19 @@ const SKILL_COLUMNS: glue.CfnTable.ColumnProperty[] = [
 
 const CONNECTOR_COLUMNS = SKILL_COLUMNS.map((c) =>
   c.name === 'skill_name' ? { ...c, name: 'connector_name' } : c)
+
+// Plugin usage (analytics/plugins — sixth collector endpoint, v2.2).
+// plugin_id is nullable (third-party CC plugins / hash-id Cowork commands).
+const PLUGIN_COLUMNS: glue.CfnTable.ColumnProperty[] = [
+  { name: 'plugin_name', type: 'string' },
+  { name: 'plugin_id', type: 'string' },
+  { name: 'distinct_users', type: 'bigint' },
+  { name: 'install_count', type: 'bigint' },
+  { name: 'invocation_count', type: 'bigint' },
+  { name: 'claude_code_uses', type: 'bigint' },
+  { name: 'cowork_uses', type: 'bigint' },
+  { name: 'snapshot_date', type: 'string' },
+]
 
 const PROJECT_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'project_id', type: 'string' },
@@ -191,6 +211,7 @@ export class StorageStack extends cdk.Stack {
     table('skills_daily', SKILL_COLUMNS, 'skills')
     table('connectors_daily', CONNECTOR_COLUMNS, 'connectors')
     table('projects_daily', PROJECT_COLUMNS, 'projects')
+    table('plugins_daily', PLUGIN_COLUMNS, 'plugins')
     table('compliance_daily', COMPLIANCE_COLUMNS, 'compliance')
 
     // Org2 mirrors (multi-org contract 2026-07-21): identical column sets and
@@ -201,6 +222,7 @@ export class StorageStack extends cdk.Stack {
     table('skills_daily_org2', SKILL_COLUMNS, 'org2/skills')
     table('connectors_daily_org2', CONNECTOR_COLUMNS, 'org2/connectors')
     table('projects_daily_org2', PROJECT_COLUMNS, 'org2/projects')
+    table('plugins_daily_org2', PLUGIN_COLUMNS, 'org2/plugins')
     table('compliance_daily_org2', COMPLIANCE_COLUMNS, 'org2/compliance')
 
     this.athenaWorkGroup = new athena.CfnWorkGroup(this, 'Wg', {

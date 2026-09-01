@@ -66,6 +66,11 @@ export function inflateUser(f) {
       notebook_edit_tool_count:       f.cowork_notebook_edit_tool_count ?? null,
       sessions_with_file_edits_count: f.cowork_sessions_with_file_edits_count ?? null,
       skills_used_count: f.cowork_skills_used ?? 0, distinct_skills_used_count: f.cowork_distinct_skills ?? 0,
+      // v2.2 feature-flag counters: null (org not enabled) must survive the
+      // roundtrip — never coerce to 0 (real inactivity).
+      plugins_used_count:          f.cowork_plugins_used ?? null,
+      distinct_plugins_used_count: f.cowork_distinct_plugins ?? null,
+      artifacts_created_count:     f.cowork_artifacts_created ?? null,
       connectors_used_count: 0, distinct_connectors_used_count: 0,
     },
     design_metrics: {
@@ -76,5 +81,8 @@ export function inflateUser(f) {
     },
     science_metrics: { skills_used_count: f.science_skills_used ?? 0 },
     web_search_count: f.web_search_count ?? 0,
+    // Staged rollout: rows archived before the field appeared (or from an
+    // un-enabled org) carry null — never fabricate a date.
+    last_activity_date: f.last_activity_date ?? null,
   }
 }

@@ -77,6 +77,13 @@ export function flattenUser(r) {
     cowork_sessions_with_file_edits_count: cowork.sessions_with_file_edits_count ?? null,
     cowork_skills_used:                    cowork.skills_used_count ?? null,
     cowork_distinct_skills:                cowork.distinct_skills_used_count ?? null,
+    // v2.2 additions (probed live 2026-08-27 in raw/users). Feature-flag
+    // fields: absent upstream = org not enabled → NULL, never 0 — the UI
+    // renders null as '—' (미개통) and 0 as real inactivity.
+    cowork_plugins_used:                   cowork.plugins_used_count ?? null,
+    cowork_distinct_plugins:               cowork.distinct_plugins_used_count ?? null,
+    cowork_artifacts_created:              cowork.artifacts_created_count ?? null,
+    last_activity_date:                    r.last_activity_date ?? null,
     science_skills_used:                   science.skills_used_count ?? null,
     design_sessions:         design.distinct_session_count ?? 0,
     design_projects_used:    design.distinct_projects_used_count ?? 0,
@@ -102,6 +109,22 @@ export function flattenConnector(c) {
     chat_uses: c.chat_metrics?.distinct_conversation_connector_used_count ?? 0,
     claude_code_uses: c.claude_code_metrics?.distinct_session_connector_used_count ?? 0,
     cowork_uses: c.cowork_metrics?.distinct_session_connector_used_count ?? 0,
+  }
+}
+
+// Plugin usage row (analytics/plugins, new endpoint — probed 2026-08-27).
+// plugin_id is a stable identifier (e.g. serena@claude-plugins-official) but
+// NULL for third-party CC plugins and hash-id Cowork slash commands — keep it
+// nullable, plugin_name is the display key.
+export function flattenPlugin(p) {
+  return {
+    plugin_name: p.plugin_name,
+    plugin_id: p.plugin_id ?? null,
+    distinct_users: p.distinct_user_count ?? 0,
+    install_count: p.install_count ?? 0,
+    invocation_count: p.invocation_count ?? 0,
+    claude_code_uses: p.claude_code_metrics?.distinct_session_plugin_used_count ?? 0,
+    cowork_uses: p.cowork_metrics?.distinct_session_plugin_used_count ?? 0,
   }
 }
 
