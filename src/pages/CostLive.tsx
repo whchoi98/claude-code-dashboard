@@ -27,7 +27,17 @@ type Member = {
   period: string
   source: string
 }
-type Resp = { source: string; period: string; fetched_at?: string; members: Member[] }
+type Resp = {
+  source: string
+  period: string
+  fetched_at?: string | null
+  members: Member[]
+  // Present only on archived / reconstructed payloads (/at):
+  snapshot?: { date: string; time: string }   // time 'EOD' = reconstruction
+  approx?: boolean                            // user_cost_report approximation
+  stale?: boolean
+}
+type SnapshotTimes = { date?: string; times?: string[]; dates?: string[] }
 type K = 'user' | 'spent' | 'limit' | 'util' | 'source'
 
 const AUTO_REFRESH_MS = 60_000
@@ -51,21 +61,46 @@ export function CostLive() {
   // (its own 60 rpm budget; the server still floors refreshes at 15s).
   const [auto, setAuto] = useState(true)
   const [tick, setTick] = useState(0)
+  // History view: null = live; { date, time } = an archived 15-min snapshot
+  // ('EOD' = the server's end-of-day user_cost_report reconstruction for
+  // dates older than the snapshot archive).
+  const [view, setView] = useState<{ date: string; time: string } | null>(null)
+  const [selDate, setSelDate] = useState('')
   useEffect(() => {
-    if (!auto) return
+    if (!auto || view) return   // history views are frozen points — no ticks
     const id = setInterval(() => setTick(Date.now()), AUTO_REFRESH_MS)
     return () => clearInterval(id)
-  }, [auto])
-  const url = tick ? `/api/cost/spend-limits?fresh=1&t=${tick}` : '/api/cost/spend-limits'
+  }, [auto, view])
+  const url = view
+    ? (view.time === 'EOD'
+        ? `/api/cost/spend-limits/at?date=${view.date}`
+        : `/api/cost/spend-limits/at?date=${view.date}&time=${view.time}`)
+    : (tick ? `/api/cost/spend-limits?fresh=1&t=${tick}` : '/api/cost/spend-limits')
   const fetched = useFetch<Resp>(url)
-  // Keep the last successful payload across refresh errors: useFetch nulls
-  // `data` on ANY fetch failure, and with the 60s auto-refresh a single
+  // Archived times for the picked date (empty until a date is picked; the
+  // no-date URL answers with { dates } which we simply ignore here).
+  const timesFetch = useFetch<SnapshotTimes>(
+    selDate ? `/api/cost/spend-limits/snapshots?date=${selDate}` : '/api/cost/spend-limits/snapshots',
+  )
+  const snapTimes = selDate ? timesFetch.data?.times ?? [] : []
+  // Keep the last successful LIVE payload across refresh errors: useFetch
+  // nulls `data` on ANY fetch failure, and with the 60s auto-refresh a single
   // transient upstream hiccup would otherwise blank the KPIs and table that
   // were on screen a minute earlier. Errors render as an inline note while
-  // the previous numbers stay up.
+  // the previous numbers stay up. Snapshot payloads (data.snapshot set) are
+  // excluded — a failed history fetch must not show live numbers under a
+  // snapshot label.
   const [last, setLast] = useState<Resp | null>(null)
-  useEffect(() => { if (fetched.data) setLast(fetched.data) }, [fetched.data])
-  const data = fetched.data ?? last
+  useEffect(() => { if (fetched.data && !fetched.data.snapshot) setLast(fetched.data) }, [fetched.data])
+  // useFetch keeps the PREVIOUS response while a URL switch is in flight, and
+  // here a URL switch changes MEANING (live ↔ snapshot ↔ EOD). Render a
+  // payload only when its shape matches the current view — otherwise a
+  // snapshot's numbers would flash under the live labels (and vice versa)
+  // for the duration of the fetch.
+  const matchesView = view
+    ? fetched.data?.snapshot?.date === view.date && fetched.data?.snapshot?.time === view.time
+    : !fetched.data?.snapshot
+  const data = (matchesView ? fetched.data : null) ?? (view ? null : last)
   const { loading, error } = fetched
 
   const scoped = useMemo(
@@ -95,26 +130,69 @@ export function CostLive() {
     <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
   )
 
+  const todayIso = new Date().toISOString().slice(0, 10)
   const asOf = data?.fetched_at ? new Date(data.fetched_at).toLocaleTimeString() : null
+  const approx = !!data?.approx
+  const snapshotLabel = data?.snapshot
+    ? (data.snapshot.time === 'EOD'
+        ? t('cost_live.history.stamp_eod', { date: data.snapshot.date })
+        : t('cost_live.history.stamp', { date: data.snapshot.date, time: `${data.snapshot.time.slice(0, 2)}:${data.snapshot.time.slice(2)}` }))
+    : null
 
   return (
     <div>
       <PageHeader
         title={t('cost_live.title')}
         subtitle={t('cost_live.subtitle')}
-        source={data ? 'live' : undefined}
+        source={data && !data.snapshot ? 'live' : undefined}
         right={
-          <div className="flex items-center gap-3 text-xs text-ink-500">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-claude-500" />
-              {t('cost_live.auto')}
-            </label>
-            <button
-              onClick={() => setTick(Date.now())}
-              className="rounded-md border border-ink-200 px-2.5 py-1 hover:bg-paper-muted text-ink-600"
-            >
-              {t('cost_live.refresh')}
-            </button>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-ink-500">
+            {!view && (
+              <>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-claude-500" />
+                  {t('cost_live.auto')}
+                </label>
+                <button
+                  onClick={() => setTick(Date.now())}
+                  className="rounded-md border border-ink-200 px-2.5 py-1 hover:bg-paper-muted text-ink-600"
+                >
+                  {t('cost_live.refresh')}
+                </button>
+              </>
+            )}
+            {/* History: pick a date, then an archived 15-min UTC snapshot (or
+                the end-of-day approximation for pre-archive past dates). */}
+            <input
+              type="date"
+              value={selDate}
+              max={todayIso}
+              onChange={(e) => { setSelDate(e.target.value); setView(null) }}
+              className="rounded-md border border-ink-200 px-2 py-1 bg-white text-ink-600"
+              aria-label={t('cost_live.history.pick_date')}
+            />
+            {selDate && (
+              <select
+                value={view?.time ?? ''}
+                onChange={(e) => e.target.value && setView({ date: selDate, time: e.target.value })}
+                className="rounded-md border border-ink-200 px-2 py-1 bg-white text-ink-600"
+                aria-label={t('cost_live.history.pick_time')}
+              >
+                <option value="">{t('cost_live.history.pick_time')}</option>
+                {selDate < todayIso && <option value="EOD">{t('cost_live.history.eod')}</option>}
+                {snapTimes.map((tm) => (
+                  <option key={tm} value={tm}>{tm.slice(0, 2)}:{tm.slice(2)} UTC</option>
+                ))}
+              </select>
+            )}
+            {view && (
+              <button
+                onClick={() => { setView(null); setSelDate('') }}
+                className="rounded-md border border-claude-300 bg-claude-50 px-2.5 py-1 text-claude-700 font-medium hover:bg-claude-100"
+              >
+                {t('cost_live.history.live')}
+              </button>
+            )}
           </div>
         }
       />
@@ -125,10 +203,15 @@ export function CostLive() {
         {data && (
           <>
             <p className="text-xs text-ink-400">
-              {asOf ? t('cost_live.as_of', { time: asOf }) : t('cost_live.source_note')}
+              {snapshotLabel ?? (asOf ? t('cost_live.as_of', { time: asOf }) : t('cost_live.source_note'))}
               {loading && <span className="ml-2 text-claude-500 animate-pulse">{t('cost_live.refreshing')}</span>}
               {error && <span className="ml-2 text-amber-600">{t('cost_live.refresh_failed')}</span>}
             </p>
+            {approx && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 max-w-3xl">
+                {t('cost_live.history.approx_note')}
+              </p>
+            )}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard label={t('cost_live.kpi.total')} value={fmtUsdFull(totals.total)} hint={t('cost_live.kpi.total_hint')} accent />
               <KpiCard label={t('cost_live.kpi.active')} value={`${totals.activeCount} / ${scoped.length}`} hint={t('cost_live.kpi.active_hint')} />
@@ -164,7 +247,8 @@ export function CostLive() {
                           <td className="px-3 py-1.5 font-medium text-ink-700">{maskEmail(m.email)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums text-claude-600 font-medium">{fmtUsd(m.spent_usd)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums text-ink-600">
-                            {m.limit_usd != null ? fmtUsd(m.limit_usd) : t('cost.limits.unlimited')}
+                            {/* Reconstructed rows carry no limit data — '—', not "Unlimited". */}
+                            {approx ? '—' : m.limit_usd != null ? fmtUsd(m.limit_usd) : t('cost.limits.unlimited')}
                           </td>
                           <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${
                             m.utilization != null && m.utilization >= 0.9 ? 'text-claude-700' : 'text-ink-600'

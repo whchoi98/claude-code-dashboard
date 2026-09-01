@@ -1992,6 +1992,125 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     }
   })
 
+  // ── MTD snapshot archive (Cost Live history) ─────────────────────────────
+  // The Spend Limits API serves only the CURRENT period_to_date_spend — no
+  // history parameters — so a past-point MTD view exists only if we archive
+  // snapshots ourselves. Every 15 min per org the current payload lands at
+  //   <orgPrefix>spend_mtd/date=YYYY-MM-DD/HHMM.json   (UTC, ~30KB × 96/day)
+  // The stamp is the tick rounded DOWN to its 15-min bucket, so both Fargate
+  // tasks write the SAME key and dedupe by last-writer-wins instead of
+  // doubling the archive. Reads:
+  //   GET /cost/spend-limits/snapshots         → { dates: [...] } newest-first
+  //   GET /cost/spend-limits/snapshots?date=D  → { date, times: ['0015', …] }
+  //   GET /cost/spend-limits/at?date=D&time=T  → archived payload + snapshot:{date,time}
+  //   GET /cost/spend-limits/at?date=D         → end-of-day RECONSTRUCTION from
+  //     user_cost_report [month-start, D] (per-user spend only, no limits,
+  //     ~4h-watermark semantics) flagged approx:true — covers dates older
+  //     than the archive. Snapshots start at deploy time; there is no way to
+  //     backfill true intraday history before that.
+  const MTD_PREFIX = 'spend_mtd'
+  const mtdSnapKey = (org, date, time) => `${s3PrefixFor(org)}${MTD_PREFIX}/date=${date}/${time}.json`
+  const MTD_SNAPSHOT_MS = 15 * 60_000
+
+  async function writeMtdSnapshot(org) {
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    if (!BUCKET || !analyticsKeyFor(org)) return
+    // Reuse a ≤60s-old cache entry rather than double-pulling right next to
+    // the Cost Live page's own fresh ticks (spend_limits has its own 60 rpm
+    // budget, but there's no reason to spend it twice for the same minute).
+    const body = await cachedCost.topUp(`${org}:spend-limits`, () => fetchSpendLimits(org), 60_000)
+    const slot = new Date()
+    slot.setUTCMinutes(Math.floor(slot.getUTCMinutes() / 15) * 15, 0, 0)
+    const date = slot.toISOString().slice(0, 10)
+    const time = slot.toISOString().slice(11, 16).replace(':', '')
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET, Key: mtdSnapKey(org, date, time),
+      Body: JSON.stringify(body), ContentType: 'application/json',
+    }))
+  }
+  if (process.env.ARCHIVE_S3_BUCKET) {
+    const snapshotTick = async () => {
+      for (const org of (hasOrg2() ? ['primary', 'org2'] : ['primary'])) {
+        try { await writeMtdSnapshot(org) } catch (err) {
+          console.warn(`[mtd-snapshot] ${org} write failed:`, err?.message || err)
+        }
+      }
+    }
+    setTimeout(() => { snapshotTick() }, 30_000)
+    setInterval(() => { snapshotTick() }, MTD_SNAPSHOT_MS)
+  }
+
+  router.get('/cost/spend-limits/snapshots', async (req, res) => {
+    const org = orgFromReq(req)
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    const date = req.query.date
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'bad_date' })
+    if (!BUCKET) return res.json(date ? { date, times: [] } : { dates: [] })
+    try {
+      if (date) {
+        const list = await s3.send(new ListObjectsV2Command({
+          Bucket: BUCKET, Prefix: `${s3PrefixFor(org)}${MTD_PREFIX}/date=${date}/`,
+        }))
+        const times = (list.Contents || [])
+          .map((o) => o.Key.match(/\/(\d{4})\.json$/)?.[1])
+          .filter(Boolean).sort()
+        return res.json({ date, times })
+      }
+      const list = await s3.send(new ListObjectsV2Command({
+        Bucket: BUCKET, Prefix: `${s3PrefixFor(org)}${MTD_PREFIX}/date=`, Delimiter: '/',
+      }))
+      const dates = (list.CommonPrefixes || [])
+        .map((p) => p.Prefix.match(/date=(\d{4}-\d{2}-\d{2})\//)?.[1])
+        .filter(Boolean).sort().reverse().slice(0, 62)
+      res.json({ dates })
+    } catch (err) {
+      res.status(502).json({ error: 's3_error', message: err?.message || String(err) })
+    }
+  })
+
+  router.get('/cost/spend-limits/at', async (req, res) => {
+    const org = orgFromReq(req)
+    const BUCKET = process.env.ARCHIVE_S3_BUCKET
+    const { date, time } = req.query
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({ error: 'bad_date' })
+    if (time && !/^\d{4}$/.test(time)) return res.status(400).json({ error: 'bad_time' })
+    if (BUCKET && time) {
+      try {
+        const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: mtdSnapKey(org, date, time) }))
+        const body = JSON.parse(await obj.Body.transformToString())
+        return res.json({ ...body, snapshot: { date, time } })
+      } catch (err) {
+        if (!(err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404)) {
+          return res.status(502).json({ error: 's3_error', message: err?.message || String(err) })
+        }
+        // Missing object → fall through to the end-of-day reconstruction.
+      }
+    }
+    const today = new Date().toISOString().slice(0, 10)
+    if (date >= today) {
+      return res.status(404).json({ error: 'not_archived', message: 'No snapshot at this point (yet) — pick an archived time or a past date.' })
+    }
+    try {
+      // End-of-day approximation: month-start through D inclusive
+      // (resolveUserCostWindow makes ending_at exclusive via utcNextDay).
+      // warm:false — one-shot history windows must not enter keep-warm.
+      const monthStart = `${date.slice(0, 8)}01`
+      const live = await fetchUserReport({ starting_date: monthStart, ending_date: date }, org, { warm: false })
+      const members = userCostToUsers(live.data).map((u) => ({
+        email: u.email, name: u.name || null, limit_usd: null,
+        spent_usd: Number(u.net_spend_usd.toFixed(2)), utilization: null,
+        period: 'monthly', source: 'reconstructed',
+      }))
+      res.json({
+        source: 'reconstructed', period: 'monthly', approx: true,
+        fetched_at: live.data_refreshed_at || null,
+        snapshot: { date, time: 'EOD' }, members,
+      })
+    } catch (err) {
+      res.status(502).json({ error: 'upstream_error', message: err?.message || String(err) })
+    }
+  })
+
   // ── CSV Spend Report Uploads (management) ───────────────────────────────
   // Lets authenticated dashboard users upload / list / delete Spend Report
   // CSVs without needing AWS CLI access. All requests already pass through

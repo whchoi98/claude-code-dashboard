@@ -157,6 +157,13 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     page's 60s auto-refresh — bypasses the 10-min TTL via
     `cachedCost.topUp(key, fetcher, 15_000)`, floored at 15s, and the
     response carries `fetched_at`),
+    `/cost/spend-limits/snapshots` + `/cost/spend-limits/at` (Cost Live
+    HISTORY — the upstream has no history params, so a 15-min loop archives
+    the payload per org to `<orgPrefix>spend_mtd/date=…/HHMM.json`, slots
+    rounded down so both Fargate tasks dedupe on the same key; `/at` serves
+    an archived snapshot, or for past dates without one an END-OF-DAY
+    reconstruction from `user_cost_report [month-start, date]` — `warm:false`,
+    `approx:true`, no limits),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (live-first: queries `user_cost_report` for the exact
     range via `fetchUserReport`, joins on `email` with `users/range`
