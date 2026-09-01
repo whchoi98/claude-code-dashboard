@@ -11,6 +11,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-09-01
+
+The Cost Live page gains point-in-time history. The Spend Limits API serves only the current month-to-date snapshot — no history parameters exist — so the dashboard now archives it and reconstructs what it can't have archived.
+
+### Added
+
+- **MTD snapshot archive + history view on Cost Live.** The server writes each org's Spend Limits payload to S3 every 15 minutes (`spend_mtd/date=YYYY-MM-DD/HHMM.json`; timestamps rounded down to the 15-minute slot so both Fargate tasks write the same key and dedupe last-writer-wins — ~30KB × 96/day). New endpoints: `GET /api/cost/spend-limits/snapshots` (dates, or times for a date) and `GET /api/cost/spend-limits/at` (one snapshot). The page gains a date picker plus an archived-times dropdown, a "Back to Live" button, and a snapshot stamp; auto-refresh freezes while a history point is open. Intraday history begins at this release's deploy — it cannot be backfilled.
+- **End-of-day reconstruction for pre-archive dates.** A past date without a snapshot is approximated from `user_cost_report` (month-start through that date, `warm:false` so one-shot history windows never enter keep-warm), flagged `approx: true` with an explanatory banner — per-user spend only, no limits/utilization, ~4h-watermark and 30-day-correction semantics. Verified against `cost_report`'s month total to the cent (org2, 2026-08-27: $20,696.00 vs $20,695.99).
+
+### Fixed
+
+Two defects the pre-deploy adversarial review confirmed, fixed before shipping:
+
+- **View-transition payload mismatch.** `useFetch` keeps the previous response while a URL switch is in flight, and a Cost Live URL switch now changes *meaning* (live ↔ snapshot ↔ reconstruction) — the old payload's numbers could flash under the new view's labels. Rendering is now gated on the payload's shape matching the current view.
+- **"Live" badge on archived views.** The page header showed the live pill for snapshot and reconstructed payloads, contradicting the snapshot stamp beneath it; it now renders only for genuinely live data.
+
+### Changed
+
+- Cost Live wording: "near-real-time / 거의 실시간" → "real-time / 실시간" across the page (as-of stamp, subtitle, footnote, nav hint).
+
 ## [2.2.0] - 2026-09-01
 
 Everything unreleased since 2.0.4, headlined by a real-time cost menu and a fresher engagement pipeline. Two of the features answer questions raised the same day they shipped: "MTD 총액이 다르다" (the Console-vs-dashboard freshness gap, now a dedicated page reading the Console's own source) and "그룹 총액이 Top 10 합보다 작다" (same-day spend starts group-unattributed upstream and settles retroactively — measured live: $655 attributed of $4,050 total on the day, converged by the next day).
