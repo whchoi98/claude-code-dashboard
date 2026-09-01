@@ -916,6 +916,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'skills_daily',
   'connectors_daily',
   'projects_daily',
+  'plugins_daily',
   'compliance_daily',
   // org2 twins — identical columns/projection, locations under org2/ (multi-org contract).
   'claude_code_analytics_org2',
@@ -923,6 +924,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'skills_daily_org2',
   'connectors_daily_org2',
   'projects_daily_org2',
+  'plugins_daily_org2',
   'compliance_daily_org2',
 ])
 const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
@@ -1953,7 +1955,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       if (!body.next_page) break
       page = body.next_page
     }
-    return { source: 'live', period: 'monthly', members: spendLimitsToMembers(all) }
+    // fetched_at rides the cached copy too — the Cost Live page shows it as
+    // the "as of" stamp so a TTL-cached serve is honest about its age.
+    return { source: 'live', period: 'monthly', fetched_at: new Date().toISOString(), members: spendLimitsToMembers(all) }
   }
 
   router.get('/cost/spend-limits', async (req, res) => {
@@ -1963,7 +1967,26 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       return res.status(400).json({ error: 'analytics_key_required', message: 'ANTHROPIC_ANALYTICS_KEY (with read:spend_limits) is required.' })
     }
     try {
-      res.json(await cachedWarm(`${org}:spend-limits`, () => fetchSpendLimits(org)))
+      const key = `${org}:spend-limits`
+      // ?fresh=1 (Cost Live page refresh): bypass the 10-min TTL and pull
+      // upstream now — the Spend Limits API is near-real-time and rides its
+      // OWN 60 rpm budget (2 pages for ~120 members), so a user-initiated
+      // pull is cheap. The result still lands in the shared cache. minAge
+      // 15s keeps a click-storm from hammering upstream.
+      if (req.query.fresh === '1') {
+        try {
+          return res.json(await cachedCost.topUp(key, () => fetchSpendLimits(org), 15_000))
+        } catch (err) {
+          // topUp has no SWR degrade of its own: a failed live pull (429/5xx/
+          // network) must not blank the auto-refreshing Cost Live page. Fall
+          // back to whatever the TTL cache still holds, stale-marked like
+          // every other cost consumer; rethrow only when there's nothing.
+          try {
+            return res.json({ ...(await cachedCost(key, () => Promise.reject(err))), stale: true })
+          } catch { throw err }
+        }
+      }
+      res.json(await cachedWarm(key, () => fetchSpendLimits(org)))
     } catch (err) {
       res.status(502).json({ error: 'upstream_error', message: err?.message || String(err), upstream: err?.upstream })
     }
@@ -2135,12 +2158,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // org's engagement data; primary omits the param (legacy URL shape).
     const orgQS = org === 'primary' ? '' : `&org=${org}`
     const BUCKET = process.env.ARCHIVE_S3_BUCKET
-    // This route DELIBERATELY clamps its whole window to today-3, unlike
+    // This route DELIBERATELY pins its whole window to today-3, unlike
     // /cost/users: every metric here is a ratio of spend ÷ productivity, and
-    // the productivity source (users/range) is hard-clamped to the Analytics
-    // 3-day buffer upstream (clampAnalyticsEnd). Letting spend run to `today`
-    // while LOC/commits stop at today-3 inflates $/LOC, $/Commit and skews
-    // the economic-productivity score — both windows must match. Full-range
+    // the productivity source (users/range) never serves past its
+    // finalization horizon (dynamic upstream since 2026-09 — typically
+    // today−2 — but today−3 stays this route's conservative floor: the
+    // keep-warm loop registers the ungrouped user_cost_report key on
+    // exactly [today−3, today−3] to match, and both formulas must move
+    // together). Letting spend run to `today` while LOC/commits stop at
+    // the horizon inflates $/LOC, $/Commit and skews the
+    // economic-productivity score — both windows must match. Full-range
     // per-user spend (headline-consistent Top-10) comes from /cost/users,
     // which user_cost_report serves buffer days included. The starting guard
     // prevents an inverted window (fully-recent range → upstream 400).

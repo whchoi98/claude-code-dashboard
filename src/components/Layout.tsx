@@ -30,6 +30,7 @@ const NAV = [
   { to: '/agentic',           key: 'agentic',           badge: '🤖' },
   { to: '/adoption',          key: 'adoption',          badge: '🌱' },
   { to: '/cost',              key: 'cost',              badge: '$' },
+  { to: '/cost-live',         key: 'cost_live',         badge: '⏱' },
   { to: '/compliance',        key: 'compliance',        badge: '🔒' },
   { to: '/analyze',           key: 'analyze',           badge: 'AI' },
   { to: '/archive',           key: 'archive',           badge: '📦' },

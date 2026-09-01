@@ -11,6 +11,7 @@ import { Productivity } from './pages/Productivity'
 import { UserProductivity } from './pages/UserProductivity'
 import { Adoption } from './pages/Adoption'
 import { Cost } from './pages/Cost'
+import { CostLive } from './pages/CostLive'
 import { Compliance } from './pages/Compliance'
 import { Analyze } from './pages/Analyze'
 import { Archive } from './pages/Archive'
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="user-search" element={<UserSearch />} />
             <Route path="adoption" element={<Adoption />} />
             <Route path="cost" element={<Cost />} />
+            <Route path="cost-live" element={<CostLive />} />
             <Route path="compliance" element={<Compliance />} />
             <Route path="analyze" element={<Analyze />} />
             <Route path="archive" element={<Archive />} />
