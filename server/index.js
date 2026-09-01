@@ -9,6 +9,7 @@ import { registerAwsRoutes, makeTtlCache } from './aws.js'
 import { inflateUser } from './inflate.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import { makeIdentityResolver } from './identity.js'
+import { parseLatestAvailable, recordEngagementLatest, engagementMaxDay, engagementBufferDays } from './freshness.js'
 
 dotenv.config()
 
@@ -144,6 +145,13 @@ async function fetchJson(path, params, key, { signal } = {}) {
     try { json = JSON.parse(text) } catch { json = { raw: text } }
     const result = { ok: res.ok, status: res.status, body: json }
     if (res.ok) cache.set(cacheKey, { t: Date.now(), data: result })
+    // Opportunistic freshness learning: an engagement 400 names the newest
+    // served day — record it so clampAnalyticsEnd() tracks the real horizon
+    // (the hourly probe in the listen callback is the primary source).
+    if (!res.ok && res.status === 400) {
+      const day = parseLatestAvailable(json?.error?.message)
+      if (day) recordEngagementLatest(key, day, todayUtc(0))
+    }
     return result
   } catch (err) {
     return { ok: false, status: 0, body: { error: { type: 'network_error', message: String(err?.message || err) } } }
@@ -156,14 +164,17 @@ function todayUtc(offsetDays = 0) {
   return d.toISOString().slice(0, 10)
 }
 
-// Analytics API rejects dates inside the 3-day finalization buffer with
-// HTTP 400 ("Data is not yet available …"). The DateRangeControl picker
-// allows today as the end date by design (the footnote spells out the
-// partial-count caveat), so the proxy clamps any incoming ending_date
-// to today-3 here. Callers passing `undefined` get `today-3` as the
-// default (preserves prior behavior).
-function clampAnalyticsEnd(raw) {
-  const max = todayUtc(-3)
+// The Analytics engagement family rejects dates newer than its finalization
+// horizon with HTTP 400 ("Latest available data for this query is …"). The
+// DateRangeControl picker allows today as the end date by design (the
+// footnote spells out the partial-count caveat), so the proxy clamps any
+// incoming ending_date here. The horizon is DYNAMIC (server/freshness.js):
+// typically today−2 since 2026-08, learned per key from the hourly probe
+// below plus any 400 that names a day, falling back to the conservative
+// today−3 until something is learned. Callers passing `undefined` get the
+// horizon itself as the default (preserves prior behavior).
+function clampAnalyticsEnd(raw, key) {
+  const max = engagementMaxDay(key, todayUtc(0))
   if (!raw) return max
   return raw > max ? max : raw
 }
@@ -301,7 +312,11 @@ app.get('/api/health', (req, res) => {
     apiVersion: API_VERSION,
     dataConstraints: {
       firstAvailableDate: '2026-01-01',
-      bufferDays: 3,
+      // Live engagement horizon, not a constant: learned from the hourly
+      // upstream probe (falls back to 3 until something is learned). The
+      // frontend uses it to window-align cost joins with what the
+      // engagement routes actually serve (Users.tsx tokens column).
+      bufferDays: engagementBufferDays(analyticsKeyFor(org), todayUtc(0)),
       maxLookbackDays: 90,
       summariesMaxRangeDays: 31,
       rateLimitPerMinute: 60,
@@ -319,8 +334,8 @@ app.get('/api/orgs', (_req, res) => {
 
 app.get('/api/analytics/summaries', async (req, res) => {
   const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const endingDate = clampAnalyticsEnd(req.query.ending_date)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-33))
+  const endingDate = clampAnalyticsEnd(req.query.ending_date, analyticsKey)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-33), analyticsKey)
 
   if (!analyticsKey) {
     return res.json({ source: 'mock', ...generateMock.summaries(startingDate, endingDate) })
@@ -346,7 +361,7 @@ app.get('/api/analytics/summaries', async (req, res) => {
 
 app.get('/api/analytics/users', async (req, res) => {
   const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const date = clampAnalyticsEnd(req.query.date)
+  const date = clampAnalyticsEnd(req.query.date, analyticsKey)
   const limit = Number(req.query.limit || 1000)
 
   if (!analyticsKey) {
@@ -380,7 +395,7 @@ app.get('/api/analytics/users', async (req, res) => {
 
 app.get('/api/analytics/skills', async (req, res) => {
   const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const date = clampAnalyticsEnd(req.query.date)
+  const date = clampAnalyticsEnd(req.query.date, analyticsKey)
   if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.skills(date) })
   }
@@ -397,7 +412,7 @@ app.get('/api/analytics/skills', async (req, res) => {
 
 app.get('/api/analytics/connectors', async (req, res) => {
   const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const date = clampAnalyticsEnd(req.query.date)
+  const date = clampAnalyticsEnd(req.query.date, analyticsKey)
   if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.connectors(date) })
   }
@@ -414,7 +429,7 @@ app.get('/api/analytics/connectors', async (req, res) => {
 
 app.get('/api/analytics/projects', async (req, res) => {
   const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const date = clampAnalyticsEnd(req.query.date)
+  const date = clampAnalyticsEnd(req.query.date, analyticsKey)
   if (!analyticsKey) {
     return res.json({ source: 'mock', date, ...generateMock.projects(date) })
   }
@@ -435,8 +450,8 @@ app.get('/api/analytics/projects', async (req, res) => {
 app.get('/api/analytics/users/range', async (req, res) => {
   const org = orgFromReq(req)
   const analyticsKey = analyticsKeyFor(org)
-  const endingDate = clampAnalyticsEnd(req.query.ending_date)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
+  const endingDate = clampAnalyticsEnd(req.query.ending_date, analyticsKey)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16), analyticsKey)
   const dates = rangeDates(startingDate, endingDate).slice(-MAX_RANGE_DAYS)
 
   const { days, coverage } = await serveArchiveRange(dates, {
@@ -488,8 +503,8 @@ function makeDailyRangeRoute(upstreamPath, mockKey, rawTable) {
   return async (req, res) => {
     const org = orgFromReq(req)
     const analyticsKey = analyticsKeyFor(org)
-    const endingDate = clampAnalyticsEnd(req.query.ending_date)
-    const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
+    const endingDate = clampAnalyticsEnd(req.query.ending_date, analyticsKey)
+    const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16), analyticsKey)
     const dates = rangeDates(startingDate, endingDate).slice(-MAX_RANGE_DAYS)
 
     const { days, coverage } = await serveArchiveRange(dates, {
@@ -519,6 +534,10 @@ function makeDailyRangeRoute(upstreamPath, mockKey, rawTable) {
 app.get('/api/analytics/skills/range',     makeDailyRangeRoute('/v1/organizations/analytics/skills',             'skills',     'skills'))
 app.get('/api/analytics/connectors/range', makeDailyRangeRoute('/v1/organizations/analytics/connectors',         'connectors', 'connectors'))
 app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organizations/analytics/apps/chat/projects', 'projects',   'projects'))
+// v2.2: plugin install/invocation usage. Raw sidecar starts at the first
+// collector run after this ships — earlier days serve via the bounded live
+// fallback, older ones as 'unarchived' (RangeCoverageNote explains them).
+app.get('/api/analytics/plugins/range',    makeDailyRangeRoute('/v1/organizations/analytics/plugins',            'plugins',    'plugins'))
 
 // ─── Admin API (optional — requires sk-ant-admin key) ───────────────────────
 
@@ -553,8 +572,8 @@ app.get('/api/admin/claude-code', async (req, res) => {
 app.get('/api/admin/claude-code/range', async (req, res) => {
   const adminKey = adminKeyFor('primary')
   if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
-  const endingDate   = clampAnalyticsEnd(req.query.ending_date)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16))
+  const endingDate   = clampAnalyticsEnd(req.query.ending_date, adminKey)
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16), adminKey)
   const dates = rangeDates(startingDate, endingDate).slice(-31)
 
   const results = []
@@ -587,7 +606,7 @@ app.get('/api/admin/usage', async (req, res) => {
   const adminKey = adminKeyFor('primary')
   if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-15))
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-15), adminKey)
   const params = {
     starting_at:  `${startingDate}T00:00:00Z`,
     ending_at:    `${endingDate}T00:00:00Z`,
@@ -779,7 +798,7 @@ app.get('/api/admin/cost', async (req, res) => {
   const adminKey = adminKeyFor('primary')
   if (!adminKey) return res.status(400).json({ error: 'admin_key_required' })
   const endingDate   = req.query.ending_date   || todayUtc(-1)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-31))
+  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-31), adminKey)
   const params = {
     starting_at:  `${startingDate}T00:00:00Z`,
     ending_at:    `${endingDate}T00:00:00Z`,
@@ -794,7 +813,7 @@ app.get('/api/admin/cost', async (req, res) => {
 // whose Analytics key grounds the snapshot (chatbot requests pass it through).
 async function fetchAnalyticsSnapshot(org = 'primary') {
   const analyticsKey = analyticsKeyFor(org)
-  const endingDate = todayUtc(-3)
+  const endingDate = engagementMaxDay(analyticsKey, todayUtc(0)) // newest served engagement day
   const startingDate = todayUtc(-16) // 14-day window
   const snap = { window: { starting_date: startingDate, ending_date: endingDate } }
 
@@ -858,6 +877,32 @@ if (PROD) {
 app.listen(PORT, () => {
   console.log(`\x1b[36m[api]\x1b[0m Claude Code Dashboard proxy on http://localhost:${PORT}`)
   console.log(`\x1b[36m[api]\x1b[0m Analytics key: ${keyClass(analyticsKeyFor('primary'))} | Admin key: ${keyClass(adminKeyFor('primary'))}${hasOrg2() ? ` | org2 key: ${keyClass(analyticsKeyFor('org2'))}` : ''}`)
+  // Engagement-freshness probe: learn each org's real finalization horizon
+  // so clampAnalyticsEnd() serves the newest day the API actually has
+  // (typically today−2 since 2026-08) instead of the static today−3
+  // fallback. One users?date=today−1 request per org: a 200 proves today−1
+  // is served (the ceiling by design — engagement aggregates daily), a 400
+  // names the newest served day and fetchJson records it. 1 req/hour/org —
+  // negligible against the 60 rpm org budget; runs before the first
+  // analytics prewarm tick (+3s) so the prewarm warms the learned day.
+  if (analyticsKeyFor('primary') || hasOrg2()) {
+    const probeFreshness = async () => {
+      const orgIds = hasOrg2() ? ['primary', 'org2'] : ['primary']
+      for (const org of orgIds) {
+        const key = analyticsKeyFor(org)
+        if (!key) continue
+        const target = todayUtc(-1)
+        const r = await fetchJson('/v1/organizations/analytics/users', { date: target, limit: 1 }, key)
+        if (r.ok) recordEngagementLatest(key, target, todayUtc(0))
+        // !ok: a horizon 400 was already parsed + recorded inside fetchJson;
+        // other failures (429/5xx/network) keep the previous learned value.
+        console.log(`\x1b[36m[freshness]\x1b[0m ${org}: engagement horizon = ${engagementMaxDay(key, todayUtc(0))}`)
+        await new Promise((r2) => setTimeout(r2, 2_000).unref?.())
+      }
+    }
+    setTimeout(() => { probeFreshness().catch(() => {}) }, 500)
+    setInterval(() => { probeFreshness().catch(() => {}) }, 3_600_000)
+  }
   // Background prewarm for the Compliance audit feed. Top-ups the
   // response-level auditCache DIRECTLY for the four DateRangeControl preset
   // windows — the key formula MUST match what the frontend sends
@@ -928,12 +973,23 @@ app.listen(PORT, () => {
       const startedAt = Date.now()
       const end = todayUtc(0)
       const d30 = todayUtc(-29)
-      const baseTargets = [
+      const targetsFor = (org) => [
         `/api/analytics/users/range?starting_date=${d30}&ending_date=${end}`,
         `/api/analytics/skills/range?starting_date=${d30}&ending_date=${end}`,
         `/api/analytics/connectors/range?starting_date=${d30}&ending_date=${end}`,
         `/api/analytics/projects/range?starting_date=${d30}&ending_date=${end}`,
-        `/api/analytics/users?date=${todayUtc(-3)}`,
+        // plugins/range is DELIBERATELY not prewarmed yet: the plugins archive
+        // starts empty (no raw sidecar predates v2.2), so a 30d warm would
+        // live-fetch every missing day — a ~27-call burst per task per org
+        // every other 5-min tick against the shared 60 rpm budget (the
+        // 2026-07-22/08-27 saturation class). Re-add once the collector has
+        // ~30 days of plugins partitions; until then user traffic warms it
+        // (bounded ≤7 live calls for the default 7d window, 10-min cached).
+        // users?date follows the org's LEARNED horizon: any frontend date ≥
+        // the horizon clamps to it upstream, so this warms the exact
+        // fetchJson key those requests will hit (a fixed today−3 would warm
+        // a day nobody is served anymore).
+        `/api/analytics/users?date=${engagementMaxDay(analyticsKeyFor(org), end)}`,
         `/api/analytics/summaries?starting_date=${todayUtc(-6)}&ending_date=${end}`,
         `/api/analytics/summaries?starting_date=${todayUtc(-13)}&ending_date=${end}`,
         `/api/analytics/summaries?starting_date=${todayUtc(-29)}&ending_date=${end}`,
@@ -942,7 +998,7 @@ app.listen(PORT, () => {
       let ok = 0, failed = 0
       for (const org of orgIds) {
         if (!analyticsKeyFor(org)) continue
-        const targets = org === 'org2' ? baseTargets.map((p) => `${p}&org=org2`) : baseTargets
+        const targets = org === 'org2' ? targetsFor(org).map((p) => `${p}&org=org2`) : targetsFor(org)
         for (const path of targets) {
           try {
             const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { signal: AbortSignal.timeout(60_000) })

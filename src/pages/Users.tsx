@@ -9,6 +9,7 @@ import { DateRangeControl } from '../components/DateRangeControl'
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
+import { useHealth } from '../lib/useHealth'
 import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
@@ -25,8 +26,16 @@ type Row = {
   cowork: number; coworkActions: number; design: number;
   accepted: number; rejected: number; accept: number | null;
   cacheHit: number | null;
+  lastActive: string | null;
 }
-type K = 'user' | 'messages' | 'sessions' | 'loc' | 'commits' | 'prs' | 'cowork' | 'design' | 'accept' | 'cache'
+type K = 'user' | 'messages' | 'sessions' | 'loc' | 'commits' | 'prs' | 'cowork' | 'design' | 'accept' | 'cache' | 'lastActive'
+
+// Seats whose absolute last activity is this many days ago count as dormant.
+const DORMANT_DAYS = 14
+
+function daysSince(isoDate: string): number {
+  return Math.floor((Date.now() - Date.parse(`${isoDate}T00:00:00Z`)) / 86400000)
+}
 
 export function Users() {
   const t = useT()
@@ -36,17 +45,22 @@ export function Users() {
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
   // Per-user cache hit rate (user_usage_report), WINDOW-ALIGNED with the
-  // engagement columns: the server clamps users/range to the 3-day
-  // finalization buffer, so the tokens window must end at today−3 too —
-  // mixing regimes in one sortable row is the exact bug class
-  // /cost/efficiency clamps against server-side. Spans over 31 days are
-  // served too: the server chunks them into ≤31-day upstream segments
-  // (upstream span cap) and re-aggregates per user.
+  // engagement columns: the server clamps users/range to the engagement
+  // finalization horizon, so the tokens window must end there too — mixing
+  // regimes in one sortable row is the exact bug class /cost/efficiency
+  // clamps against server-side. The horizon is DYNAMIC (typically today−2,
+  // reported by /api/health as bufferDays from the server's hourly upstream
+  // probe); until health settles we use the conservative 3, matching the
+  // server's own fallback. Spans over 31 days are served too: the server
+  // chunks them into ≤31-day upstream segments (upstream span cap) and
+  // re-aggregates per user.
+  const health = useHealth()
+  const bufferDays = health?.dataConstraints?.bufferDays ?? 3
   const tokensEnd = useMemo(() => {
-    const d = new Date(); d.setUTCDate(d.getUTCDate() - 3)
+    const d = new Date(); d.setUTCDate(d.getUTCDate() - bufferDays)
     const buffered = d.toISOString().slice(0, 10)
     return range.endingDate < buffered ? range.endingDate : buffered
-  }, [range.endingDate])
+  }, [range.endingDate, bufferDays])
   const tokensStart = range.startingDate < tokensEnd ? range.startingDate : tokensEnd
   const tokens = useFetch<UserTokensResp>(
     `/api/cost/user-tokens?starting_date=${tokensStart}&ending_date=${tokensEnd}`,
@@ -63,6 +77,7 @@ export function Users() {
   const source = badgeSource(data?.days?.[0]?.source)
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const [dormantOnly, setDormantOnly] = useState(false)
 
   const aggregated = useMemo<Row[]>(() => {
     // Aggregate per-user across the selected window. acceptRate is recomputed
@@ -77,9 +92,13 @@ export function Users() {
         const email = r.user.email_address
         let cur = byEmail.get(email)
         if (!cur) {
-          cur = { email, messages: 0, convos: 0, sessions: 0, loc: 0, locRemoved: 0, commits: 0, prs: 0, cowork: 0, coworkActions: 0, design: 0, accepted: 0, rejected: 0, accept: null, cacheHit: null }
+          cur = { email, messages: 0, convos: 0, sessions: 0, loc: 0, locRemoved: 0, commits: 0, prs: 0, cowork: 0, coworkActions: 0, design: 0, accepted: 0, rejected: 0, accept: null, cacheHit: null, lastActive: null }
           byEmail.set(email, cur)
         }
+        // Absolute last-active day (shipped 2026-08; null on older archive
+        // days). Every snapshot day repeats it — keep the newest value.
+        const la = r.last_activity_date ?? null
+        if (la && (!cur.lastActive || la > cur.lastActive)) cur.lastActive = la
         cur.messages   += r.chat_metrics.message_count
         cur.convos     += r.chat_metrics.distinct_conversation_count
         cur.sessions   += cc.core_metrics.distinct_session_count
@@ -104,10 +123,20 @@ export function Users() {
     }))
   }, [data, inGroup, cacheByEmail])
 
+  // Feature detection: the field only exists on data collected since 2026-08.
+  // If no row in the window carries it, hide the column and the toggle rather
+  // than rendering a column of dashes.
+  const hasLastActive = useMemo(() => aggregated.some((r) => r.lastActive != null), [aggregated])
+
   const filtered = useMemo(() => {
     const f = q.trim().toLowerCase()
-    return f ? aggregated.filter((r) => r.email.toLowerCase().includes(f)) : aggregated
-  }, [aggregated, q])
+    let out = f ? aggregated.filter((r) => r.email.toLowerCase().includes(f)) : aggregated
+    // hasLastActive guard: when a range/group/org switch drops the field
+    // entirely, the toggle unmounts — a stale dormantOnly=true must not keep
+    // filtering every row into an unexplained empty table.
+    if (dormantOnly && hasLastActive) out = out.filter((r) => r.lastActive != null && daysSince(r.lastActive) >= DORMANT_DAYS)
+    return out
+  }, [aggregated, q, dormantOnly, hasLastActive])
 
   const accessors: Record<K, (r: Row) => string | number | null | undefined> = {
     user:     (r) => r.email,
@@ -120,6 +149,7 @@ export function Users() {
     design:   (r) => r.design,
     accept:   (r) => r.accept,
     cache:    (r) => r.cacheHit,
+    lastActive: (r) => r.lastActive,
   }
   const { rows, sortKey, sortDir, toggle } = useSortable<Row, K>(filtered, accessors, {
     initialKey: 'loc', initialDir: 'desc',
@@ -140,6 +170,19 @@ export function Users() {
         right={
           <div className="flex flex-wrap items-center gap-2">
             <DateRangeControl />
+            {hasLastActive && (
+              <button
+                onClick={() => setDormantOnly((v) => !v)}
+                className={clsx(
+                  'text-sm px-3 py-1.5 rounded-lg border transition-colors',
+                  dormantOnly
+                    ? 'border-amber-400 bg-amber-50 text-amber-800 font-medium'
+                    : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300',
+                )}
+              >
+                {t('users.dormant.toggle', { days: DORMANT_DAYS })}
+              </button>
+            )}
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -169,6 +212,7 @@ export function Users() {
                   <Th label={t('users.col.design')}   k="design"   align="left" />
                   <Th label={t('users.col.accept')}   k="accept"   align="left" />
                   <Th label={t('users.col.cache')}    k="cache"    align="left" />
+                  {hasLastActive && <Th label={t('users.col.last_active')} k="lastActive" align="left" />}
                 </tr>
               </thead>
               <tbody>
@@ -194,6 +238,16 @@ export function Users() {
                     <td className="px-4 py-2.5 tabular-nums text-ink-600">{fmtNum(r.design)}</td>
                     <td className="px-4 py-2.5 tabular-nums text-ink-600">{fmtPct(r.accept)}</td>
                     <td className="px-4 py-2.5 tabular-nums text-ink-600">{r.cacheHit != null ? fmtPct(r.cacheHit) : '—'}</td>
+                    {hasLastActive && (
+                      <td className="px-4 py-2.5 tabular-nums text-ink-600 whitespace-nowrap">
+                        {r.lastActive ?? '—'}
+                        {r.lastActive != null && daysSince(r.lastActive) >= DORMANT_DAYS && (
+                          <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
+                            {t('users.dormant.badge', { days: daysSince(r.lastActive) })}
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

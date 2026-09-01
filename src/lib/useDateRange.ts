@@ -94,13 +94,18 @@ export function useDateRange(defaultPreset: Preset = '7d', { freshEnd = false }:
     }
     const preset: Preset = ['1d', '7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
     const days = presetToDays(preset)
-    // '1d' = the most recent FINALIZED day (today-3) by default, so engagement
-    // pages (whose endpoints clamp to the 3-day buffer server-side) show a
-    // label that matches the data. Pages with buffer-free sources (Cost —
+    // '1d' = the GUARANTEED-finalized day (today-3) by default. The server's
+    // engagement clamp is dynamic now (typically today−2, see
+    // server/freshness.js), so today−3 is a conservative floor, not the real
+    // horizon — it stays STATIC on purpose: the compliance prewarm must
+    // predict the exact '1d' cache key the frontend sends, and a
+    // health-driven dynamic day would desync the two whenever tasks learn
+    // different values. Pages with buffer-free sources (Cost —
     // user_cost_report/user_usage_report serve today at a ~4h watermark) opt
     // into freshEnd so '1d' means TODAY. The multi-day presets always end at
     // today and rely on the server's per-endpoint clamping + the "partial
-    // recent days" tolerance.
+    // recent days" tolerance — THEY get the dynamic horizon's extra day
+    // automatically.
     const endingDate = preset === '1d' && !freshEnd ? todayMinusDaysUtc(3) : maxEnd
     const startingDate = clamp(todayMinusDaysUtc(days - 1), FIRST_AVAILABLE, endingDate)
     return { startingDate, endingDate, preset, days }
