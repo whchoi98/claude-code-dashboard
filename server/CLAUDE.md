@@ -71,6 +71,12 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   `read:compliance_activities`, verified live 2026-07-03) — the dedicated
   `ccd/compliance-key` secret is optional; `/api/health` reports which is
   active (`compliance` / `analytics-fallback` / `none`).
+- **`freshness.js`** — dynamic engagement-freshness tracker: records the
+  newest served engagement day per API key (learned from the hourly
+  `users?date=today−1` probe + any 400 naming a day) so
+  `clampAnalyticsEnd()` tracks the real finalization horizon (typically
+  today−2) instead of a static today−3. Pure module (no index.js import);
+  unit-tested in `tests/server/test-freshness.mjs`.
 - **`inflate.js`** — pure read-side helper `inflateUser()`: a flattened NDJSON
   row (written by `collector/flatten.js`) → nested Analytics-API user shape.
   Imported by `index.js` `readUsersFromS3`; unit-tested in
@@ -147,7 +153,10 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     `/cost/spend-limits` (per-member effective limit + month-to-date spend
     via the Spend Limits API `GET /v1/organizations/spend_limits/effective`,
     scope `read:spend_limits`; mapped by `spendLimitsToMembers`; no date
-    params — always the current monthly period),
+    params — always the current monthly period; `?fresh=1` — the Cost Live
+    page's 60s auto-refresh — bypasses the 10-min TTL via
+    `cachedCost.topUp(key, fetcher, 15_000)`, floored at 15s, and the
+    response carries `fetched_at`),
     `/cost/csv`, `/cost/upload`, `/cost/uploads`, `DELETE /cost/uploads/:file`,
     `/cost/efficiency` (live-first: queries `user_cost_report` for the exact
     range via `fetchUserReport`, joins on `email` with `users/range`
@@ -233,8 +242,8 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     Athena execution (`runAthena` polls for up to 60 s and throws an
     explicit timeout error rather than falling through to
     `GetQueryResultsCommand` on a still-RUNNING query; `POST /archive/query`
-    sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the six
-    Glue tables incl. `compliance_daily` — and **masks result rows
+    sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the seven
+    Glue tables incl. `compliance_daily` + `plugins_daily` (v2.2) — and **masks result rows
     server-side** with `maskEmailsDeep` before responding), S3 CSV reading.
   - The `analyticsReportsToCostResp` reshape function — pure, exported,
     unit-tested in `tests/server/test-cost-live-reshape.mjs`.
@@ -267,13 +276,25 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   - Compliance `/v1/compliance/activities`: **`?after_id=<last_event_id>`**
     derived from `data[-1].id`. The endpoint does NOT return `next_page`;
     relying on it silently breaks pagination after page 1.
-- **Analytics *usage/engagement* dates must be clamped to today-3 before
-  hitting upstream — but the *cost* endpoints must NOT be**. The Analytics
-  engagement endpoints (`users`, `users/range`, `summaries`, …) and the
-  Admin API return HTTP 400 ("Data is not yet available") for any date
-  inside the 3-day finalization buffer, so the proxy clamps every
-  `ending_date`/`starting_date` it forwards via `clampAnalyticsEnd(raw)` —
-  use it on every new endpoint of that family. The **cost family**
+- **Analytics *usage/engagement* dates must be clamped to the DYNAMIC
+  finalization horizon before hitting upstream — but the *cost* endpoints
+  must NOT be**. The Analytics engagement endpoints (`users`, `users/range`,
+  `summaries`, …) and the Admin API return HTTP 400 for any date newer than
+  their finalization horizon (the 400 names the newest served day), so the
+  proxy clamps every `ending_date`/`starting_date` it forwards via
+  `clampAnalyticsEnd(raw, key)` — use it on every new endpoint of that
+  family, passing that route's API key. The horizon is LEARNED per key
+  (`server/freshness.js`): an hourly `users?date=today−1` probe in the
+  listen callback plus opportunistic parsing of any 400 inside `fetchJson`,
+  falling back to the static today−3 until something is learned — typically
+  it resolves to today−2 (upstream shortened the buffer in 2026-08; a day
+  aggregates at 10:00 UTC the following day, per the official docs, which
+  tell clients to parse the 400 rather than hardcode a lag). `/api/health`
+  reports the effective value as `dataConstraints.bufferDays`, and
+  `Users.tsx` uses it to window-align its tokens join. The analytics
+  prewarm's `users?date=` target follows the learned horizon for the same
+  reason (a fixed today−3 would warm a key nobody is served anymore). The
+  **cost family**
   (`cost_report`, `usage_report`, `user_cost_report`) serves those buffer
   days with *partial* data instead (verified live 2026-07-03), so clamping
   them makes the per-user tables cover fewer days than the headline KPIs —
