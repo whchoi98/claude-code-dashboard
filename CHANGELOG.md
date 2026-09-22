@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [2.4.0] - 2026-09-22
+
 ### Added
 
 - Search dashboard pages with Ctrl/⌘+K and Enter. Organization and group scope carry over during navigation.
@@ -821,7 +825,9 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.2.0...v2.3.0
 [1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
@@ -836,6 +842,10 @@ the three architectural decisions captured in this release.
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+_미출시 변경 사항 없음._
+
+## [2.4.0] - 2026-09-22
 
 ### 추가
 
@@ -1143,7 +1153,9 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.2.0...v2.3.0
 [1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.6.0...v1.7.0
