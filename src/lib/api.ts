@@ -26,49 +26,84 @@ export function orgParam(url: string, org: string): string {
 export function useFetch<T>(url: string): FetchState<T> {
   const { org } = useOrg()
   const finalUrl = orgParam(url, org)
-  const [state, setState] = useState<Omit<FetchState<T>, 'refetch'>>({ data: null, loading: true, error: null })
-  const [nonce, setNonce] = useState(0)
-  const lastOrgRef = useRef(org)
+  type Snapshot = Omit<FetchState<T>, 'refetch'> & { org: string; url: string }
+  const [state, setState] = useState<Snapshot>({
+    org, url: finalUrl, data: null, loading: true, error: null,
+  })
+  const requestRef = useRef<AbortController | null>(null)
+  const mountedRef = useRef(false)
+  const currentScopeRef = useRef({ org, url: finalUrl })
+  currentScopeRef.current = { org, url: finalUrl }
 
-  // Render-phase derived-state reset (not an effect): an org switch is a
-  // hard scope change, and an effect-based reset would let ONE committed
-  // frame paint the previous org's numbers before clearing. Setting state
-  // during render makes React re-render before commit — no cross-org frame
-  // ever reaches the screen.
-  if (lastOrgRef.current !== org) {
-    lastOrgRef.current = org
-    setState({ data: null, loading: true, error: null })
-  }
-
+  // Return the real request promise so upload/delete callers can await the
+  // refreshed list. A new request supersedes the previous one, even when
+  // several manual retries happen before React commits another render.
   const refetch = useCallback(async () => {
-    setNonce((n) => n + 1)
-  }, [])
+    // An upload can finish after the user has changed org/window or left the
+    // page. Its captured callback must not cancel the current scope's request.
+    if (!mountedRef.current || currentScopeRef.current.org !== org || currentScopeRef.current.url !== finalUrl) return
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
+    let timedOut = false
+    // CloudFront's origin read timeout is 60 seconds. Leave room for the
+    // response, but don't leave a disconnected browser on an endless spinner.
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, 65_000)
+    controller.signal.addEventListener('abort', () => clearTimeout(timeout), { once: true })
+    setState((previous) => ({
+      ...(previous.org === org ? previous : { data: null }),
+      org, url: finalUrl, loading: true, error: null,
+    }))
+    try {
+      const response = await fetch(finalUrl, { signal: controller.signal })
+      const body = await response.json().catch(() => {
+        if (response.ok) throw new Error(`Invalid JSON response (HTTP ${response.status}).`)
+        return null
+      })
+      if (!response.ok) {
+        const message = body?.error || body?.message
+        throw new Error(typeof message === 'string' ? message : `HTTP ${response.status} ${response.statusText}`.trim())
+      }
+      if (body == null || typeof body !== 'object') {
+        throw new Error(`Invalid JSON response (HTTP ${response.status}).`)
+      }
+      if (controller.signal.aborted || requestRef.current !== controller) return
+      setState({
+        org, url: finalUrl, data: body as T, loading: false, error: null,
+        source: body.source, reason: body.reason,
+      })
+    } catch (err) {
+      if (requestRef.current !== controller || (controller.signal.aborted && !timedOut)) return
+      setState({
+        org, url: finalUrl, data: null, loading: false,
+        error: timedOut ? 'Request timed out. Please try again.' : err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+  }, [finalUrl, org])
 
   useEffect(() => {
-    let aborted = false
-    setState((s) => (s.loading ? s : { ...s, loading: true, error: null }))
-    fetch(finalUrl)
-      .then(async (r) => {
-        const body = await r.json().catch(() => ({}))
-        if (!r.ok) throw new Error(body?.error || body?.message || r.statusText)
-        return body
-      })
-      .then((body) => {
-        if (aborted) return
-        setState({
-          data: body as T,
-          loading: false,
-          error: null,
-          source: body?.source,
-          reason: body?.reason,
-        })
-      })
-      .catch((err) => {
-        if (aborted) return
-        setState({ data: null, loading: false, error: String(err) })
-      })
-    return () => { aborted = true }
-  }, [finalUrl, nonce, org])
+    mountedRef.current = true
+    void refetch()
+    return () => {
+      mountedRef.current = false
+      requestRef.current?.abort()
+    }
+  }, [refetch])
 
-  return { ...state, refetch }
+  // Scope changes are visible during render, before effects can run: never
+  // commit old-org data. Same-org data stays available during refresh (Cost's
+  // existing SWR UI), but is marked loading from the very first new-URL frame.
+  if (state.org !== org) return { data: null, loading: true, error: null, refetch }
+  const { org: _org, url: _url, ...values } = state
+  return {
+    ...values,
+    loading: state.loading || state.url !== finalUrl,
+    error: state.url === finalUrl ? state.error : null,
+    refetch,
+  }
 }

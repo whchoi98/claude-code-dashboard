@@ -29,6 +29,7 @@ function stripMaskedEmailEscapes(text: string): string {
 export function Markdown({ children }: { children: string }) {
   const normalized = stripMaskedEmailEscapes(children)
   return (
+    <div className="min-w-0 [overflow-wrap:anywhere]">
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
@@ -71,5 +72,6 @@ export function Markdown({ children }: { children: string }) {
     >
       {normalized}
     </ReactMarkdown>
+    </div>
   )
 }

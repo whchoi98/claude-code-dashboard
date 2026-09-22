@@ -17,7 +17,7 @@ export const fmtPct = (x: number | null | undefined) => (x == null || Number.isN
 
 export const fmtDate = (iso: string) => {
   const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 export const acceptRate = (a: number, r: number) => {

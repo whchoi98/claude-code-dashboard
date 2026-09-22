@@ -1,6 +1,6 @@
 # claude-code-dashboard
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
 [![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](./CHANGELOG.md)
 [![English](https://img.shields.io/badge/README-English-informational)](./README.md)
 
@@ -44,7 +44,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ### 사용자별 생산성
 
-**목적** — Analytics 산출 + Spend Report 비용을 결합한 사용자별 생산성 점수와 랭킹.
+**목적** — Analytics 참여도 기반 사용자별 활동 점수와 랭킹. 비용 효율은 비용 페이지에서 별도로 제공합니다.
 
 - **점수 공식**: `0.30·LOC/일 + 0.25·수락률 + 0.20·커밋/일 + 0.15·활성일 비율 + 0.10·세션/일` — 각 항목 0~1 클램프 후 × 100
 - **구성**: Top 10 수평 막대 차트 + 정렬 가능한 매트릭스 (점수 · LOC · 세션 · 커밋/PR · 수락률 · 활성일)
@@ -103,7 +103,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ### 비용
 
-**목적** — 토큰 소비·모델/제품별 지출·사용자 랭킹, 그리고 Spend Report CSV × Analytics 산출을 결합한 **경제 생산성 점수**.
+**목적** — 토큰 소비·모델/제품별 지출·사용자 랭킹, 그리고 라이브 지출과 기간을 맞춘 Analytics 활동을 결합한 **비용 효율 점수**.
 
 | 섹션 | 내용 |
 |------|------|
@@ -111,7 +111,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 | 중단 (`cost02.png`) | 제품 × 모델 지출 누적 막대 · 토큰 유형별 사용량 (누적 영역) · 모델별 일일 비용 · Top 10 사용자 (total/input/output/지출) |
 | 하단 (`cost03.png`) | **경제 생산성 점수** 섹션: 지출 vs 산출 산점도 · Top 10 점수 · 최고 효율 ($/LOC) · 전체 효율 매트릭스 (사용자별) |
 
-- **데이터 소스**: 라이브 Analytics API — `cost_report`+`usage_report`(헤드라인), `user_cost_report`(사용자별 지출·모델별), `user_usage_report`(사용자별 토큰), `cost_report × rbac_group_id`(그룹별 비용, Compliance groups 엔드포인트로 실명 표기), Spend Limits API(월 한도 대비 누적). Spend Report CSV는 31일 초과 정산·라이브 장애 폴백. 생산성 조인: Analytics `/users/range`
+- **데이터 소스**: 라이브 Analytics API — `cost_report`+`usage_report`(헤드라인), `user_cost_report`(사용자별 지출·모델별), `user_usage_report`(사용자별 토큰), `cost_report × rbac_group_id`(그룹별 비용, Compliance groups 엔드포인트로 실명 표기), Spend Limits API(월 한도 대비 누적). Spend Report CSV는 선택적 정산·라이브 장애 폴백이며, 라이브 비용은 최대 186일까지 청크로 조회합니다. 생산성 조인: Analytics `/users/range`
 - **비용 효율 점수 (v3)**: `0.55·value + 0.25·수락률 + 0.12·delivery + 0.08·breadth` — surface별 코호트 내 정규화 (CHANGELOG 1.3.0 참조)
 - **Output 점수**: `LOC + 100·commits + 1000·PRs + 0.5·tool_accepted`
 
@@ -161,15 +161,15 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ## 주요 기능
 
-- **19개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운 — 사용자별 캐시 적중률·Cowork/Design 컬럼 포함) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 트렌드 · Claude Code(사용자별 테이블 포함) · **Claude Chat**(대화 사용량·활동) · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입 · 비용(라이브 사용자별 지출/토큰, 그룹 스코프 조직 KPI, 실명 RBAC 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **체인지로그**(앱 내 릴리스 이력). 모바일 지원: `lg` 미만 햄버거 드로어 내비 + 반응형 레이아웃.
-- **세 개의 API 통합** — Analytics, Admin, Compliance (각각 별도 Secrets Manager 시크릿으로 주입; 모두 선택적이며 키가 없어도 UI는 graceful하게 동작).
+- **20개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운 — 사용자별 캐시 적중률·Cowork/Design 컬럼 포함) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 트렌드 · Claude Code(사용자별 테이블 포함) · **Claude Chat**(대화 사용량·활동) · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입 · 비용(라이브 사용자별 지출/토큰, 그룹 스코프 조직 KPI, 실명 RBAC 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · **비용 실시간**(MTD·과거 스냅샷) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **체인지로그**(앱 내 릴리스 이력). 모바일 지원: `lg` 미만 햄버거 드로어 내비 + 반응형 레이아웃.
+- **세 개의 API 통합** — Analytics가 라이브 참여도·비용을 제공하고, Admin은 기존 Admin 경로에서 선택적으로 사용합니다. Compliance는 전용 키 또는 해당 권한이 있는 Analytics 키를 사용합니다. 키가 없는 로컬 참여도 화면은 샘플 데이터를 표시하며 라이브 비용에는 Analytics 키가 필요합니다.
 - **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷과 감사 이벤트를 파티셔닝된 NDJSON으로 S3에 저장합니다(감사 이력은 Athena `compliance_daily`로 조회). 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
-- **AI 자연어 질의** — Amazon Bedrock(Claude Sonnet 4.6 cross-region 프로파일) 기반 SSE 스트리밍. 두 모드: 실시간 스냅샷 직접 분석, 자율 Athena SQL 생성 + 실행.
+- **AI 자연어 질의** — Amazon Bedrock이 참여도·비용·사용자 활동·최근 사용량·읽기 전용 Athena 도구를 선택해 여러 차례의 질문에 스트리밍으로 답합니다. 분석 페이지와 플로팅 도우미가 같은 대화 UI를 사용합니다.
 - **Cognito + Lambda@Edge 인증** — 모든 대시보드 URL이 Cognito Hosted UI 로그인을 거쳐야 접근 가능. 네 개의 viewer-request Lambda@Edge 함수(`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`)가 모든 CloudFront PoP에서 실행됨. 미인증 트래픽은 WAF · ALB · ECS에 도달하기 전에 차단. [ADR-0001](docs/decisions/0001-cognito-lambda-edge-auth.md) 참조.
 - **셀프서비스 CSV 업로드** — 비용 페이지에서 Spend Report CSV 업로드 / 목록 / 삭제를 브라우저로 직접 수행 — 클라이언트 프리뷰 + 기간 중복 경고 포함. AWS CLI 권한 불필요. [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md) 참조.
-- **경제 생산성 점수** — Spend Report CSV와 Analytics 생산성을 결합해 `달러당 output` 기준 사용자 랭킹 제공. 비용 페이지의 기간 선택 컨트롤은 이 섹션만 갱신하고 CSV 네이티브 집계는 그대로 유지.
+- **비용 효율 점수** — 라이브 사용자별 지출과 기간을 맞춘 Analytics 활동을 결합하고 CSV는 폴백으로 사용합니다. 사용자별 생산성 페이지는 별도의 활동 점수를 제공합니다. 라이브 비용은 선택 기간을 따르며, CSV로 대체할 때는 파일의 자체 기간과 차이를 안내합니다.
 - **이중 언어 UI** — 영/한 실시간 토글 (localStorage 저장).
-- **기본 개인정보 보호** — 모든 이메일을 마스킹해 표시 (`co*****@gmail.com`).
+- **로그인 사용자별 개인정보 표시** — 이메일은 기본적으로 마스킹합니다. Cognito `unmasked` 그룹으로 검증된 사용자는 전체 주소를 볼 수 있으며, 표·내보내기·AI 출력은 문서화된 정책을 따릅니다.
 - **감사 추적** — Compliance API 이벤트 피드 + 위험 이벤트 하이라이트 (역할 변경, SSO 토글, 데이터 export 등).
 
 ## 사전 요구 사항
@@ -177,7 +177,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 - Node.js 20 이상
 - Docker (CDK 이미지 자산 빌드용)
 - AWS CLI v2 + 대상 계정 자격 증명
-- AWS CDK v2.170 이상
+- AWS CDK v2 (`infra/`의 프로젝트 CLI와 잠금 파일 사용)
 - 선택: Anthropic Analytics / Admin / Compliance API 키
 
 ## 설치 방법
@@ -188,9 +188,9 @@ git clone https://github.com/whchoi98/claude-code-dashboard.git
 cd claude-code-dashboard
 
 # 전체 워크스페이스 설치
-npm install
-(cd infra && npm install)
-(cd collector && npm install)
+npm ci
+(cd infra && npm ci)
+(cd collector && npm ci)
 
 # 로컬 환경 설정
 cp .env.example .env
@@ -208,23 +208,24 @@ npm run build
 npm run server
 # → http://localhost:5174
 
-# AWS 배포 (EIP 쿼터 문제 회피를 위해 기존 VPC 재사용)
-cd infra
-npx cdk deploy --all --require-approval never \
-  --context existingVpcId=vpc-xxxxxxxxxxxxxxxxx
-
-# 배포 후 Secrets Manager에 API 키 주입
-aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
-  --secret-string 'sk-ant-api01-...'
+# 설정된 AWS 운영 배포 갱신 (기존 시크릿 필요)
+npm run build:edge
+(cd infra && npx cdk synth ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
+(cd infra && npx cdk diff ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
+(cd infra && npx cdk deploy ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
 ```
 
 ## 환경 설정
 
+위 배포 명령은 설정된 기존 계정을 갱신합니다. 다른 계정에서는 Cognito·API 시크릿과 가져오는 리소스 식별자를 먼저 준비해야 합니다. [온보딩](docs/onboarding.md)과 [인프라 안내](infra/CLAUDE.md)를 참고하세요.
+
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
 | `ANTHROPIC_ANALYTICS_KEY` | Enterprise Analytics API 키 (sk-ant-api01-… Analytics scope) | (live 모드 필수) |
-| `ANTHROPIC_ADMIN_KEY_ADMIN` | Admin API 키 (sk-ant-admin01-…) — 비용 페이지 활성화 | (선택) |
-| `ANTHROPIC_COMPLIANCE_KEY` | Compliance API 키 (sk-ant-api01-… Compliance scope) | (선택) |
+| `ANTHROPIC_ADMIN_KEY_ADMIN` | `/api/admin/*`용 선택적 Admin 키; 라이브 비용은 Analytics 키 사용 | (선택) |
+| `ANTHROPIC_COMPLIANCE_KEY` | 전용 Compliance 키; 없으면 Analytics 키로 폴백 | (선택) |
+| `ANTHROPIC_ANALYTICS_KEY_2` | 두 번째 조직(`org2`)의 Analytics 키 | (로컬에서는 선택, 커밋된 CDK 설정에서는 활성화) |
+| `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | 호출자의 마스킹 정책을 검증하는 공개 식별자 | (ECS에서 Cognito 설정으로 주입, 없으면 기본 마스킹) |
 | `AWS_REGION` | Bedrock / Athena / S3 리전 | `ap-northeast-2` |
 | `BEDROCK_MODEL_ID` | Bedrock 파운데이션 모델 또는 inference profile | `global.anthropic.claude-sonnet-4-6` |
 | `ARCHIVE_S3_BUCKET` | NDJSON 아카이브 + spend report용 S3 버킷 | (CDK가 설정) |
@@ -238,9 +239,9 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 ```
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
-│   ├── components/         # 공용 UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 19개 라우트 (경영 요약 · 에이전틱 · Claude Chat · 변경 내역 포함)
-│   ├── lib/                # i18n, useFetch, useDateRange, 포맷팅
+│   ├── components/         # 공용 UI, 날짜 선택, 다이얼로그, 오류 복구
+│   ├── pages/              # 20개 라우트 (경영 요약 · 에이전틱 · Claude Chat · 변경 내역 포함)
+│   ├── lib/                # i18n, 조직별 조회, 날짜, CSV, 설정 저장
 │   └── types.ts            # API 스키마 타입
 ├── server/                 # Express 프록시 + AWS 통합
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
@@ -249,13 +250,15 @@ claude-code-dashboard/
 ├── collector/              # 일일 Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4개 스택
 ├── docs/                   # 아키텍처 · ADR · 런북
-├── tests/                  # 하니스 테스트 (hook, 구조, secret)
+├── tests/                  # 서버·구조 검사 + 프런트엔드·브라우저 테스트
 └── scripts/                # setup.sh, install-hooks.sh
 ```
 
 ## 월간 예상 비용 (ap-northeast-2)
 
 하나의 프로덕션 배포에 대한 월간 AWS 청구 예상치입니다. **기본값 ECS 2 태스크**, **기존 VPC 재사용 패턴**(NAT Gateway 신규 생성 없음), 경량~중간 대시보드 트래픽을 가정합니다.
+
+아래 표는 저장소의 기존 예산 예시이며 이번 문서 동기화에서 요금을 다시 산정한 것은 아닙니다. org2와 해당 테이블을 포함한 현재 구성은 [아키텍처](docs/architecture.md)를 참고하세요.
 
 | 리소스 | 스펙 | 월간 비용 |
 |--------|------|-----------|
@@ -286,20 +289,37 @@ claude-code-dashboard/
 
 ```bash
 # 타입 체크
-npx tsc --noEmit
+npm run typecheck
 
 # 프로덕션 빌드
-npx vite build
+npm run build
+
+# 서버·구조 검사 + 프런트엔드 회귀 테스트
+npm test
+
+# 데스크톱·모바일 브라우저 테스트 (샘플 API 사용, AWS·API 키 불필요)
+npx playwright install chromium
+npm run test:e2e
 
 # 서버 문법 검사
-node --check server/index.js server/aws.js server/mock.js collector/handler.js
+for file in server/*.js collector/*.js; do node --check "$file" || exit 1; done
 
 # CDK synth
 (cd infra && npx cdk synth --context existingVpcId=vpc-xxxxxxxxxxxxxxxxx)
 
-# 하니스 테스트 스위트
-bash tests/run-all.sh
+# 개발 중 특정 계층만 검사
+npm run test:server
+npm run test:ui
 ```
+
+## 화면 탐색과 내보내기
+
+- **Ctrl+K / ⌘K**로 메뉴를 검색하고 **Enter**로 첫 결과를 엽니다. 조직과 그룹은 유지하며, 조회 기간은 화면별 기본 정책을 따릅니다.
+- **사용자**와 **비용 실시간**에서 검색·정렬 후 **CSV 다운로드**를 누르면 표시된 행을 내보냅니다. 화면의 이메일 공개 범위와 숫자 정밀도를 유지하며, 한글을 읽을 수 있도록 UTF-8 BOM을 포함합니다.
+- 직접 입력한 날짜는 적용 전에 검증합니다. **Escape**나 **취소**로 선택기를 닫으면 원래 버튼으로 포커스가 돌아갑니다.
+- 조회 오류에는 **다시 시도** 버튼이 표시됩니다. 화면 로딩에 실패해도 메뉴로 이동하거나 새로고침할 수 있으며, 표 정렬과 모바일 메뉴도 키보드로 조작할 수 있습니다.
+
+전체 문서는 [문서 목차](docs/README.md), 분석 결과와 검증 범위는 [프로젝트 개선 기록](docs/project-review-2026-09-21.md)을 참고하세요.
 
 ## API 문서
 
@@ -311,11 +331,11 @@ Express 프록시가 노출하는 전체 라우트는 [docs/api-reference.md](./
 2. 기능 브랜치를 생성합니다: `git checkout -b feat/short-description`.
 3. [Conventional Commits](https://www.conventionalcommits.org/) 형식으로 커밋합니다 — 예: `feat: 사용자별 토큰 히트맵 추가` 또는 `fix: 도입 페이지의 이메일 마스킹`.
 4. Push 후 `main`을 대상으로 PR을 엽니다.
-5. `/test-all`이 통과하는지 확인하고 PR 체크리스트를 채웁니다.
+5. `npm test`와 `npm run build`를 실행하고, UI 변경에는 `npm run test:e2e`도 확인한 뒤 PR 체크리스트를 채웁니다.
 
 ## 라이선스
 
-[MIT License](./LICENSE) 하에 배포됩니다.
+기존 라이선스 표기는 [MIT](https://opensource.org/license/mit/)입니다. 현재 저장소에는 별도의 `LICENSE` 파일이 없습니다.
 
 ## 연락처
 

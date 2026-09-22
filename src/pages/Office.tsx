@@ -82,7 +82,7 @@ export function Office() {
   }, [users.data, inGroup])
 
   if (users.loading) return <LoadingState />
-  if (users.error) return <ErrorState error={users.error} />
+  if (users.error) return <ErrorState error={users.error} onRetry={users.refetch} />
 
   const source = badgeSource(users.data?.days?.[0]?.source)
   const hasData = agg.sessionsTotal > 0

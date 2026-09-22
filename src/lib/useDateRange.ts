@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { daysBetweenUtc, FIRST_AVAILABLE, shiftDateUtc, todayUtc, validateCustomRange } from './dateRange'
 
 /**
  * Shared date-range state for dashboard pages.
@@ -14,8 +15,8 @@ import { useSearchParams } from 'react-router-dom'
  *     ~3 days may show partial counts because the upstream Analytics
  *     buffer is still settling. The DateRangeControl footnote spells
  *     this out for the user.
- *   - Max 90-day lookback
- *   - Summaries endpoint max 31-day range
+ *   - Archive-backed ranges support up to 366 inclusive days. Live API
+ *     lookback and fallback limits are handled by the server.
  */
 
 export type Preset = '1d' | '7d' | '14d' | '30d' | 'custom'
@@ -27,24 +28,10 @@ export interface DateRange {
   days:         number   // inclusive day count
 }
 
-const FIRST_AVAILABLE = '2026-01-01'
-
-function todayMinusDaysUtc(n: number) {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
 function clamp(iso: string, min: string, max: string) {
   if (iso < min) return min
   if (iso > max) return max
   return iso
-}
-
-function daysBetween(a: string, b: string) {
-  const da = new Date(`${a}T00:00:00Z`).getTime()
-  const db = new Date(`${b}T00:00:00Z`).getTime()
-  return Math.floor((db - da) / 86400000) + 1
 }
 
 function presetToDays(p: Preset): number {
@@ -73,26 +60,25 @@ export interface DateRangeOptions {
 export function useDateRange(defaultPreset: Preset = '7d', { freshEnd = false }: DateRangeOptions = {}) {
   const [params, setParams] = useSearchParams()
 
-  const maxEnd = todayMinusDaysUtc(0)         // today (UTC)
-  const maxStart = todayMinusDaysUtc(90)      // 90-day lookback floor
+  const maxEnd = todayUtc()
+  // Legacy live-API lookback marker, not a lower bound for archived dates.
+  const maxStart = shiftDateUtc(maxEnd, -90)
 
   const rawPreset = (params.get('range') as Preset | null) ?? defaultPreset
   const rawStart = params.get('start')
   const rawEnd = params.get('end')
 
   const range = useMemo<DateRange>(() => {
-    if (rawPreset === 'custom' && rawStart && rawEnd) {
-      const s = clamp(rawStart, FIRST_AVAILABLE, maxEnd)
-      const e = clamp(rawEnd,   FIRST_AVAILABLE, maxEnd)
-      const [startingDate, endingDate] = s <= e ? [s, e] : [e, s]
+    if (rawPreset === 'custom' && rawStart && rawEnd && !validateCustomRange(rawStart, rawEnd, maxEnd)) {
       return {
-        startingDate,
-        endingDate,
+        startingDate: rawStart,
+        endingDate: rawEnd,
         preset: 'custom',
-        days: daysBetween(startingDate, endingDate),
+        days: daysBetweenUtc(rawStart, rawEnd),
       }
     }
-    const preset: Preset = ['1d', '7d', '14d', '30d'].includes(rawPreset) ? rawPreset : defaultPreset
+    const fallback: Preset = ['1d', '7d', '14d', '30d'].includes(defaultPreset) ? defaultPreset : '7d'
+    const preset: Preset = ['1d', '7d', '14d', '30d'].includes(rawPreset) ? rawPreset : fallback
     const days = presetToDays(preset)
     // '1d' = the GUARANTEED-finalized day (today-3) by default. The server's
     // engagement clamp is dynamic now (typically today−2, see
@@ -106,8 +92,8 @@ export function useDateRange(defaultPreset: Preset = '7d', { freshEnd = false }:
     // today and rely on the server's per-endpoint clamping + the "partial
     // recent days" tolerance — THEY get the dynamic horizon's extra day
     // automatically.
-    const endingDate = preset === '1d' && !freshEnd ? todayMinusDaysUtc(3) : maxEnd
-    const startingDate = clamp(todayMinusDaysUtc(days - 1), FIRST_AVAILABLE, endingDate)
+    const endingDate = preset === '1d' && !freshEnd ? shiftDateUtc(maxEnd, -3) : maxEnd
+    const startingDate = clamp(shiftDateUtc(maxEnd, -(days - 1)), FIRST_AVAILABLE, endingDate)
     return { startingDate, endingDate, preset, days }
   }, [rawPreset, rawStart, rawEnd, maxEnd, defaultPreset, freshEnd])
 
@@ -124,12 +110,14 @@ export function useDateRange(defaultPreset: Preset = '7d', { freshEnd = false }:
   }, [params, setParams])
 
   const setCustom = useCallback((start: string, end: string) => {
+    if (validateCustomRange(start, end, maxEnd)) return false
     const next = new URLSearchParams(params)
     next.set('range', 'custom')
     next.set('start', start)
     next.set('end', end)
     setParams(next, { replace: true })
-  }, [params, setParams])
+    return true
+  }, [params, setParams, maxEnd])
 
   return { range, setPreset, setCustom, maxEnd, maxStart, FIRST_AVAILABLE }
 }

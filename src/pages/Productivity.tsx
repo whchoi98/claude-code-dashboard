@@ -124,7 +124,7 @@ export function Productivity() {
   }, [range.data, inGroup])
 
   if (range.loading) return <LoadingState />
-  if (range.error) return <ErrorState error={range.error} />
+  if (range.error) return <ErrorState error={range.error} onRetry={range.refetch} />
 
   const days = range.data?.days?.length ?? 7
 

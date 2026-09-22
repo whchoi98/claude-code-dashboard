@@ -28,7 +28,7 @@ export function Changelog() {
   // `# 한국어` H1 anchors. Keep only the active locale's section so
   // readers don't scroll past the other half. If parsing ever fails
   // (e.g., the file structure changes), fall back to the full document.
-  const sections = changelogText.split(/\n# (?=English|한국어)\n/)
+  const sections = changelogText.split(/\r?\n# (?:English|한국어)[ \t]*\r?\n/)
   let body = changelogText
   if (sections.length >= 3) {
     // sections[0] = preamble (badges + horizontal rule), [1] = English…, [2] = 한국어…

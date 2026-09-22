@@ -20,7 +20,7 @@
 | Component | Purpose |
 |-----------|---------|
 | Express proxy (`server/index.js` + `server/aws.js`) | Per-request fan-out to Analytics / Admin / Compliance APIs with a 10-minute in-memory cache, gzip compression (SSE exempt), and three keep-warm schedulers: the audit response cache (5-min direct `topUp` of the four UI preset windows — key formula identical to the frontend presets; foreground walks budget-capped at 45 s + 15 s/page abort, background at 240 s, mid-walk failures degrade to `partial: true` — ADR-0016), analytics engagement endpoints (5-min — one 30d day-granular warm covers every preset), and the cost cache (8-min, jittered per task: preset windows + every group's scoped key; `makeTtlCache` = 10-min TTL + stale-while-revalidate + failure marking + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | Daily snapshot of five Analytics endpoints PLUS the Compliance audit feed (last 2 complete days via a backward after_id walk; partition day = event created_at day — ADR-0017) into partitioned NDJSON on S3, plus a raw sidecar of the unflattened records under `raw/<table>/` (retroactive recovery for fields the explicit flatten mapping doesn't carry yet) |
+| Collector Lambda (`collector/handler.js`) | Daily snapshot of six Analytics endpoints (including plugins) PLUS the Compliance audit feed (last 2 complete days via a backward after_id walk; partition day = event created_at day — ADR-0017) into partitioned NDJSON on S3, plus a raw sidecar of the unflattened records under `raw/<table>/` (retroactive recovery for fields the explicit flatten mapping doesn't carry yet) |
 | Spend Report uploader (manual) | Claude Console CSV dropped into `s3://<archive>/spend-reports/` for the Cost page |
 
 ### Storage
@@ -28,25 +28,29 @@
 | Component | Purpose |
 |-----------|---------|
 | Versioned S3 bucket | NDJSON partitions (`<table>/date=YYYY-MM-DD/`), spend reports, Athena results |
-| Glue Data Catalog | Tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`) with Hive-style date partition projection |
-| Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key` |
+| Glue Data Catalog | Tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`, `plugins_daily`) plus their `*_org2` mirrors, with Hive-style date partition projection |
+| Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`, `ccd/analytics-key-2`, `ccd/cognito-config` |
 
 ### Processing
 
 | Component | Purpose |
 |-----------|---------|
-| Amazon Bedrock (Claude Sonnet 4.6) | Multi-turn tool-use chatbot (`POST /api/chat/stream`) via `ConverseStreamCommand` + `toolConfig` — SSE to the browser. The model autonomously calls four tools (`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`). See [ADR-0008](decisions/0008-tool-use-chatbot.md). |
+| Amazon Bedrock (Claude Sonnet 4.6) | Multi-turn tool-use chatbot (`POST /api/chat/stream`) via `ConverseStreamCommand` + `toolConfig` — SSE to the browser. The model autonomously calls five tools (`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`). See [ADR-0008](decisions/0008-tool-use-chatbot.md). |
 | Athena workgroup | Ad-hoc SQL over archived partitions; powers the Archive page and the chatbot's `run_athena_sql` tool |
-| Server-side aggregation | `/api/cost/live` joins Analytics `cost_report` + `usage_report` on `(product, model)` and reshapes into the `CsvResp` shape consumed by the Cost page. `/api/cost/users` proxies `user_cost_report` (paginated, raw emails, full selected range — the cost family serves the 3-day buffer with partial data; `?by=model|product` adds a per-user breakdown for the chargeback chart and the user-detail cards) for live per-user USD spend; `/api/cost/user-tokens` proxies the newer `user_usage_report` for live per-user token counts; `/api/cost/groups` proxies `cost_report × rbac_group_id` for per-RBAC-group spend, labeled with real group names from `GET /v1/compliance/groups` (1h-cached, last-good on the upstream 503 flap); `/api/cost/spend-limits` proxies the Spend Limits API for per-member monthly limits + month-to-date spend. `/api/cost/efficiency` joins `user_cost_report` spend with `users/range` productivity on `email`, deliberately window-aligned to `today−3` (the productivity source's buffer) so its ratios don't mix windows. `/api/cost/csv` keeps the manual Spend Report path as fallback for >31-day reconciliation and live-report outages. See [ADR-0003](decisions/0003-hybrid-live-cost.md) and [ADR-0009](decisions/0009-live-user-cost.md). |
+| Server-side aggregation | `/api/cost/live` joins Analytics `cost_report` + `usage_report` on `(product, model)` and reshapes into the `CsvResp` shape consumed by the Cost page. `/api/cost/users` proxies `user_cost_report` (paginated, raw emails, full selected range — the cost family serves the 3-day buffer with partial data; `?by=model|product` adds a per-user breakdown for the chargeback chart and the user-detail cards) for live per-user USD spend; `/api/cost/user-tokens` proxies the newer `user_usage_report` for live per-user token counts; `/api/cost/groups` proxies `cost_report × rbac_group_id` for per-RBAC-group spend, labeled with real group names from `GET /v1/compliance/groups` (1h-cached, last-good on the upstream 503 flap); `/api/cost/spend-limits` proxies the Spend Limits API for per-member monthly limits + month-to-date spend. `/api/cost/efficiency` joins `user_cost_report` spend with `users/range` productivity on `email`, deliberately window-aligned to `today−3` (the productivity source's buffer) so its ratios don't mix windows. `/api/cost/csv` keeps the manual Spend Report path as fallback for reconciliation and live-report outages; live cost reports chunk up to 186 days. See [ADR-0003](decisions/0003-hybrid-live-cost.md) and [ADR-0009](decisions/0009-live-user-cost.md). |
 
 ### Query / Presentation
 
 | Component | Purpose |
 |-----------|---------|
-| React SPA | 19 pages, i18n (en/ko), date range control (7d default; allows today as end date with a UTC/daily-refresh footnote), user drill-down panel (page-window activity + per-product/model spend + skills + cache efficiency), an audit event-detail slide-in on `/compliance` (actor/fields/raw JSON, emails masked incl. `%40`-encoded, dialog-grade focus management), an Agentic delegation page at `/agentic` (actions-per-prompt), a Claude Chat usage page at `/claude-chat`, markdown rendering, single-page Executive snapshot at `/exec`, in-app Changelog page at `/changelog` (renders bundled `CHANGELOG.md` via Vite `?raw`). Sidebar pinned to viewport via `h-screen` + per-pane `overflow-y-auto`; below `lg` it becomes a hamburger drawer and grids/tables go responsive (`print:` fallbacks keep PDF export multi-column). Per-row statistics tables use a shared `useSortable` hook + `<SortableTh>` for bidirectional column sort with null-tail-pinning. |
+| React SPA | 20 pages, i18n (en/ko), date range control (7d by default, Cost uses today-only 1d; allows today as end date with a UTC/daily-refresh footnote), user drill-down panel (page-window activity + per-product/model spend + skills + cache efficiency), an audit event-detail slide-in on `/compliance` (actor/fields/raw JSON, emails masked incl. `%40`-encoded, dialog-grade focus management), an Agentic delegation page at `/agentic` (actions-per-prompt), a Claude Chat usage page at `/claude-chat`, markdown rendering, single-page Executive snapshot at `/exec`, in-app Changelog page at `/changelog` (renders bundled `CHANGELOG.md` via Vite `?raw`). Sidebar pinned to viewport via `h-screen` + per-pane `overflow-y-auto`; below `lg` it becomes a hamburger drawer and grids/tables go responsive (`print:` fallbacks keep PDF export multi-column). Per-row statistics tables use a shared `useSortable` hook + `<SortableTh>` for bidirectional column sort with null-tail-pinning. |
 | Recharts | Line / area / bar / stacked bar / pie / scatter / radial charts |
 | react-markdown + remark-gfm | Streamed markdown rendering for AI analysis output |
 | Public brochure (`site/`) | Self-contained Korean landing page published to GitHub Pages (https://whchoi98.github.io/claude-code-dashboard/) via `scripts/deploy-pages.sh` → `gh-pages` branch — a static marketing artifact fully outside the Fargate runtime (masked screenshots only; live-demo CTA links to the Cognito-gated deployment) |
+
+### Browser behavior
+
+The browser loads routes and the floating chat panel on demand. The page outlet has an error boundary and loading fallback, leaving navigation mounted during failures. Shared requests use abort signals, a 65-second timeout, and organization-aware state; CSV exports run entirely in the browser and follow the existing email masking verdict. Sidebar search, keyboard sorting, validated UTC date inputs, and filtered exports are documented in the [project review](project-review-2026-09-21.md).
 
 ### Observability
 
@@ -111,7 +115,7 @@
                               │           │                           │
                               │           ▼                           │
                               │  Collector Lambda (Node 20)           │
-                              │  - fetchAllPages × 5 endpoints        │
+                              │  - 6 Analytics endpoints + audit     │
                               │  - compliance after_id walk (00:30)   │
                               │  - flattenUser (Analytics → NDJSON)   │
                               └───────────────────────────────────────┘
@@ -126,11 +130,13 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 | Stack | Contents |
 |-------|----------|
 | `ccd-network` | VPC (new or looked up), S3 Gateway endpoint |
-| `ccd-storage` | Versioned S3 archive bucket, Glue database + 6 projection-partitioned tables (incl. `compliance_daily`), Athena workgroup |
+| `ccd-storage` | Versioned S3 archive bucket, Glue database + 14 projection-partitioned tables (seven primary tables including plugins/compliance, plus seven `*_org2` mirrors), Athena workgroup |
 | `ccd-compute` | ECS cluster, task definition (ARM64), service (2–6 tasks, CPU auto-scale), ALB + listener + WAF, CloudFront distribution (alias domains `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM cert declared in CDK since 2026-07-12 — a deploy once stripped the console-added values; `/assets/*` CACHING_OPTIMIZED behavior; origin readTimeout 60s), Secrets Manager references |
 | `ccd-collector` | Collector Lambda (15-min timeout) + TWO EventBridge rules — 14:00 UTC analytics-only (`{complianceDays:0}`), 00:30 UTC compliance-only (`{complianceOnly:true}`) + log retention custom resource |
 
 ## Key design decisions
+
+- **Frontend recovery and exports** — lazy route loading keeps navigation available during page failures; request callbacks and local last-good data are bound to the current organization/view. Users and Cost Live export filtered, sorted rows using the existing email visibility policy. See [ADR-0021](decisions/0021-frontend-recovery-and-exports.md).
 
 - **Reuse an existing VPC by context** — the target account's EIP quota is exhausted; creating a new VPC with NAT would fail. `NetworkStack` branches on `existingVpcId` context to stay deployable.
 - **S3-first caching** — queries hit S3 before the live API. A 30-day range that would take 22 seconds serial (or ~3 seconds parallel while eating 50 % of the 60 rpm budget) now returns in 250 ms with 0 API calls.
@@ -138,7 +144,7 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **CloudFront prefix list on ALB SG** — blocks direct ALB access from the internet without requiring mTLS or a private ALB.
 - **ARM64 Fargate** — cheaper than x86 (~20 %) and matches the dev host architecture so Docker image builds don't need QEMU emulation.
 - **Email masking as a contract** — `maskEmail()` is called in both the frontend and the LLM system prompt, making the UI safe by default.
-- **Live per-user cost via `user_cost_report`** — since v0.8.0, the Cost page's per-user "Top by Cost" table and `distinct_users` KPI are sourced live from `GET /api/cost/users` (Analytics `user_cost_report`). `/cost/efficiency` joins live per-user spend with `users/range` productivity on `email`, window-aligned to `today−3` on purpose (mixing a full-range spend window with the buffer-clamped productivity window would inflate $/LOC). Since 2026-07 per-user **tokens** are also live (`user_usage_report` → `/api/cost/user-tokens`), so the CSV upload is a fallback only: >31-day reconciliation (the cost family caps spans at 31 days) and live-report outages. See [ADR-0003](decisions/0003-hybrid-live-cost.md), [ADR-0009](decisions/0009-live-user-cost.md), [ADR-0010](decisions/0010-cost-window-policy.md) and [ADR-0012](decisions/0012-live-user-tokens.md).
+- **Live per-user cost via `user_cost_report`** — since v0.8.0, the Cost page's per-user "Top by Cost" table and `distinct_users` KPI are sourced live from `GET /api/cost/users` (Analytics `user_cost_report`). `/cost/efficiency` joins live per-user spend with `users/range` productivity on `email`, window-aligned to `today−3` on purpose (mixing a full-range spend window with the buffer-clamped productivity window would inflate $/LOC). Since 2026-07 per-user **tokens** are also live (`user_usage_report` → `/api/cost/user-tokens`), so the CSV upload is a fallback only: reconciliation and live-report outages (the server chunks the upstream 31-day limit into windows up to 186 days). See [ADR-0003](decisions/0003-hybrid-live-cost.md), [ADR-0009](decisions/0009-live-user-cost.md), [ADR-0010](decisions/0010-cost-window-policy.md) and [ADR-0012](decisions/0012-live-user-tokens.md).
 - **RBAC group cost with real names** — `cost_report × rbac_group_id` (upstream since 2026-07) powers the Cost page's per-group card. Group ids resolve to display names via the documented Compliance groups endpoint (`GET /v1/compliance/groups`, 1h cache — each listing emits a `group_list_viewed` audit event), not the undocumented `rbac_groups` listing. The upstream dimension flaps (intermittent 503 "Team membership data is not ready yet"); the server keeps last-good responses and the UI shows an explanatory note instead of a missing card. See [ADR-0011](decisions/0011-rbac-group-visibility-native.md).
 - **Group membership from the Compliance members endpoint** — the per-page group scope (GroupTabs) maps emails to groups via `GET /v1/compliance/groups/{id}/members` (authoritative point-in-time membership, 1h cache, all-or-nothing): new groups and member moves land within the hour instead of waiting days for spend to accrue under the new attribution. The `/api/groups` source chain is admin CSV (`live`) > real membership (`members`) > spend-derived `user_cost_report × rbac_group_id` (`auto`) > last-good (`stale:true`) > `empty`. See [ADR-0014](decisions/0014-membership-source-compliance-members.md). Since 2026-07-12 the Cost page's org-level aggregates also scope to the selected group via the `rbac_group_ids[]` filter on `/api/cost/live` (live mode; CSV/UNMAPPED stay partial) — see the ADR-0011 amendment.
 - **Always-warm cost/engagement caching layer** — every menu's default view is served from per-task in-memory caches that background schedulers keep perpetually fresh: `makeTtlCache` (10-min TTL, stale-while-revalidate with `stale: true` marking after failed refreshes, 6×TTL foreground fallback, in-flight dedup, 45s per-page upstream timeouts) fronts `/cost/live`, `/cost/groups`, `/cost/spend-limits` and the whole `fetchUserReport` family; an 8-min jittered keep-warm cycle re-registers the UI preset windows plus every RBAC group's default-window scoped key, and a 5-min analytics prewarm covers the engagement endpoints (`users/range` is day-granular, so one 30-day warm covers every preset). Warm hits are ~1 ms vs 1.5–30 s upstream; gzip + a CloudFront `/assets/*` CACHING_OPTIMIZED behavior cover the transfer layer. See [ADR-0015](decisions/0015-performance-caching-layer.md).
@@ -147,13 +153,15 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 - **Identity-aware masking via Cognito groups** — the server re-verifies the `ccd_id` ID-token cookie (forwarded by CloudFront's `ALL_VIEWER` policy) with the same JWKS/iss/aud/exp checks as the edge, and members of the `unmasked` Cognito group see raw emails everywhere (UI via a pre-mount `/api/me` flag flip in `format.ts`, chat tool results + system-prompt privacy line, archive query rows); every failure path fails closed to masked, real-name stripping in chat stays, and masking remains presentation-level by explicit decision. See [ADR-0020](decisions/0020-identity-aware-masking.md).
 - **Compliance events archived to S3 (`compliance_daily`)** — the daily collector's 00:30 UTC rule walks the audit feed backward and writes each complete UTC day as an event-time partition (envelope columns + full-JSON `payload` for `json_extract_scalar`), with a never-shrink-a-partition invariant and workstation-driven deep backfill (32 days / 193k events landed 2026-07-15). Long-horizon audit questions now run on Athena instead of the live feed's 2000-event head. See [ADR-0017](decisions/0017-compliance-s3-archival.md).
 - **Compliance after_id pagination + response-cache with a partial contract** — the Compliance API has no timestamp filter and only paginates via `after_id`. Audit volume passed 2000 events/window in 2026-07, so the walk now rides a response-level SWR cache: a 5-min prewarm `topUp`s the four UI preset windows in-process (keys formula-identical to the frontend presets), foreground walks are hard-bounded at 45 s (+15 s/page abort) under the CloudFront 60 s origin timeout, and mid-walk failures or budget exhaustion return the aggregated events as `partial: true` (background walks at 240 s converge entries to complete results). The Audit page opens per-event slide-in detail (actor/fields/raw JSON, emails masked incl. `%40`-encoded); the daily chart adds a `mean+1·stdev` reference line so risk spikes are obvious. See [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) · [ADR-0016](decisions/0016-audit-response-cache-partial-contract.md).
-- **7d default range** — every range-aware page boots on `range=7d` (was 14d / 30d in v0.3.0). Trade-off: tighter signal, but at 7 days the half-window bisection used by Adoption's stale-skill detector and the Compliance spike threshold both still produce useful values. See [ADR-0005](decisions/0005-default-7d-window.md).
+- **Date presets** — most range-aware pages default to 7d. Cost explicitly defaults to today-only `1d`; other `1d` presets use the guaranteed-finalized today−3 day. Cost Live uses the current month or its own historical snapshot picker. Trade-off: tighter signal, but at 7 days the half-window bisection used by Adoption's stale-skill detector and the Compliance spike threshold both still produce useful values. See [ADR-0005](decisions/0005-default-7d-window.md).
 - **Athena varchar partitions** — Glue tables partition `date` as `varchar`, not `DATE`, because the collector writes ISO strings. Queries must compare to plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`); wrapping in `DATE '…'` raises `TYPE_MISMATCH` on Engine v3. The `run_athena_sql` chatbot tool spec and the Archive page's pre-filled query both follow this convention. See [ADR-0007](decisions/0007-athena-varchar-partitions.md).
 - **Print-driven PDF export** — Save-as-PDF on Analyze, Cost, and Executive uses browser `window.print()` against a body-class-toggled `@media print` block (`body.app-print`). Zero new infra (no Puppeteer, no Lambda) and the printout matches what the user sees on screen because the styles are the same. See [ADR-0006](decisions/0006-print-driven-pdf-export.md).
-- **Tool-use chatbot replaces fixed-mode Analyze** — `/api/analyze` (single-turn, user-selected `direct`/`sql` mode) replaced by `POST /api/chat/stream`: a Bedrock Converse tool-use loop that lets the model autonomously pick among four tools per turn. Client-side history (last 12 turns) gives multi-turn memory with no new infra. Pure helpers in `server/chat-tools.js` keep the Bedrock loop unit-testable. A global `FloatingChat` widget and the `/analyze` page both share one `ChatPanel` component. See [ADR-0008](decisions/0008-tool-use-chatbot.md).
+- **Tool-use chatbot replaces fixed-mode Analyze** — `/api/analyze` (single-turn, user-selected `direct`/`sql` mode) replaced by `POST /api/chat/stream`: a Bedrock Converse tool-use loop that lets the model autonomously pick among five tools per turn. Client-side history (last 12 turns) gives multi-turn memory with no new infra. Pure helpers in `server/chat-tools.js` keep the Bedrock loop unit-testable. A global `FloatingChat` widget and the `/analyze` page both share one `ChatPanel` component. See [ADR-0008](decisions/0008-tool-use-chatbot.md).
 - **Agentic delegation metrics** — actions-per-prompt uses Cowork `action_count ÷ message_count` (the only surface exposing both counts); Claude Code shows an accepted-only actions-per-session proxy (no upstream prompt count); skill $/use is org-level only (no user × skill dimension). See [ADR-0013](decisions/0013-agentic-delegation-metrics.md).
 
-## Cost breakdown
+## Historical cost planning example
+
+These amounts preserve the original planning assumptions; current pricing was not recalculated during this documentation sync. The component and stack sections above describe the current configuration.
 
 | Component | Monthly | Notes |
 |-----------|---------|-------|
@@ -193,7 +201,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 구성요소 | 역할 |
 |---------|------|
 | Express 프록시 (`server/index.js` + `server/aws.js`) | Analytics / Admin / Compliance API 요청 fan-out, 10분 in-memory 캐시, gzip 압축(SSE 제외), keep-warm 스케줄러 3종: 감사 응답 캐시(UI 프리셋 4개 창을 5분마다 직접 `topUp` — 키 수식이 프런트 프리셋과 동일; 포그라운드 워크는 45초 + 페이지당 15초 abort, 백그라운드는 240초, 워크 도중 실패는 `partial: true` 강등 — ADR-0016), analytics 인게이지먼트(5분 — 30d 일 단위 워밍 1회로 전 프리셋 커버), 비용 캐시(태스크별 지터 8분: 프리셋 창 + 전 그룹 스코프 키; `makeTtlCache` = 10분 TTL + stale-while-revalidate + 실패 마킹 + in-flight dedup) |
-| Collector Lambda (`collector/handler.js`) | 5개 Analytics 엔드포인트 + Compliance 감사 피드(after_id 역방향 워크로 최근 완결 2일, 파티션 = 이벤트 created_at 일자 — ADR-0017)를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 + 비평탄화 원본 사이드카(`raw/<table>/` — flatten 매핑에 없는 신규 필드의 소급 복구용) |
+| Collector Lambda (`collector/handler.js`) | 6개 Analytics 엔드포인트(plugins 포함) + Compliance 감사 피드(after_id 역방향 워크로 최근 완결 2일, 파티션 = 이벤트 created_at 일자 — ADR-0017)를 파티셔닝된 NDJSON으로 S3에 일일 스냅샷 + 비평탄화 원본 사이드카(`raw/<table>/` — flatten 매핑에 없는 신규 필드의 소급 복구용) |
 | Spend Report 업로더 (수동) | Claude Console CSV를 `s3://<archive>/spend-reports/`에 투입, 비용 페이지 입력 |
 
 ### Storage (저장)
@@ -201,25 +209,29 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 구성요소 | 역할 |
 |---------|------|
 | 버전 관리 S3 버킷 | NDJSON 파티션(`<table>/date=YYYY-MM-DD/`), spend report, Athena 결과 |
-| Glue Data Catalog | 테이블 (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`) + Hive 방식 date partition projection |
-| Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key` |
+| Glue Data Catalog | 테이블 (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`, `plugins_daily`) 및 `*_org2` 미러 + Hive 방식 date partition projection |
+| Secrets Manager | `ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`, `ccd/analytics-key-2`, `ccd/cognito-config` |
 
 ### Processing (처리)
 
 | 구성요소 | 역할 |
 |---------|------|
-| Amazon Bedrock (Claude Sonnet 4.6) | 멀티턴 tool-use 챗봇 (`POST /api/chat/stream`) — `ConverseStreamCommand` + `toolConfig` + SSE. 모델이 4개 도구(`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`)를 자율적으로 호출. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조. |
+| Amazon Bedrock (Claude Sonnet 4.6) | 멀티턴 tool-use 챗봇 (`POST /api/chat/stream`) — `ConverseStreamCommand` + `toolConfig` + SSE. 모델이 5개 도구(`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`)를 자율적으로 호출. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조. |
 | Athena 워크그룹 | 아카이브 파티션에 ad-hoc SQL, Archive 페이지와 챗봇의 `run_athena_sql` 도구 구동 |
-| 서버 사이드 집계 | `/api/cost/live`는 Analytics `cost_report` + `usage_report`를 `(product, model)` 단위로 조인해 Cost 페이지의 `CsvResp` 형태로 reshape. `/api/cost/users`는 `user_cost_report`를 페이지네이션해 선택 기간 전체(cost 계열은 3일 버퍼를 부분 데이터로 제공)의 사용자별 라이브 USD spend 제공; `/api/cost/user-tokens`는 신설 `user_usage_report`로 사용자별 라이브 토큰 제공; `/api/cost/groups`는 `cost_report × rbac_group_id`로 RBAC 그룹별 지출을 제공하며 `GET /v1/compliance/groups`에서 조회한 실명 라벨 사용(1h 캐시, upstream 503 플랩 시 last-good); `/api/cost/spend-limits`는 Spend Limits API로 멤버별 월 한도+누적 지출 제공. `/api/cost/efficiency`는 `user_cost_report` 지출과 `users/range` 생산성을 `email`로 조인하되 비율 왜곡 방지를 위해 의도적으로 `today−3` 창 정렬 유지. `/api/cost/csv`는 31일 초과 정산·라이브 장애 폴백으로 잔존. [ADR-0003](decisions/0003-hybrid-live-cost.md) 및 [ADR-0009](decisions/0009-live-user-cost.md) 참조. |
+| 서버 사이드 집계 | `/api/cost/live`는 Analytics `cost_report` + `usage_report`를 `(product, model)` 단위로 조인해 Cost 페이지의 `CsvResp` 형태로 reshape. `/api/cost/users`는 `user_cost_report`를 페이지네이션해 선택 기간 전체(cost 계열은 3일 버퍼를 부분 데이터로 제공)의 사용자별 라이브 USD spend 제공; `/api/cost/user-tokens`는 신설 `user_usage_report`로 사용자별 라이브 토큰 제공; `/api/cost/groups`는 `cost_report × rbac_group_id`로 RBAC 그룹별 지출을 제공하며 `GET /v1/compliance/groups`에서 조회한 실명 라벨 사용(1h 캐시, upstream 503 플랩 시 last-good); `/api/cost/spend-limits`는 Spend Limits API로 멤버별 월 한도+누적 지출 제공. `/api/cost/efficiency`는 `user_cost_report` 지출과 `users/range` 생산성을 `email`로 조인하되 비율 왜곡 방지를 위해 의도적으로 `today−3` 창 정렬 유지. `/api/cost/csv`는 정산·라이브 장애 폴백으로 사용하며, 라이브 비용은 청크 분할로 최대 186일까지 조회합니다. [ADR-0003](decisions/0003-hybrid-live-cost.md) 및 [ADR-0009](decisions/0009-live-user-cost.md) 참조. |
 
 ### Query / Presentation (조회 / 표현)
 
 | 구성요소 | 역할 |
 |---------|------|
-| React SPA | 19개 페이지, i18n(영/한), 날짜 범위 컨트롤(7d 기본, today를 최대 종료일로 허용 + UTC/일별 업데이트 안내), 사용자 drill-down 패널(페이지 기간 활동 + 제품/모델별 지출 + 스킬 + 캐시 효율), `/compliance` 감사 이벤트 슬라이드-인 상세(액터/필드/원본 JSON, `%40` 인코딩 포함 이메일 마스킹, 다이얼로그급 포커스 관리), `/agentic` 에이전틱(프롬프트당 작업 수) 페이지, `/claude-chat` Claude Chat 사용량 페이지, 마크다운 렌더링, `/exec` 단일 화면 경영 요약, `/changelog`에서 Vite `?raw`로 번들된 `CHANGELOG.md` 렌더링. 사이드바는 `h-screen` + per-pane `overflow-y-auto`로 viewport 고정, `lg` 미만에서는 햄버거 드로어 + 반응형 그리드/테이블(`print:` 폴백으로 PDF 다열 유지). 행별 통계 테이블은 공유 `useSortable` 훅 + `<SortableTh>`로 양방향 컬럼 정렬(`null`은 방향 무관 하단 고정). |
+| React SPA | 20개 페이지, i18n(영/한), 날짜 범위 컨트롤(기본 7d, Cost는 오늘 1d, today를 최대 종료일로 허용 + UTC/일별 업데이트 안내), 사용자 drill-down 패널(페이지 기간 활동 + 제품/모델별 지출 + 스킬 + 캐시 효율), `/compliance` 감사 이벤트 슬라이드-인 상세(액터/필드/원본 JSON, `%40` 인코딩 포함 이메일 마스킹, 다이얼로그급 포커스 관리), `/agentic` 에이전틱(프롬프트당 작업 수) 페이지, `/claude-chat` Claude Chat 사용량 페이지, 마크다운 렌더링, `/exec` 단일 화면 경영 요약, `/changelog`에서 Vite `?raw`로 번들된 `CHANGELOG.md` 렌더링. 사이드바는 `h-screen` + per-pane `overflow-y-auto`로 viewport 고정, `lg` 미만에서는 햄버거 드로어 + 반응형 그리드/테이블(`print:` 폴백으로 PDF 다열 유지). 행별 통계 테이블은 공유 `useSortable` 훅 + `<SortableTh>`로 양방향 컬럼 정렬(`null`은 방향 무관 하단 고정). |
 | Recharts | 라인/영역/막대/스택/파이/산점도/방사형 차트 |
 | react-markdown + remark-gfm | AI 분석 결과 스트리밍 마크다운 렌더링 |
 | 공개 브로셔 (`site/`) | GitHub Pages(https://whchoi98.github.io/claude-code-dashboard/)에 게시되는 자체 완결형 한국어 랜딩 페이지 — `scripts/deploy-pages.sh` → `gh-pages` 브랜치. Fargate 런타임과 완전히 분리된 정적 마케팅 산출물(마스킹된 스크린샷만 포함; 라이브 데모 CTA는 Cognito 게이트 배포본으로 연결) |
+
+### 브라우저 동작
+
+화면과 플로팅 채팅 패널은 사용할 때 불러옵니다. 페이지에 로딩 대기와 오류 경계를 두어 실패한 경우에도 메뉴를 사용할 수 있습니다. 공통 조회는 요청 취소·65초 제한·조직별 상태 분리를 적용하며, CSV 내보내기는 브라우저에서 이메일 마스킹 판정을 따릅니다. 메뉴 검색, 키보드 정렬, UTC 날짜 검증, 검색 결과 내보내기는 [프로젝트 개선 기록](project-review-2026-09-21.md)에 정리했습니다.
 
 ### Observability (관찰)
 
@@ -299,11 +311,13 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | 스택 | 포함 리소스 |
 |------|-------------|
 | `ccd-network` | VPC (신규 또는 lookup), S3 Gateway endpoint |
-| `ccd-storage` | 버전 관리 S3 아카이브 버킷, Glue 데이터베이스 + projection partition 6개 테이블(`compliance_daily` 포함), Athena 워크그룹 |
+| `ccd-storage` | 버전 관리 S3 아카이브 버킷, Glue 데이터베이스 + projection partition 14개 테이블(plugins·compliance를 포함한 primary 7개 + org2 미러 7개), Athena 워크그룹 |
 | `ccd-compute` | ECS 클러스터, 태스크 정의(ARM64), 서비스(2–6 태스크, CPU 자동 스케일), ALB + listener + WAF, CloudFront 배포(별칭 도메인 `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM 인증서를 2026-07-12부터 CDK에 선언 — 콘솔 추가분이 배포로 제거된 사고 후 코드화; `/assets/*` CACHING_OPTIMIZED 동작; origin readTimeout 60초), Secrets Manager 참조 |
 | `ccd-collector` | Collector Lambda(타임아웃 15분) + EventBridge 규칙 2종 — 14:00 UTC analytics 전용(`{complianceDays:0}`), 00:30 UTC compliance 전용(`{complianceOnly:true}`) + 로그 보존 custom resource |
 
 ## 주요 설계 결정
+
+- **프런트엔드 복구와 내보내기** — 화면을 필요할 때 로드하고 오류 중에도 메뉴를 유지합니다. 조회 콜백과 마지막 성공 응답을 조직·화면에 연결하며, 사용자·비용 실시간 표는 기존 이메일 공개 정책에 따라 검색·정렬 결과를 내보냅니다. [ADR-0021](decisions/0021-frontend-recovery-and-exports.md) 참조.
 
 - **컨텍스트로 기존 VPC 재사용** — 대상 계정의 EIP 쿼터가 고갈되어 신규 NAT 생성 시 실패. `NetworkStack`이 `existingVpcId` 컨텍스트로 분기해 배포 가능한 상태 유지.
 - **S3-우선 캐싱** — 모든 조회가 실 API보다 S3를 먼저 시도. 30일 range 요청이 22초(순차)/3초(병렬, 60 rpm 중 50% 소비)에서 250 ms·API 호출 0회로 단축.
@@ -311,7 +325,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 - **ALB SG에 CloudFront prefix list** — mTLS나 private ALB 없이도 인터넷 직접 접근 차단.
 - **ARM64 Fargate** — x86 대비 약 20% 저렴, 개발 호스트 아키텍처와 일치해 Docker 빌드 시 QEMU 에뮬레이션 불필요.
 - **이메일 마스킹을 계약으로** — `maskEmail()`을 프론트엔드와 LLM 시스템 프롬프트 양쪽에서 호출해 UI를 기본적으로 안전하게 유지.
-- **`user_cost_report` 기반 라이브 사용자별 비용** — v0.8.0부터 Cost 페이지의 per-user "Top by Cost" 테이블과 `distinct_users` KPI가 `GET /api/cost/users`(Analytics `user_cost_report`)에서 라이브로 공급됨. `/cost/efficiency`는 라이브 per-user spend를 `email` 기준으로 `users/range` 생산성과 조인하되 **의도적으로 `today−3` 창 정렬 유지**(전체 기간 지출과 버퍼 clamp된 생산성을 섞으면 $/LOC가 부풀려짐). 2026-07부터 사용자별 **토큰**도 라이브(`user_usage_report` → `/api/cost/user-tokens`)이므로 CSV 업로드는 폴백 전용: 31일 초과 정산(cost 계열 기간 상한)과 라이브 장애 시. [ADR-0003](decisions/0003-hybrid-live-cost.md), [ADR-0009](decisions/0009-live-user-cost.md), [ADR-0010](decisions/0010-cost-window-policy.md), [ADR-0012](decisions/0012-live-user-tokens.md) 참조.
+- **`user_cost_report` 기반 라이브 사용자별 비용** — v0.8.0부터 Cost 페이지의 per-user "Top by Cost" 테이블과 `distinct_users` KPI가 `GET /api/cost/users`(Analytics `user_cost_report`)에서 라이브로 공급됨. `/cost/efficiency`는 라이브 per-user spend를 `email` 기준으로 `users/range` 생산성과 조인하되 **의도적으로 `today−3` 창 정렬 유지**(전체 기간 지출과 버퍼 clamp된 생산성을 섞으면 $/LOC가 부풀려짐). 2026-07부터 사용자별 **토큰**도 라이브(`user_usage_report` → `/api/cost/user-tokens`)이므로 CSV 업로드는 폴백 전용: 정산과 라이브 장애 시(업스트림의 요청당 31일 제한은 서버가 청크로 나누어 최대 186일까지 처리). [ADR-0003](decisions/0003-hybrid-live-cost.md), [ADR-0009](decisions/0009-live-user-cost.md), [ADR-0010](decisions/0010-cost-window-policy.md), [ADR-0012](decisions/0012-live-user-tokens.md) 참조.
 - **RBAC 그룹 비용 + 실명** — `cost_report × rbac_group_id`(upstream 2026-07~)가 Cost 페이지 그룹별 카드를 구동. 그룹 ID는 문서화된 Compliance groups 엔드포인트(`GET /v1/compliance/groups`, 1h 캐시 — 호출마다 `group_list_viewed` 감사 이벤트 발생)로 실명 해석하며 비문서화 `rbac_groups` 목록은 사용하지 않음. upstream 차원이 플랩(간헐 503 "Team membership data is not ready yet")하므로 서버가 last-good 응답을 보관하고 UI는 카드 소실 대신 안내 문구 표시. [ADR-0011](decisions/0011-rbac-group-visibility-native.md) 참조.
 - **Compliance members 엔드포인트 기반 그룹 멤버십** — 페이지별 그룹 스코프(GroupTabs)의 email→그룹 매핑은 `GET /v1/compliance/groups/{id}/members`(현재 시점의 확정 멤버십, 1h 캐시, all-or-nothing)에서 공급: 신규 그룹과 멤버 이동이 지출 누적을 기다리지 않고 1시간 안에 반영. `/api/groups` 소스 체인은 관리자 CSV(`live`) > 실제 멤버십(`members`) > 지출 파생 `user_cost_report × rbac_group_id`(`auto`) > last-good(`stale:true`) > `empty`. [ADR-0014](decisions/0014-membership-source-compliance-members.md) 참조. 2026-07-12부터 Cost 페이지의 조직 레벨 집계도 `/api/cost/live`의 `rbac_group_ids[]` 필터로 선택 그룹에 스코프됨(라이브 모드; CSV/UNMAPPED는 partial 유지) — ADR-0011 개정 참조.
 - **상시 웜 비용/엔게이지먼트 캐싱 계층** — 모든 메뉴의 기본 화면이 태스크별 in-memory 캐시에서 서빙되고 백그라운드 스케줄러가 이를 상시 갱신: `makeTtlCache`(10분 TTL, 갱신 실패 시 `stale: true` 마킹하는 stale-while-revalidate, 6×TTL 초과 시 포그라운드 폴백, in-flight dedup, 페이지당 45초 업스트림 타임아웃)가 `/cost/live`·`/cost/groups`·`/cost/spend-limits`·`fetchUserReport` 계열 전체를 커버; 태스크별 지터 8분 keep-warm 사이클이 UI 프리셋 창 + 전 RBAC 그룹의 기본 창 스코프 키를 재등록하고, 5분 analytics prewarm이 엔게이지먼트 엔드포인트를 워밍(`users/range`는 일 단위라 30일 1회로 전 프리셋 커버). 웜 응답 ~1ms vs 업스트림 1.5–30초; 전송 계층은 gzip + CloudFront `/assets/*` CACHING_OPTIMIZED. [ADR-0015](decisions/0015-performance-caching-layer.md) 참조.
@@ -320,13 +334,15 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 - **Cognito 그룹 기반 계정별 마스킹 차등** — 서버가 `ccd_id` ID 토큰 쿠키(CloudFront `ALL_VIEWER` 정책이 전달)를 엣지와 동일한 JWKS/iss/aud/exp 검증으로 직접 확인하고, `unmasked` Cognito 그룹 멤버는 모든 표면(UI는 마운트 전 `/api/me` 플래그, 챗 도구 결과+시스템 프롬프트 프라이버시 라인, 아카이브 쿼리 행)에서 raw 이메일을 봄; 모든 실패 경로는 마스킹으로 fail-closed, 챗의 실명 스트리핑은 유지, 마스킹은 명시적 결정에 따라 표시 레벨 유지. [ADR-0020](decisions/0020-identity-aware-masking.md) 참조.
 - **Compliance 이벤트 S3 아카이빙 (`compliance_daily`)** — 컬렉터의 00:30 UTC 룰이 감사 피드를 역방향 워크해 완결된 UTC 일자를 이벤트 시각 파티션으로 적재(엔벨로프 컬럼 + `json_extract_scalar`용 전체 JSON `payload`), '파티션을 절대 축소하지 않는' 불변식과 워크스테이션 딥 백필(2026-07-15에 32일/19.3만 건 적재). 장기 감사 질문은 라이브 피드의 2000건 헤드 대신 Athena에서 처리. [ADR-0017](decisions/0017-compliance-s3-archival.md) 참조.
 - **Compliance after_id 페이지네이션 + 부분 계약 응답 캐시** — Compliance API는 timestamp 필터가 없고 `after_id` cursor로만 페이지네이션. 2026-07에 감사 볼륨이 창당 2000건을 초과하면서 워크가 응답 레벨 SWR 캐시를 타도록 변경: 5분 프리웜이 UI 프리셋 4개 창을 in-process `topUp`(키 수식이 프런트 프리셋과 동일), 포그라운드 워크는 CloudFront 60초 오리진 타임아웃 아래로 45초(+페이지당 15초 abort) 하드 바운드, 워크 도중 실패·예산 초과는 수집분을 `partial: true`로 반환(백그라운드 240초 워크가 완전한 결과로 수렴). 감사 페이지는 이벤트별 슬라이드-인 상세(액터/필드/원본 JSON, `%40` 인코딩 포함 이메일 마스킹)를 제공하고, 일별 차트에는 `평균+1σ` reference line이 추가돼 위험 spike를 즉시 인지. [ADR-0004](decisions/0004-compliance-pagination-prewarm.md) · [ADR-0016](decisions/0016-audit-response-cache-partial-contract.md) 참조.
-- **7d 기본 기간** — 모든 기간 인지 페이지가 `range=7d`로 부팅 (v0.3.0까지는 14d / 30d). 더 좁은 신호와 트레이드오프이지만, Adoption stale-skill 감지의 윈도우 이등분과 Compliance spike 임계값 계산이 7d에서도 의미 있는 값을 산출. [ADR-0005](decisions/0005-default-7d-window.md) 참조.
+- **기간 프리셋** — 대부분의 기간 선택 화면은 7d, Cost는 오늘 1d를 기본으로 사용합니다. 다른 화면의 1d는 확정 보장일인 오늘−3이며, Cost Live는 현재 월 또는 별도 과거 스냅샷 선택을 사용합니다. 더 좁은 신호와 트레이드오프이지만, Adoption stale-skill 감지의 윈도우 이등분과 Compliance spike 임계값 계산이 7d에서도 의미 있는 값을 산출. [ADR-0005](decisions/0005-default-7d-window.md) 참조.
 - **Athena varchar 파티션** — Glue 테이블의 `date` 파티션은 `varchar`이지 `DATE`가 아님 (collector가 ISO 문자열로 적재). 쿼리는 단순 문자열 리터럴(`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`)로 비교해야 하며, `DATE '…'`로 감싸면 Engine v3가 `TYPE_MISMATCH`로 거부. `run_athena_sql` 챗봇 도구 스펙과 Archive 페이지의 기본 쿼리 모두 이 규칙을 따름. [ADR-0007](decisions/0007-athena-varchar-partitions.md) 참조.
 - **인쇄 기반 PDF 내보내기** — Analyze · Cost · Executive 의 Save-as-PDF는 `body.app-print` 클래스로 토글되는 `@media print` 블록 + 브라우저 `window.print()`만 사용. 신규 인프라 0(Puppeteer · Lambda 불필요)이며, 화면과 동일한 스타일을 그대로 인쇄. [ADR-0006](decisions/0006-print-driven-pdf-export.md) 참조.
-- **고정 모드 Analyze를 tool-use 챗봇으로 대체** — `/api/analyze` (단일 턴, `direct`/`sql` 모드 수동 선택)를 `POST /api/chat/stream`으로 교체. Bedrock Converse tool-use 루프로 모델이 턴마다 4개 도구를 자율 선택. 클라이언트 사이드 히스토리(최근 12턴)로 멀티턴 메모리를 신규 인프라 없이 구현. 순수 헬퍼는 `server/chat-tools.js`에 분리해 Bedrock 루프를 단위 테스트 가능. 전역 `FloatingChat` 위젯과 `/analyze` 페이지 모두 하나의 `ChatPanel` 컴포넌트를 공유. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조.
+- **고정 모드 Analyze를 tool-use 챗봇으로 대체** — `/api/analyze` (단일 턴, `direct`/`sql` 모드 수동 선택)를 `POST /api/chat/stream`으로 교체. Bedrock Converse tool-use 루프로 모델이 턴마다 5개 도구 중 필요한 도구를 자율 선택. 클라이언트 사이드 히스토리(최근 12턴)로 멀티턴 메모리를 신규 인프라 없이 구현. 순수 헬퍼는 `server/chat-tools.js`에 분리해 Bedrock 루프를 단위 테스트 가능. 전역 `FloatingChat` 위젯과 `/analyze` 페이지 모두 하나의 `ChatPanel` 컴포넌트를 공유. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조.
 - **에이전틱 위임 지표** — 프롬프트당 작업 수는 Cowork `action_count ÷ message_count`(두 값을 모두 제공하는 유일한 표면) 기준; Claude Code는 프롬프트 수가 없어 수락된 작업 기준 세션당 프록시로 표기; 스킬 사용당 비용은 사용자×스킬 차원 부재로 조직 레벨 전용. [ADR-0013](decisions/0013-agentic-delegation-metrics.md) 참조.
 
-## 비용 내역
+## 기존 비용 계획 예시
+
+아래 금액은 기존 계획의 가정을 보존한 것이며 이번 문서 동기화에서 현재 요금을 다시 산정하지 않았습니다. 실제 구성은 위 구성요소·스택 설명을 따릅니다.
 
 | 구성요소 | 월간 비용 | 비고 |
 |----------|-----------|------|

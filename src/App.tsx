@@ -1,27 +1,31 @@
+import { lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { OrgProvider } from './lib/OrgProvider'
 import { GroupScopeProvider } from './lib/GroupScopeProvider'
-import { Overview } from './pages/Overview'
-import { Users } from './pages/Users'
-import { Trends } from './pages/Trends'
-import { ClaudeCode } from './pages/ClaudeCode'
-import { ClaudeChat } from './pages/ClaudeChat'
-import { Productivity } from './pages/Productivity'
-import { UserProductivity } from './pages/UserProductivity'
-import { Adoption } from './pages/Adoption'
-import { Cost } from './pages/Cost'
-import { CostLive } from './pages/CostLive'
-import { Compliance } from './pages/Compliance'
-import { Analyze } from './pages/Analyze'
-import { Archive } from './pages/Archive'
-import { UserSearch } from './pages/UserSearch'
-import { Executive } from './pages/Executive'
-import { Changelog } from './pages/Changelog'
-import { Cowork } from './pages/Cowork'
-import { Agentic } from './pages/Agentic'
-import { Office } from './pages/Office'
-import { Design } from './pages/Design'
+
+// Each page is requested when visited. Layout owns the loading and recovery
+// surfaces, so the menu remains available while a page chunk loads.
+const Overview = lazy(() => import('./pages/Overview').then((m) => ({ default: m.Overview })))
+const Users = lazy(() => import('./pages/Users').then((m) => ({ default: m.Users })))
+const Trends = lazy(() => import('./pages/Trends').then((m) => ({ default: m.Trends })))
+const ClaudeCode = lazy(() => import('./pages/ClaudeCode').then((m) => ({ default: m.ClaudeCode })))
+const ClaudeChat = lazy(() => import('./pages/ClaudeChat').then((m) => ({ default: m.ClaudeChat })))
+const Productivity = lazy(() => import('./pages/Productivity').then((m) => ({ default: m.Productivity })))
+const UserProductivity = lazy(() => import('./pages/UserProductivity').then((m) => ({ default: m.UserProductivity })))
+const Adoption = lazy(() => import('./pages/Adoption').then((m) => ({ default: m.Adoption })))
+const Cost = lazy(() => import('./pages/Cost').then((m) => ({ default: m.Cost })))
+const CostLive = lazy(() => import('./pages/CostLive').then((m) => ({ default: m.CostLive })))
+const Compliance = lazy(() => import('./pages/Compliance').then((m) => ({ default: m.Compliance })))
+const Analyze = lazy(() => import('./pages/Analyze').then((m) => ({ default: m.Analyze })))
+const Archive = lazy(() => import('./pages/Archive').then((m) => ({ default: m.Archive })))
+const UserSearch = lazy(() => import('./pages/UserSearch').then((m) => ({ default: m.UserSearch })))
+const Executive = lazy(() => import('./pages/Executive').then((m) => ({ default: m.Executive })))
+const Changelog = lazy(() => import('./pages/Changelog').then((m) => ({ default: m.Changelog })))
+const Cowork = lazy(() => import('./pages/Cowork').then((m) => ({ default: m.Cowork })))
+const Agentic = lazy(() => import('./pages/Agentic').then((m) => ({ default: m.Agentic })))
+const Office = lazy(() => import('./pages/Office').then((m) => ({ default: m.Office })))
+const Design = lazy(() => import('./pages/Design').then((m) => ({ default: m.Design })))
 
 export default function App() {
   return (

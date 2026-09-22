@@ -620,7 +620,7 @@ export function Cost() {
         </div>
       )
     }
-    return <ErrorState error={error} />
+    return <ErrorState error={error} onRetry={refetch} />
   }
 
   if (!agg || !data) {

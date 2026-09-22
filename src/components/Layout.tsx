@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useSearchParams } from 'react-router-dom'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClaudeIcon } from './ClaudeIcon'
 import { FloatingChat } from './chat/FloatingChat'
 import { useHealth } from '../lib/useHealth'
 import { useI18n } from '../lib/i18n'
 import { DEFAULT_ORG, useOrg } from '../lib/OrgProvider'
+import { LoadingState } from './LoadingState'
+import { PageErrorBoundary } from './PageErrorBoundary'
 // Single source of truth for the displayed version. Bumping this in
 // package.json (and adding a matching ## [x.y.z] section to CHANGELOG.md)
 // is all that's needed to update the badge — the /changelog page reads
@@ -42,13 +44,15 @@ export function Layout() {
   // Mobile: the sidebar becomes a slide-in drawer behind a hamburger button
   // (< lg). Closed on every navigation so a menu tap always lands on content.
   const [navOpen, setNavOpen] = useState(false)
-  // Escape closes the open drawer (keyboard parity with the backdrop tap).
-  useEffect(() => {
-    if (!navOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [navOpen])
+  const [navQuery, setNavQuery] = useState('')
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.('(min-width: 1024px)').matches ?? true)
+  const drawerRef = useRef<HTMLElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const lastPath = useRef(location.pathname)
   // Carry ONLY the scope params across sidebar navigation (?group= and
   // ?org=), so the per-page GroupTabs selection and the org switcher survive
   // page switches. Date-range params stay per-page on purpose — each page
@@ -63,12 +67,104 @@ export function Layout() {
     const qs = q.toString()
     return qs ? `${path}?${qs}` : path
   }
+  const query = navQuery.trim().toLowerCase()
+  const filteredNav = NAV.filter((entry) =>
+    `${t(`nav.${entry.key}`)} ${t(`nav.hint.${entry.key}`)} ${entry.to}`.toLowerCase().includes(query),
+  )
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => {
+      setIsDesktop(media.matches)
+      if (media.matches) setNavOpen(false)
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        if (isDesktop) {
+          searchRef.current?.focus()
+          searchRef.current?.select()
+        } else setNavOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isDesktop])
+
+  useEffect(() => {
+    if (!navOpen || isDesktop) return
+    const drawer = drawerRef.current
+    const main = mainRef.current
+    if (!drawer || !main) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousInert = main.inert
+    const previousOverflow = main.style.overflow
+    searchRef.current?.focus()
+    main.inert = true
+    main.style.overflow = 'hidden'
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setNavOpen(false)
+        setNavQuery('')
+      }
+      if (event.key !== 'Tab') return
+      const controls = Array.from(drawer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]',
+      )).filter((element) => !element.hidden)
+      const first = controls[0]
+      const last = controls[controls.length - 1]
+      if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      main.inert = previousInert
+      main.style.overflow = previousOverflow
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
+    }
+  }, [navOpen, isDesktop])
+
+  useEffect(() => {
+    if (lastPath.current === location.pathname) return
+    lastPath.current = location.pathname
+    setNavOpen(false)
+    setNavQuery('')
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0
+      mainRef.current.focus({ preventScroll: true })
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
+    const entry = NAV.find((item) => item.to === location.pathname)
+    const title = entry ? t(`nav.${entry.key}`) : t('changelog.title')
+    document.title = `${title} · ${t('product.name')}`
+  }, [location.pathname, t])
 
   return (
     // h-screen pins the layout to the viewport so the sidebar stays put
     // while the main pane scrolls independently. Without this, scrolling
     // the page moved the whole flex container — sidebar included.
     <div className="grain h-screen flex">
+      <a
+        href="#main-content"
+        onClick={(event) => { event.preventDefault(); mainRef.current?.focus() }}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-ink-800 focus:shadow-lg"
+      >
+        {t('nav.skip')}
+      </a>
       {/* Mobile drawer backdrop */}
       {navOpen && (
         <div
@@ -78,7 +174,11 @@ export function Layout() {
         />
       )}
       <aside
+        ref={drawerRef}
         id="app-nav"
+        role={navOpen && !isDesktop ? 'dialog' : undefined}
+        aria-modal={navOpen && !isDesktop ? true : undefined}
+        aria-label={t('nav.label')}
         className={clsx(
           'w-64 shrink-0 h-full overflow-y-auto border-r border-ink-100 bg-paper-muted/95 lg:bg-paper-muted/60 backdrop-blur flex flex-col',
           // Standalone-PWA safe areas (env() = 0 in regular browsers, so
@@ -91,32 +191,81 @@ export function Layout() {
           // backdrop. `invisible` when closed removes the offscreen drawer
           // from the tab order and the accessibility tree (transforms alone
           // don't); lg:visible keeps the desktop column untouched.
-          'fixed inset-y-0 left-0 z-40 lg:z-auto transform transition-[transform,visibility] duration-200 lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 lg:z-auto transform transition-transform duration-200 lg:static lg:translate-x-0',
           navOpen ? 'translate-x-0 visible' : '-translate-x-full invisible lg:visible',
         )}
       >
-        <div className="flex items-center gap-3 mb-8">
+        <div className="flex items-center gap-3 mb-5">
           <ClaudeIcon size={36} animate />
           <div className="leading-tight flex-1 min-w-0">
             <div className="text-[11px] uppercase tracking-widest text-ink-400">{t('product.tag')}</div>
             <div className="text-[15px] font-semibold text-ink-800 truncate">{t('product.name')}</div>
             <Link
               to={withGroup('/changelog')}
+              onClick={() => setNavOpen(false)}
               title={t('nav.changelog.hint', { version: APP_VERSION })}
               className="mt-1 inline-block rounded-full bg-claude-100 text-claude-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums hover:bg-claude-200 transition-colors"
             >
               v{APP_VERSION}
             </Link>
           </div>
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label={t('nav.close_menu')}
+            className="lg:hidden rounded-lg px-2 py-1 text-xl text-ink-500 hover:bg-ink-100"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
 
-        <nav className="flex flex-col gap-1">
-          {NAV.map((n) => (
+        <form
+          role="search"
+          className="relative mb-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!filteredNav[0]) return
+            navigate(withGroup(filteredNav[0].to))
+            setNavQuery('')
+            setNavOpen(false)
+          }}
+        >
+          <input
+            ref={searchRef}
+            type="search"
+            value={navQuery}
+            onChange={(event) => setNavQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && isDesktop) { event.preventDefault(); setNavQuery('') }
+            }}
+            aria-label={t('nav.search')}
+            aria-keyshortcuts="Control+k Meta+k"
+            aria-controls="app-nav-links"
+            placeholder={t('nav.search_hint')}
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 pr-8 text-xs text-ink-700 focus:border-claude-500 focus:outline-none"
+          />
+          {navQuery && (
+            <button
+              type="button"
+              aria-label={t('nav.clear_search')}
+              onClick={() => { setNavQuery(''); searchRef.current?.focus() }}
+              className="absolute right-1 top-1 rounded px-2 py-1 text-ink-400 hover:text-ink-700"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
+          <span role="status" className="sr-only">{query ? t('nav.search_results', { n: filteredNav.length }) : ''}</span>
+        </form>
+        {filteredNav.length === 0 && <p className="px-3 py-4 text-xs text-ink-500">{t('nav.no_results')}</p>}
+        <nav id="app-nav-links" aria-label={t('nav.label')} className="flex flex-col gap-1">
+          {filteredNav.map((n) => (
             <NavLink
               key={n.to}
               to={withGroup(n.to)}
               end={n.to === '/'}
-              onClick={() => setNavOpen(false)}
+              onClick={() => { setNavOpen(false); setNavQuery('') }}
               className={({ isActive }) =>
                 clsx(
                   'group flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors',
@@ -265,12 +414,13 @@ export function Layout() {
           stop it env() short of the display edge) and on the Outlet wrapper
           (which protects scrolled page content). Putting them on main too
           would double-count the landscape insets. */}
-      <main className="flex-1 min-w-0 h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+      <main ref={mainRef} id="main-content" tabIndex={-1} className="flex-1 min-w-0 h-full overflow-y-auto pb-[env(safe-area-inset-bottom)] focus:outline-none">
         {/* Mobile top bar — hamburger + product identity (hidden on lg+).
             pt carries the standalone-PWA status-bar inset (sticky top-0 sits
             flush under the notch otherwise); pl/pr cover the landscape notch. */}
         <div className="lg:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-ink-100 bg-paper-muted/90 backdrop-blur pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))]">
           <button
+            ref={menuButtonRef}
             onClick={() => setNavOpen(true)}
             aria-label={t('nav.open_menu')}
             aria-expanded={navOpen}
@@ -293,7 +443,11 @@ export function Layout() {
         {/* Side safe-area insets for page content (landscape notch/rounded
             corners) — env() = 0 everywhere except notched iPhones. */}
         <div className="pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-          <Outlet />
+          <PageErrorBoundary key={`${location.pathname}:${org}`}>
+            <Suspense fallback={<LoadingState />}>
+              <Outlet />
+            </Suspense>
+          </PageErrorBoundary>
         </div>
       </main>
       {/* Hidden (not unmounted — keeps the conversation) while the mobile

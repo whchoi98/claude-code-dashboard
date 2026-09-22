@@ -2,6 +2,8 @@
 
 This file gives Claude Code persistent context about this project. Keep it in sync with the actual code — run `/sync-docs` after major changes.
 
+Codex contributor instructions are in [AGENTS.md](AGENTS.md); public documentation starts at [docs/README.md](docs/README.md).
+
 ## Project
 
 - **Name**: claude-code-dashboard
@@ -12,9 +14,9 @@ This file gives Claude Code persistent context about this project. Keep it in sy
 
 | Layer | Stack |
 |---|---|
-| Frontend | React 18 · Vite 5 · TypeScript 5 · Tailwind 3 · Recharts 2 · React Router 6 · react-markdown 10 + remark-gfm |
+| Frontend | React 18 · Vite 6 · TypeScript 5 · Tailwind 3 · Recharts 2 · React Router 7 · react-markdown 10 + remark-gfm |
 | Backend | Express 4 on Node 20 · AWS SDK v3 (Bedrock Runtime, S3, Athena, Secrets Manager) |
-| Infra | AWS CDK 2.170 (TypeScript) — 4 stacks (network/storage/compute/collector) |
+| Infra | AWS CDK v2 (TypeScript; `infra/package-lock.json` pins the library and CLI) — 4 stacks (network/storage/compute/collector) |
 | Runtime | Fargate ARM64 · CloudFront + WAF · ALB (CloudFront-prefix-list locked) · Secrets Manager · Lambda |
 | Data | S3 NDJSON archive · Glue Data Catalog · Athena · Bedrock (Claude Sonnet 4.6 via global inference profile) |
 | External APIs | Anthropic Analytics API · Admin API · Compliance API (the Analytics key's scopes now cover compliance reads — the dedicated Compliance key is optional; server falls back automatically) |
@@ -46,7 +48,7 @@ claude-code-dashboard/
 ├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots; publish via scripts/deploy-pages.sh → gh-pages branch)
 ├── docs/                   Architecture, ADRs, runbooks, onboarding, API reference
 ├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish) + generate-pwa-icons.mjs (sharp via `npm i --no-save` — NOT a package.json dep)
-├── tests/                  Harness tests (hooks, structure, secrets)
+├── tests/                  Server/structure harness + Vitest frontend + Playwright browser tests
 └── tools/prompts/          AI prompt templates
 ```
 
@@ -57,11 +59,14 @@ claude-code-dashboard/
 npm install                    # root + infra + collector should be installed separately
 npm run dev                    # Vite (5173) + Express (5174) concurrently
 npm run build                  # tsc -b && vite build → dist/
+npm test                       # server/structure harness + Vitest frontend regression suite
+npm run test:e2e                # Playwright: production build, synthetic APIs, desktop + mobile
 npm run preview                # preview built bundle
 npm run server                 # Express standalone (prod behavior)
 
-# Infra
-cd infra && npm install
+# Infra (from repo root; secrets must already exist)
+npm run build:edge              # refresh gitignored Lambda@Edge bundle before synth/deploy
+cd infra && npm ci
 npx cdk synth --context existingVpcId=vpc-0dfa5610180dfa628
 npx cdk deploy --all --require-approval never --context existingVpcId=vpc-0dfa5610180dfa628
 npx cdk deploy ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628   # single stack
@@ -72,6 +77,9 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 ```
 
 ## Conventions
+
+- **Frontend recovery/navigation**: routes and the floating chat panel load lazily. `Layout` keeps navigation outside `PageErrorBoundary`, carries org/group across page links, and exposes Ctrl/⌘+K menu search. `useFetch` cancels obsolete requests, times out after 65s, rejects malformed JSON, and ignores stale refetch callbacks from prior scopes. Its `refetch()` promise resolves after the request settles. CSV exports on Users/Cost Live must use the shared serializer and `maskEmail()`; the export follows visible filtering/sorting.
+- **Test toolchain**: Vite 6, React Router 7 declarative routing, Vitest 4 + Testing Library, Playwright. Runtime remains Node 20-compatible. `qs` is overridden to `^6.16.0` to patch Express 4's older transitive parser; review this override when upgrading Express.
 
 - **Language**: Korean for conversation and commit messages, English for code/identifiers/UI strings (the UI has a runtime en/ko toggle).
 - **Version strings** (bump all on release — see `/release`): `package.json` `version` is the single source of truth (the sidebar badge reads it via `Layout.tsx` `pkg.version`, so the UI shows the new version only after the next deploy); README.md + README.ko.md shields badges (`version-X.Y.Z-blue`); `CHANGELOG.md` version heading. Tag as `vX.Y.Z`.
@@ -91,7 +99,7 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 | Analytics — cost (live) | same Analytics key | `/v1/organizations/analytics/{cost_report,usage_report,user_cost_report,user_usage_report}` | Org-wide spend (USD) + tokens by `(product, model, rbac_group_id, …)`, plus **per-user USD (user_cost_report) and per-user tokens (user_usage_report)** — ADR-0003's "no per-user dimension" no longer holds (2026-07). ~4h refresh watermark (`data_refreshed_at`), 30-day correction window, **31-day max span per request** (the server CHUNKS longer windows into ≤31-day segments and merges, up to 186 days — ADR-0019). |
 | Admin | `sk-ant-admin01-...` | `/v1/organizations/usage_report/{claude_code,messages}` + `/cost_report` | Workspace-scoped per-user × model `estimated_cost`; daily token + USD totals. Used by `/api/admin/*` proxy routes (still wired but not the primary cost path). |
 | Compliance | `sk-ant-api01-...` (Compliance scope) | `/v1/compliance/activities` + `/v1/compliance/groups(/{id}/members)` | Audit events (cursor pagination via `after_id`, NOT `next_page`; see `server/index.js`) + RBAC group names AND authoritative per-group membership (`next_page` cursor, 1h cache; drives `/api/groups` since 2026-07-12 — ADR-0014). |
-| CSV (Spend Report) | N/A (manual export) | S3 `spend-reports/` | Per-user × product × model spend totals. **Fallback/reconciliation only** since 2026-07: live per-user spend (user_cost_report) and tokens (user_usage_report) drive the Cost page's Top-N tables; the CSV covers >31-day windows and live-report outages. |
+| CSV (Spend Report) | N/A (manual export) | S3 `spend-reports/` | Per-user × product × model spend totals. **Fallback/reconciliation only** since 2026-07: live per-user spend (user_cost_report) and tokens (user_usage_report) drive the Cost page's Top-N tables; live reports chunk up to 186 days, and CSV is optional reconciliation and an outage/history fallback. |
 | S3 Archive | N/A (collector fills) | `s3://<bucket>/<table>/date=YYYY-MM-DD/` | Fast replay of Analytics API data beyond the 90-day window. Since 2026-07-15 compliance audit events are ALSO archived (`compliance/date=…` + raw sidecar, partition day = event `created_at` day, current through yesterday — ADR-0017) and queryable via Athena `compliance_daily`; the live audit PAGE still serves from the in-memory prewarm cache (newest 2000 events). |
 
 ## Auto-Sync Rules

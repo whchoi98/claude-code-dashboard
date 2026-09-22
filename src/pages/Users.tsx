@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
 import { RangeCoverageNote } from '../components/RangeCoverageNote'
@@ -12,6 +12,8 @@ import { useDateRange } from '../lib/useDateRange'
 import { useHealth } from '../lib/useHealth'
 import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
+import { useOrg } from '../lib/OrgProvider'
+import { downloadCsv } from '../lib/csv'
 import { fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import { useT } from '../lib/i18n'
 import type { UserRecord } from '../types'
@@ -40,8 +42,9 @@ function daysSince(isoDate: string): number {
 export function Users() {
   const t = useT()
   const { range } = useDateRange('7d')
-  const { inGroup } = useGroupScope()
-  const { data, loading, error } = useFetch<RangeResp>(
+  const { org, loading: orgLoading } = useOrg()
+  const { group, inGroup, loading: groupLoading } = useGroupScope()
+  const { data, loading, error, refetch } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
   // Per-user cache hit rate (user_usage_report), WINDOW-ALIGNED with the
@@ -76,8 +79,24 @@ export function Users() {
   }, [tokens.data, tokens.loading])
   const source = badgeSource(data?.days?.[0]?.source)
   const [q, setQ] = useState('')
-  const [selected, setSelected] = useState<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [selection, setSelection] = useState<{ email: string; org: string } | null>(null)
   const [dormantOnly, setDormantOnly] = useState(false)
+  // Guard during render so the panel never receives an out-of-scope email,
+  // then forget it so switching back cannot reopen a cancelled selection.
+  const selected = selection?.org === org && inGroup(selection.email) ? selection.email : null
+  useEffect(() => {
+    if (selection && selected === null) setSelection(null)
+  }, [selection, selected])
+
+  function selectUser(email: string) {
+    setSelection({ email, org })
+  }
+
+  function clearSearch() {
+    setQ('')
+    searchRef.current?.focus()
+  }
 
   const aggregated = useMemo<Row[]>(() => {
     // Aggregate per-user across the selected window. acceptRate is recomputed
@@ -158,8 +177,28 @@ export function Users() {
     <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
   )
 
+  const canExport = !loading && !orgLoading && !groupLoading && rows.length > 0
+  function exportRows() {
+    if (!canExport) return
+    downloadCsv(
+      `users_${org.replace(/[^a-zA-Z0-9_-]/g, '_')}_${range.startingDate}_${range.endingDate}_UTC.csv`,
+      [
+        'org', 'group', 'starting_date', 'ending_date', 'email',
+        'messages', 'conversations', 'sessions', 'loc_added', 'loc_removed', 'commits', 'pull_requests',
+        'cowork_sessions', 'cowork_actions', 'design_sessions', 'acceptance_rate', 'cache_hit_rate',
+        ...(hasLastActive ? ['last_active_date'] : []),
+      ],
+      rows.map((r) => [
+        org, group, range.startingDate, range.endingDate, maskEmail(r.email),
+        r.messages, r.convos, r.sessions, r.loc, r.locRemoved, r.commits, r.prs,
+        r.cowork, r.coworkActions, r.design, r.accept, r.cacheHit,
+        ...(hasLastActive ? [r.lastActive] : []),
+      ]),
+    )
+  }
+
   if (loading) return <LoadingState />
-  if (error) return <ErrorState error={error} />
+  if (error) return <ErrorState error={error} onRetry={refetch} />
 
   return (
     <div>
@@ -172,7 +211,9 @@ export function Users() {
             <DateRangeControl />
             {hasLastActive && (
               <button
+                type="button"
                 onClick={() => setDormantOnly((v) => !v)}
+                aria-pressed={dormantOnly}
                 className={clsx(
                   'text-sm px-3 py-1.5 rounded-lg border transition-colors',
                   dormantOnly
@@ -183,20 +224,67 @@ export function Users() {
                 {t('users.dormant.toggle', { days: DORMANT_DAYS })}
               </button>
             )}
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t('users.search')}
-              className="text-sm px-3 py-1.5 rounded-lg border border-ink-200 bg-white focus:border-claude-500 focus:outline-none w-full sm:w-56"
-            />
+            <div className="flex w-full sm:w-auto items-center gap-2">
+              <input
+                ref={searchRef}
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t('users.search')}
+                aria-label={t('users.search')}
+                className="min-w-0 text-sm px-3 py-1.5 rounded-lg border border-ink-200 bg-white focus:border-claude-500 focus:outline-none w-full sm:w-56"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="shrink-0 text-xs text-claude-600 underline hover:text-claude-700"
+                >
+                  {t('table.clear')}
+                </button>
+              )}
+            </div>
           </div>
         }
       />
       <GroupTabs />
       <RangeCoverageNote resp={data} />
       <div className="p-4 lg:p-8 print:p-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <p role="status" aria-live="polite" className="text-xs text-ink-500">
+            {t('table.count', { shown: rows.length, total: aggregated.length })}
+          </p>
+          <button
+            type="button"
+            onClick={exportRows}
+            disabled={!canExport}
+            title={t('table.export_hint')}
+            className="rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-600 hover:bg-paper-muted disabled:opacity-50 disabled:cursor-not-allowed print:hidden"
+          >
+            {t('table.export')}
+          </button>
+        </div>
         {rows.length === 0 ? (
-          <EmptyState title={t('users.empty')} hint={t('users.empty.hint')} />
+          <>
+            <EmptyState
+              title={aggregated.length === 0 ? t('common.empty') : t('table.no_matches')}
+              hint={t('users.empty.hint')}
+            />
+            {aggregated.length > 0 && (
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSearch()
+                    setDormantOnly(false)
+                  }}
+                  className="text-xs text-claude-600 underline hover:text-claude-700"
+                >
+                  {t('table.reset')}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="rounded-xl border border-ink-100 bg-white shadow-card overflow-x-auto">
             <table className="w-full text-sm">
@@ -219,13 +307,25 @@ export function Users() {
                 {rows.map((r) => (
                   <tr
                     key={r.email}
-                    onClick={() => setSelected(r.email)}
+                    onClick={() => selectUser(r.email)}
                     className={clsx(
                       'border-t border-ink-100 cursor-pointer transition-colors',
                       selected === r.email ? 'bg-claude-50/60' : 'hover:bg-paper-muted/40',
                     )}
                   >
-                    <td className="px-4 py-2.5 font-medium text-ink-700">{maskEmail(r.email)}</td>
+                    <td className="px-4 py-2.5 font-medium text-ink-700">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          selectUser(r.email)
+                        }}
+                        aria-label={t('table.open_user', { user: maskEmail(r.email) })}
+                        className="rounded text-left hover:text-claude-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-claude-500 focus-visible:outline-offset-2"
+                      >
+                        {maskEmail(r.email)}
+                      </button>
+                    </td>
                     <td className="px-4 py-2.5 tabular-nums text-ink-600">{fmtNum(r.messages)} <span className="text-ink-300 text-xs">/ {r.convos}c</span></td>
                     <td className="px-4 py-2.5 tabular-nums text-ink-600">{fmtNum(r.sessions)}</td>
                     <td className="px-4 py-2.5 tabular-nums">
@@ -256,7 +356,7 @@ export function Users() {
         )}
       </div>
 
-      <UserDetailPanel email={selected} range={range} onClose={() => setSelected(null)} />
+      <UserDetailPanel email={selected} range={range} onClose={() => setSelection(null)} />
     </div>
   )
 }

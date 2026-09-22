@@ -142,7 +142,7 @@ export function UserSearch() {
   if (csv.loading || range.loading) return <LoadingState />
   // Only the engagement range is load-bearing; a missing/failed spend report
   // (org2, or a primary outage) degrades to live-only mode instead of dying.
-  if (range.error) return <ErrorState error={range.error} />
+  if (range.error) return <ErrorState error={range.error} onRetry={range.refetch} />
   if (allUsers.length === 0) {
     return (
       <div>

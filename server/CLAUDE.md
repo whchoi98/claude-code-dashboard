@@ -273,8 +273,7 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
 
 ## Conventions
 
-- **ESM only**. No `require`. Use `node --check server/*.js` for syntax
-  validation.
+- **ESM only**. No `require`. Validate each file with `for file in server/*.js; do node --check "$file" || exit 1; done` from the repo root.
 - **Never instantiate AWS clients per request** — create them once in the
   module scope so SDK credential provider chains cache.
 - **Pagination cursor names differ per endpoint** — verify before wiring:
@@ -323,6 +322,8 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   `.env` (gitignored, `chmod 600`).
 
 ## Route registration patterns
+
+The browser's shared `useFetch` hook validates JSON and HTTP failures, aborts obsolete requests, and stops after 65 seconds. Keep successful `source`, `stale`, `coverage`, snapshot and served-period metadata intact so clients can explain degraded results. HTTP-200 partial responses remain distinct from request errors. CSV table downloads run in the browser and do not add an API endpoint.
 
 - Routes that pre-date `aws.js` use the bare `app.get('/api/...')` style in
   `index.js`.

@@ -31,7 +31,7 @@ export function ClaudeCode() {
   const t = useT()
   const { range } = useDateRange('7d')
   const { inGroup } = useGroupScope()
-  const { data, loading, error } = useFetch<RangeResp>(
+  const { data, loading, error, refetch } = useFetch<RangeResp>(
     `/api/analytics/users/range?starting_date=${range.startingDate}&ending_date=${range.endingDate}`,
   )
   const source = badgeSource(data?.days?.[0]?.source)
@@ -106,7 +106,7 @@ export function ClaudeCode() {
   }, [data, inGroup])
 
   if (loading) return <LoadingState />
-  if (error) return <ErrorState error={error} />
+  if (error) return <ErrorState error={error} onRetry={refetch} />
 
   return (
     <div>

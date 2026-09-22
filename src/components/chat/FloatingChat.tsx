@@ -1,7 +1,9 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { ChatPanel } from './ChatPanel'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useChatStream } from '../../lib/useChatStream'
 import { useI18n } from '../../lib/i18n'
+import { PageErrorBoundary } from '../PageErrorBoundary'
+
+const ChatPanel = lazy(() => import('./ChatPanel').then((module) => ({ default: module.ChatPanel })))
 
 // Keep the dragged panel this many px inside the viewport edges.
 const EDGE_MARGIN = 8
@@ -14,7 +16,16 @@ export function FloatingChat() {
   // user dragged to persists across open/close + route changes for the session.
   const [drag, setDrag] = useState({ x: 0, y: 0 })
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const launcherRef = useRef<HTMLButtonElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const wasOpen = useRef(false)
   const chat = useChatStream() // one conversation, persists while mounted
+
+  useEffect(() => {
+    if (open) closeRef.current?.focus()
+    else if (wasOpen.current) launcherRef.current?.focus()
+    wasOpen.current = open
+  }, [open])
 
   // Header-only drag: grabbing the title bar moves the whole panel. Body
   // scrolling, text selection, and the Send/Reset/Close buttons (which live
@@ -59,6 +70,7 @@ export function FloatingChat() {
     <>
       {!open && (
         <button
+          ref={launcherRef}
           onClick={() => setOpen(true)}
           title={t('chat.widget.open')}
           className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-[calc(1.5rem+env(safe-area-inset-right))] z-40 inline-flex items-center gap-2 rounded-full bg-claude-500 hover:bg-claude-600 text-white shadow-lg px-4 py-3 text-sm font-medium print-hide"
@@ -70,6 +82,11 @@ export function FloatingChat() {
       {open && (
         <div
           ref={panelRef}
+          role="dialog"
+          aria-label={t('chat.widget.title')}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) }
+          }}
           style={{ transform: `translate(${drag.x}px, ${drag.y}px)` }}
           className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-[calc(1.5rem+env(safe-area-inset-right))] z-40 w-[400px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-3rem-env(safe-area-inset-bottom))] rounded-2xl border border-ink-100 bg-paper-muted/95 backdrop-blur shadow-2xl flex flex-col p-3 print-hide"
         >
@@ -80,9 +97,23 @@ export function FloatingChat() {
             <span className="text-sm" aria-hidden>🤖</span>
             {t('chat.widget.title')}
             <span className="ml-auto text-ink-300 tracking-widest" aria-hidden>⠿</span>
+            <button
+              ref={closeRef}
+              type="button"
+              aria-label={t('common.close')}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => setOpen(false)}
+              className="rounded-md px-2 py-1 text-base text-ink-500 hover:bg-ink-100"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
           </div>
           <div className="flex-1 min-h-0">
-            <ChatPanel chat={chat} variant="widget" onClose={() => setOpen(false)} />
+            <PageErrorBoundary>
+              <Suspense fallback={<p role="status" className="p-4 text-sm text-ink-500">{t('common.loading')}</p>}>
+                <ChatPanel chat={chat} variant="widget" />
+              </Suspense>
+            </PageErrorBoundary>
           </div>
         </div>
       )}

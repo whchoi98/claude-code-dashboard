@@ -139,7 +139,7 @@ export function UserProductivity() {
   )
 
   if (rangeResp.loading) return <LoadingState />
-  if (rangeResp.error) return <ErrorState error={rangeResp.error} />
+  if (rangeResp.error) return <ErrorState error={rangeResp.error} onRetry={rangeResp.refetch} />
 
   const chartData = rows.slice(0, 10).map((r) => ({
     name: r.masked,

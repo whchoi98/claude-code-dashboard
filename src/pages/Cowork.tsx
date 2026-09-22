@@ -117,8 +117,8 @@ export function Cowork() {
   }, [summaries.data, users.data, inGroup])
 
   if (summaries.loading || users.loading) return <LoadingState />
-  if (summaries.error) return <ErrorState error={summaries.error} />
-  if (users.error) return <ErrorState error={users.error} />
+  if (summaries.error) return <ErrorState error={summaries.error} onRetry={summaries.refetch} />
+  if (users.error) return <ErrorState error={users.error} onRetry={users.refetch} />
 
   const source = badgeSource(users.data?.days?.[0]?.source)
 

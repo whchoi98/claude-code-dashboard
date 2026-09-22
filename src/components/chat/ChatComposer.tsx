@@ -19,8 +19,12 @@ export function ChatComposer({
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+        }}
         rows={2}
+        aria-label={t('chat.input_label')}
         placeholder={t('chat.placeholder')}
         className="w-full text-sm bg-paper-muted/30 border border-ink-100 rounded-lg px-3 py-2 focus:outline-none focus:border-claude-500 resize-none"
       />

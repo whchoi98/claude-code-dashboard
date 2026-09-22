@@ -1,6 +1,7 @@
-import { useRef, useState, useEffect } from 'react'
+import { useCallback, useId, useRef, useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { useDateRange, type DateRangeOptions, type Preset } from '../lib/useDateRange'
+import { validateCustomRange } from '../lib/dateRange'
 import { fmtDate } from '../lib/format'
 import { useT } from '../lib/i18n'
 
@@ -25,6 +26,31 @@ export function DateRangeControl({ defaultPreset, freshEnd }: { defaultPreset?: 
   const [draftStart, setDraftStart] = useState(range.startingDate)
   const [draftEnd,   setDraftEnd]   = useState(range.endingDate)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const startInputRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const dialogId = useId()
+  const titleId = `${dialogId}-title`
+  const errorId = `${dialogId}-error`
+  const footnoteId = `${dialogId}-footnote`
+  const selectionId = `${dialogId}-selection`
+  const issue = validateCustomRange(draftStart, draftEnd, maxEnd)
+  const error = issue ? t(issue.key, issue.params) : null
+
+  const closePopover = useCallback((restoreFocus = true) => {
+    setOpen(false)
+    if (restoreFocus) triggerRef.current?.focus()
+  }, [])
+
+  function togglePopover(trigger: HTMLButtonElement) {
+    if (open) {
+      closePopover(false)
+      return
+    }
+    triggerRef.current = trigger
+    setDraftStart(range.startingDate)
+    setDraftEnd(range.endingDate)
+    setOpen(true)
+  }
 
   useEffect(() => {
     setDraftStart(range.startingDate)
@@ -32,84 +58,154 @@ export function DateRangeControl({ defaultPreset, freshEnd }: { defaultPreset?: 
   }, [range.startingDate, range.endingDate])
 
   useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!popoverRef.current) return
-      if (!popoverRef.current.contains(e.target as Node)) setOpen(false)
+    if (!open) return
+    startInputRef.current?.focus()
+
+    function onDocPointerDown(e: PointerEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        closePopover(false)
+      }
     }
-    if (open) document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        e.preventDefault()
+        e.stopPropagation()
+        closePopover()
+      }
+    }
+    document.addEventListener('pointerdown', onDocPointerDown)
+    document.addEventListener('keydown', onDocKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointerDown)
+      document.removeEventListener('keydown', onDocKeyDown)
+    }
+  }, [open, closePopover])
 
   return (
-    <div className="relative" ref={popoverRef}>
-      <div className="flex items-center gap-1 text-xs font-medium">
+    <div
+      className="relative min-w-0 max-w-full"
+      ref={popoverRef}
+      onBlur={(e) => {
+        // This is a non-modal popup: keyboard users can leave it normally.
+        if (open && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) closePopover(false)
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-1 text-xs font-medium">
         <div className="flex items-center rounded-lg border border-ink-100 bg-white p-0.5">
-          {PRESET_BUTTONS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => {
-                if (p.key === 'custom') setOpen(true)
-                else setPreset(p.key)
-              }}
-              className={clsx(
-                'px-2.5 py-1 rounded-md transition',
-                range.preset === p.key
-                  ? 'bg-claude-500 text-white shadow-sm'
-                  : 'text-ink-500 hover:bg-paper-muted',
-              )}
-              title={p.key === 'custom' ? 'Custom range' : p.key === '1d' ? t(freshEnd ? 'range.tooltip_1d_today' : 'range.tooltip_1d') : `Last ${p.label}`}
-            >
-              {p.label}
-            </button>
-          ))}
+          {PRESET_BUTTONS.map((p) => {
+            const title = p.key === 'custom'
+              ? t('range.custom')
+              : p.key === '1d'
+                ? t(freshEnd ? 'range.tooltip_1d_today' : 'range.tooltip_1d')
+                : t('range.last_days', { days: Number.parseInt(p.key, 10) })
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={(e) => {
+                  if (p.key === 'custom') togglePopover(e.currentTarget)
+                  else {
+                    closePopover(false)
+                    setPreset(p.key)
+                  }
+                }}
+                aria-label={title}
+                aria-pressed={range.preset === p.key}
+                aria-haspopup={p.key === 'custom' ? 'dialog' : undefined}
+                aria-expanded={p.key === 'custom' ? open : undefined}
+                aria-controls={p.key === 'custom' && open ? dialogId : undefined}
+                className={clsx(
+                  'px-2.5 py-1 rounded-md transition',
+                  range.preset === p.key
+                    ? 'bg-claude-500 text-white shadow-sm'
+                    : 'text-ink-500 hover:bg-paper-muted',
+                )}
+                title={title}
+              >
+                {p.label}
+              </button>
+            )
+          })}
         </div>
         <button
-          onClick={() => setOpen((o) => !o)}
-          className="rounded-lg border border-ink-100 bg-white px-2.5 py-1 text-ink-600 hover:bg-paper-muted tabular-nums"
-          title="Click to change range"
+          type="button"
+          onClick={(e) => togglePopover(e.currentTarget)}
+          className="rounded-lg border border-ink-100 bg-white px-2.5 py-1 text-ink-600 hover:bg-paper-muted tabular-nums whitespace-nowrap"
+          title={t('range.change')}
+          aria-label={t('range.change')}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? dialogId : undefined}
+          aria-describedby={selectionId}
         >
-          {fmtDate(range.startingDate)} – {fmtDate(range.endingDate)}
-          <span className="ml-1 text-ink-400">({range.days}d)</span>
+          <span id={selectionId}>
+            {fmtDate(range.startingDate)} – {fmtDate(range.endingDate)}
+            <span className="ml-1 text-ink-400">({range.days}d)</span>
+          </span>
         </button>
       </div>
 
       {open && (
-        <div className="absolute right-0 top-10 z-20 w-80 rounded-xl border border-ink-100 bg-white shadow-xl p-4 space-y-3">
-          <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">Custom range</div>
+        <div
+          id={dialogId}
+          role="dialog"
+          aria-labelledby={titleId}
+          aria-describedby={footnoteId}
+          className="absolute left-0 top-full mt-2 sm:left-auto sm:right-0 z-20 w-80 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-xl p-4 space-y-3"
+        >
+          <div id={titleId} className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">
+            {t('range.custom')}
+          </div>
           <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs text-ink-500">
-              <div>Start</div>
+            <label className="min-w-0 text-xs text-ink-500">
+              <div>{t('range.start')}</div>
               <input
+                ref={startInputRef}
                 type="date"
+                required
                 value={draftStart}
                 min={FIRST_AVAILABLE}
                 max={maxEnd}
+                aria-invalid={issue ? true : undefined}
+                aria-describedby={issue ? errorId : undefined}
                 onChange={(e) => setDraftStart(e.target.value)}
-                className="mt-1 w-full border border-ink-200 rounded-md px-2 py-1 text-sm tabular-nums"
+                className="mt-1 min-w-0 w-full border border-ink-200 rounded-md px-2 py-1 text-sm tabular-nums"
               />
             </label>
-            <label className="text-xs text-ink-500">
-              <div>End</div>
+            <label className="min-w-0 text-xs text-ink-500">
+              <div>{t('range.end')}</div>
               <input
                 type="date"
+                required
                 value={draftEnd}
                 min={FIRST_AVAILABLE}
                 max={maxEnd}
+                aria-invalid={issue ? true : undefined}
+                aria-describedby={issue ? errorId : undefined}
                 onChange={(e) => setDraftEnd(e.target.value)}
-                className="mt-1 w-full border border-ink-200 rounded-md px-2 py-1 text-sm tabular-nums"
+                className="mt-1 min-w-0 w-full border border-ink-200 rounded-md px-2 py-1 text-sm tabular-nums"
               />
             </label>
           </div>
-          <div className="flex items-center justify-between pt-1 border-t border-ink-100">
-            <div className="text-[10px] text-ink-400 leading-snug">
-              {t('range.footnote')}
-            </div>
+          {error && <p id={errorId} role="alert" className="text-xs text-red-600">{error}</p>}
+          <p id={footnoteId} className="text-[10px] text-ink-400 leading-snug">
+            {t('range.footnote')}
+          </p>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-ink-100">
             <button
+              type="button"
+              onClick={() => closePopover()}
+              className="px-3 py-1 rounded-md border border-ink-200 text-ink-600 text-xs font-medium hover:bg-paper-muted"
+            >
+              {t('range.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={!!issue}
               onClick={() => {
-                setCustom(draftStart, draftEnd)
-                setOpen(false)
+                if (setCustom(draftStart, draftEnd)) closePopover()
               }}
-              className="px-3 py-1 rounded-md bg-claude-500 text-white text-xs font-medium hover:bg-claude-600"
+              className="px-3 py-1 rounded-md bg-claude-500 text-white text-xs font-medium hover:bg-claude-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t('range.apply')}
             </button>

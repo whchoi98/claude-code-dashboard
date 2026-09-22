@@ -11,6 +11,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Search dashboard pages with Ctrl/⌘+K and Enter. Organization and group scope carry over during navigation.
+- Export filtered, sorted Users and Cost Live tables as UTF-8 CSV with the same email visibility as the screen and spreadsheet-formula protection.
+- Localized retry controls, keyboard table sorting, mobile focus management, and automated frontend/browser regression tests.
+
+### Fixed
+
+- Isolate Cost Live's last successful response by organization and prevent old snapshot times appearing during a date switch. Search totals follow the displayed rows.
+- Validate custom dates and keep calendar labels in UTC. Cancel/Escape restores picker focus.
+- Cancel obsolete API requests, handle malformed responses and timeouts, and wait for refetch completion. Late callbacks from previous organizations or windows cannot interrupt current requests.
+- Prevent Korean IME confirmation from sending a chat message. Stop/reset/navigation revoke stream ownership so late responses cannot repopulate another conversation.
+- Recover from blocked browser storage, select only the active changelog language, and keep audit filters and long Markdown content within mobile screens.
+
+### Changed
+
+- Load each page and the floating chat panel on demand, with recovery around page rendering.
+- Pause automatic cost refreshes while hidden, viewing history, or waiting for a request.
+- Update security fixes in the build, router, upload and query-parser dependencies while retaining Node 20 and React 18 compatibility.
+- Synchronize README, API, architecture, onboarding and module guides; add a documentation index, Codex contributor guidance and ADR-0021 for frontend recovery and exports.
+
 ## [2.3.0] - 2026-09-01
 
 The Cost Live page gains point-in-time history. The Spend Limits API serves only the current month-to-date snapshot — no history parameters exist — so the dashboard now archives it and reconstructs what it can't have archived.
@@ -814,7 +837,50 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_아직 변경 사항 없음 — 새 항목은 여기로._
+### 추가
+
+- Ctrl/⌘+K와 Enter를 이용한 메뉴 검색·이동. 조직·그룹 선택 유지.
+- 사용자·비용 실시간 표의 검색·정렬 결과를 UTF-8 CSV로 다운로드. 화면과 같은 이메일 공개 범위와 수식 실행 방지 적용.
+- 조회 재시도, 키보드 정렬, 모바일 메뉴 포커스 관리, 프런트엔드·브라우저 회귀 테스트.
+
+### 수정
+
+- 비용 실시간의 마지막 성공 응답을 조직별로 분리하고, 날짜 변경 중 이전 스냅샷 시간이 표시되는 문제 수정. 표 합계는 검색된 행 기준으로 계산.
+- 직접 입력한 날짜 검증과 UTC 날짜 표시. 취소·Escape로 날짜 선택기 포커스 복귀.
+- 오래된 조회 취소, 응답 형식·시간 초과 처리, 실제 완료까지 기다리는 재조회. 이전 조직·기간의 지연 콜백이 현재 조회를 중단하지 않도록 보강.
+- 한국어 조합 확정 Enter의 채팅 전송 방지. 중지·초기화·화면 이동 후 오래된 응답이 대화를 다시 채우지 않도록 처리.
+- 브라우저 저장소 접근 제한 시 시작 실패, 변경 내역의 언어별 분리, 모바일 감사 필터·긴 Markdown 콘텐츠 넘침 수정.
+
+### 변경
+
+- 화면과 플로팅 채팅 패널을 사용할 때 불러오고, 화면 오류 발생 시 메뉴를 유지하며 복구 동작 제공.
+- 숨겨진 탭·과거 조회·진행 중 요청에서는 실시간 비용 자동 갱신을 일시 중지.
+- Node 20·React 18 호환 범위에서 빌드·라우터·업로드·쿼리 파서 의존성 보안 패치 적용.
+- README·API·아키텍처·온보딩·모듈 안내를 동기화하고, 문서 목차·Codex 작업 안내·프런트엔드 복구와 내보내기를 기록한 ADR-0021 추가.
+
+## [2.3.0] - 2026-09-01
+
+### 추가
+
+- 비용 실시간에 과거 시점 조회 추가. 조직별 MTD 응답을 15분마다 S3에 보관하고 날짜·시각을 선택해 조회.
+- 스냅샷 보관 전 날짜는 `user_cost_report`의 월초부터 해당 날짜까지 지출로 일말 값을 재구성. 근사치 안내를 표시하며 한도·사용률은 제공하지 않음.
+
+### 수정
+
+- 실시간·스냅샷·재구성 화면 전환 중 이전 조회값이 새로운 시점의 값처럼 보이지 않도록 응답을 확인.
+- 과거 조회에는 Live 배지를 표시하지 않고 조회 시점을 안내.
+
+## [2.2.0] - 2026-09-01
+
+### 추가
+
+- Spend Limits API 기반 비용 실시간 페이지. 구성원별 월 누적 지출·한도, 그룹별 합계와 자동 갱신 제공.
+- 조직별 Analytics 최신 확정일 학습, 플러그인 분석 및 최근 활동일 수집.
+- 로그인 사용자의 그룹에 따른 이메일 마스킹과 iOS·iPadOS 홈 화면 설치 지원.
+
+### 수정
+
+- 긴 사용자 지정 기간의 비용 조회에서 일별 페이지 크기를 늘리고 요청 제한 재시도를 보강.
 
 ## [0.8.0] - 2026-06-10
 

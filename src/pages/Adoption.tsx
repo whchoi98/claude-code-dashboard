@@ -149,10 +149,10 @@ export function Adoption() {
   }, [projects.data])
 
   if (skills.loading || connectors.loading || projects.loading || plugins.loading) return <LoadingState />
-  if (skills.error) return <ErrorState error={skills.error} />
-  if (connectors.error) return <ErrorState error={connectors.error} />
-  if (projects.error) return <ErrorState error={projects.error} />
-  if (plugins.error) return <ErrorState error={plugins.error} />
+  if (skills.error) return <ErrorState error={skills.error} onRetry={skills.refetch} />
+  if (connectors.error) return <ErrorState error={connectors.error} onRetry={connectors.refetch} />
+  if (projects.error) return <ErrorState error={projects.error} onRetry={projects.refetch} />
+  if (plugins.error) return <ErrorState error={plugins.error} onRetry={plugins.refetch} />
 
   return (
     <div>

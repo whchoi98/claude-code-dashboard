@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
 import { KpiCard } from '../components/KpiCard'
@@ -6,8 +6,10 @@ import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
+import { useOrg } from '../lib/OrgProvider'
 import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
+import { downloadCsv } from '../lib/csv'
 import { fmtPct, maskEmail } from '../lib/format'
 import { useT } from '../lib/i18n'
 
@@ -53,7 +55,9 @@ const fmtUsdFull = (v: number) => `$${v.toLocaleString('en-US', { minimumFractio
 
 export function CostLive() {
   const t = useT()
-  const { inGroup } = useGroupScope()
+  const { org } = useOrg()
+  const { group, inGroup } = useGroupScope()
+  const [search, setSearch] = useState('')
 
   // First paint rides the server's 10-min TTL cache (keep-warm keeps it hot);
   // every subsequent tick — auto (60s) or the manual button — sends fresh=1,
@@ -66,11 +70,6 @@ export function CostLive() {
   // dates older than the snapshot archive).
   const [view, setView] = useState<{ date: string; time: string } | null>(null)
   const [selDate, setSelDate] = useState('')
-  useEffect(() => {
-    if (!auto || view) return   // history views are frozen points — no ticks
-    const id = setInterval(() => setTick(Date.now()), AUTO_REFRESH_MS)
-    return () => clearInterval(id)
-  }, [auto, view])
   const url = view
     ? (view.time === 'EOD'
         ? `/api/cost/spend-limits/at?date=${view.date}`
@@ -82,7 +81,9 @@ export function CostLive() {
   const timesFetch = useFetch<SnapshotTimes>(
     selDate ? `/api/cost/spend-limits/snapshots?date=${selDate}` : '/api/cost/spend-limits/snapshots',
   )
-  const snapTimes = selDate ? timesFetch.data?.times ?? [] : []
+  const snapTimes = selDate && !timesFetch.loading && timesFetch.data?.date === selDate
+    ? timesFetch.data.times ?? []
+    : []
   // Keep the last successful LIVE payload across refresh errors: useFetch
   // nulls `data` on ANY fetch failure, and with the 60s auto-refresh a single
   // transient upstream hiccup would otherwise blank the KPIs and table that
@@ -90,8 +91,10 @@ export function CostLive() {
   // the previous numbers stay up. Snapshot payloads (data.snapshot set) are
   // excluded — a failed history fetch must not show live numbers under a
   // snapshot label.
-  const [last, setLast] = useState<Resp | null>(null)
-  useEffect(() => { if (fetched.data && !fetched.data.snapshot) setLast(fetched.data) }, [fetched.data])
+  const [last, setLast] = useState<{ org: string; data: Resp } | null>(null)
+  useEffect(() => {
+    if (fetched.data && !fetched.data.snapshot) setLast({ org, data: fetched.data })
+  }, [org, fetched.data])
   // useFetch keeps the PREVIOUS response while a URL switch is in flight, and
   // here a URL switch changes MEANING (live ↔ snapshot ↔ EOD). Render a
   // payload only when its shape matches the current view — otherwise a
@@ -100,8 +103,30 @@ export function CostLive() {
   const matchesView = view
     ? fetched.data?.snapshot?.date === view.date && fetched.data?.snapshot?.time === view.time
     : !fetched.data?.snapshot
-  const data = (matchesView ? fetched.data : null) ?? (view ? null : last)
+  // Check the fallback's scope during render: clearing it in an effect would
+  // still commit the previous organization's numbers for one frame.
+  const data = (matchesView ? fetched.data : null) ?? (!view && last?.org === org ? last.data : null)
   const { loading, error } = fetched
+  const refresh = useCallback(() => {
+    if (!loading && !view) setTick((previous) => Math.max(Date.now(), previous + 1))
+  }, [loading, view])
+  useEffect(() => {
+    // History stays frozen. Schedule after each completed live request so a
+    // slow response cannot be superseded by the next automatic refresh.
+    if (!auto || view || loading) return
+    const timer = document.hidden ? undefined : window.setTimeout(() => {
+      if (!document.hidden) refresh()
+    }, AUTO_REFRESH_MS)
+    const onVisibilityChange = () => {
+      window.clearTimeout(timer)
+      if (!document.hidden) refresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [auto, view, loading, refresh])
 
   const scoped = useMemo(
     () => (data?.members ?? []).filter((m) => inGroup(m.email)),
@@ -115,6 +140,13 @@ export function CostLive() {
     const capped = scoped.filter((m) => m.limit_usd != null).length
     return { total, activeCount: active.length, top, nearLimit, capped }
   }, [scoped])
+  const query = search.trim().toLowerCase()
+  const filtered = useMemo(
+    () => query
+      ? scoped.filter((m) => m.email.toLowerCase().includes(query) || m.name?.toLowerCase().includes(query))
+      : scoped,
+    [scoped, query],
+  )
 
   const accessors: Record<K, (m: Member) => string | number | null | undefined> = {
     user:   (m) => m.email,
@@ -123,21 +155,42 @@ export function CostLive() {
     util:   (m) => m.utilization,
     source: (m) => m.source,
   }
-  const { rows, sortKey, sortDir, toggle } = useSortable<Member, K>(scoped, accessors, {
+  const { rows, sortKey, sortDir, toggle } = useSortable<Member, K>(filtered, accessors, {
     initialKey: 'spent', initialDir: 'desc',
   })
+  const displayedTotal = rows.reduce((sum, member) => sum + member.spent_usd, 0)
   const Th = (props: { label: string; k: K; align?: 'left' | 'right' }) => (
     <SortableTh<K> label={props.label} k={props.k} sortKey={sortKey} sortDir={sortDir} onClick={toggle} align={props.align} />
   )
 
   const todayIso = new Date().toISOString().slice(0, 10)
-  const asOf = data?.fetched_at ? new Date(data.fetched_at).toLocaleTimeString() : null
+  const fetchedAt = data?.fetched_at ? new Date(data.fetched_at) : null
+  const fetchedIso = fetchedAt && Number.isFinite(fetchedAt.getTime()) ? fetchedAt.toISOString() : ''
+  const asOf = fetchedIso ? `${fetchedIso.slice(0, 19).replace('T', ' ')} UTC` : null
   const approx = !!data?.approx
   const snapshotLabel = data?.snapshot
     ? (data.snapshot.time === 'EOD'
         ? t('cost_live.history.stamp_eod', { date: data.snapshot.date })
         : t('cost_live.history.stamp', { date: data.snapshot.date, time: `${data.snapshot.time.slice(0, 2)}:${data.snapshot.time.slice(2)}` }))
     : null
+  const exportRows = () => {
+    if (!data || rows.length === 0) return
+    const snapshot = data.snapshot
+    const kind = snapshot ? (snapshot.time === 'EOD' ? 'eod' : 'snapshot') : 'live'
+    const date = snapshot?.date ?? fetchedIso.slice(0, 10)
+    const time = snapshot
+      ? (snapshot.time === 'EOD' ? 'EOD' : `${snapshot.time.slice(0, 2)}:${snapshot.time.slice(2)}:00`)
+      : fetchedIso.slice(11, 19)
+    const filename = `cost-live_${org.replace(/[^a-zA-Z0-9_-]/g, '_')}_${kind}_${date || 'undated'}_${time.replace(/:/g, '') || 'unknown'}_UTC.csv`
+    downloadCsv(
+      filename,
+      ['org', 'group', 'view', 'date_utc', 'time_utc', 'fetched_at', 'period', 'email', 'spent_usd', 'limit_usd', 'utilization', 'source', 'approximate'],
+      rows.map((m) => [
+        org, group, kind, date, time, data.fetched_at, m.period,
+        maskEmail(m.email), m.spent_usd, approx ? null : m.limit_usd, m.utilization, m.source, String(approx),
+      ]),
+    )
+  }
 
   return (
     <div>
@@ -154,8 +207,10 @@ export function CostLive() {
                   {t('cost_live.auto')}
                 </label>
                 <button
-                  onClick={() => setTick(Date.now())}
-                  className="rounded-md border border-ink-200 px-2.5 py-1 hover:bg-paper-muted text-ink-600"
+                  type="button"
+                  onClick={refresh}
+                  disabled={loading}
+                  className="rounded-md border border-ink-200 px-2.5 py-1 hover:bg-paper-muted text-ink-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {t('cost_live.refresh')}
                 </button>
@@ -198,7 +253,7 @@ export function CostLive() {
       />
       <GroupTabs />
       <div className="px-4 lg:px-8 py-6 space-y-6">
-        {error && !data && <ErrorState error={error} />}
+        {error && !data && <ErrorState error={error} onRetry={fetched.refetch} />}
         {!data && !error && <LoadingState />}
         {data && (
           <>
@@ -206,6 +261,7 @@ export function CostLive() {
               {snapshotLabel ?? (asOf ? t('cost_live.as_of', { time: asOf }) : t('cost_live.source_note'))}
               {loading && <span className="ml-2 text-claude-500 animate-pulse">{t('cost_live.refreshing')}</span>}
               {error && <span className="ml-2 text-amber-600">{t('cost_live.refresh_failed')}</span>}
+              {data.stale && !error && <span className="ml-2 text-amber-600">{t('cost_live.stale')}</span>}
             </p>
             {approx && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 max-w-3xl">
@@ -227,8 +283,46 @@ export function CostLive() {
               />
             </div>
             <ChartCard title={t('cost_live.table.title')} subtitle={t('cost_live.table.sub')}>
+              <div className="mx-3 mb-3 flex flex-wrap items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    aria-label={t('table.search')}
+                    placeholder={t('table.search')}
+                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-sm text-ink-700 sm:max-w-sm"
+                  />
+                  {search && (
+                    <button type="button" onClick={() => setSearch('')} className="shrink-0 text-xs text-ink-500 underline hover:text-ink-700">
+                      {t('table.clear')}
+                    </button>
+                  )}
+                </div>
+                <span role="status" className="text-xs text-ink-500">
+                  {t('table.count', { shown: rows.length, total: scoped.length })}
+                </span>
+                <button
+                  type="button"
+                  onClick={exportRows}
+                  disabled={rows.length === 0}
+                  title={t('table.export_hint')}
+                  className="rounded-md border border-ink-200 px-3 py-1.5 text-xs text-ink-600 hover:bg-paper-muted disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('table.export')}
+                </button>
+              </div>
               {rows.length === 0 ? (
-                <EmptyState title={t('cost_live.empty')} />
+                <>
+                  <EmptyState title={scoped.length === 0 ? t('cost_live.empty') : t('table.no_matches')} />
+                  {query && (
+                    <div className="mt-3 text-center">
+                      <button type="button" onClick={() => setSearch('')} className="text-xs text-claude-600 underline hover:text-claude-700">
+                        {t('table.reset')}
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="rounded-lg border border-ink-100 overflow-x-auto mx-3 mb-3">
                   <table className="w-full text-sm">
@@ -261,8 +355,8 @@ export function CostLive() {
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2 border-ink-200 bg-paper-muted/40 font-semibold text-ink-700">
-                        <td className="px-3 py-2">{t('cost_live.total_row', { n: rows.length })}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-claude-700">{fmtUsdFull(totals.total)}</td>
+                        <td className="px-3 py-2">{t(query ? 'cost_live.filtered_total_row' : 'cost_live.total_row', { n: rows.length })}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-claude-700">{fmtUsdFull(displayedTotal)}</td>
                         <td className="px-3 py-2" colSpan={3} />
                       </tr>
                     </tfoot>

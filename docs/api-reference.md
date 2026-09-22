@@ -88,7 +88,7 @@ See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/api/chat/stream` | Multi-turn tool-use chatbot. Server-sent events stream. Body: `{ message, history[], locale }` — `history` is up to 12 prior turns as `[{ role: "user"|"assistant", text: string }]`; `locale` is `"en"` or `"ko"`. Runs a Bedrock `ConverseStreamCommand` tool-use loop (max 4 hops). Emails in tool results are masked before they reach the model. |
+| POST | `/api/chat/stream` | Multi-turn tool-use chatbot. Server-sent events stream. Body: `{ message, history[], locale, org }` — `history` is up to 12 prior turns as `[{ role: "user"|"assistant", text: string }]`; `locale` is `"en"` or `"ko"`. Runs a Bedrock `ConverseStreamCommand` tool-use loop (max 4 hops). Email visibility follows the server-verified identity from `/api/me`; masking is the default, with the `unmasked` group exception from ADR-0020. |
 
 ### SSE event types for `/api/chat/stream`
 
@@ -107,17 +107,28 @@ See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision
 | Tool name | Data source | Purpose |
 |-----------|-------------|---------|
 | `get_analytics_overview` | Live Analytics API | Org-wide adoption snapshot: DAU/WAU/MAU, assigned seats, top skills and connectors. No per-user rows and no USD cost. |
-| `run_athena_sql` | S3 archive via Athena | One read-only `SELECT`/`WITH` over the six Glue tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`). Goes through `sanitizeAthenaQuery`; results capped at 200 rows. Partition column `date` is `varchar` — use plain string literals, not `DATE '…'`. |
+| `run_athena_sql` | S3 archive via Athena | One read-only `SELECT`/`WITH` over the seven primary Glue tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`, `plugins_daily`) or their `*_org2` mirrors. Goes through `sanitizeAthenaQuery`; results capped at 200 rows. Partition column `date` is `varchar` — use plain string literals, not `DATE '…'`. |
 | `get_cost_summary` | Live Analytics API | Org-wide spend in USD + tokens, grouped by product and model, over an optional date range. No per-user cost dimension (see [ADR-0003](decisions/0003-hybrid-live-cost.md)). |
+| `get_user_usage` | Live Analytics `user_usage_report` | Per-user requests/tokens through today. Tool windows are capped to the newest 31 days; returned scope, freshness and clamp flags are preserved. |
 | `search_users` | Live Analytics API snapshot | Top Claude Code contributors ranked by LOC + commits + PRs, with tool acceptance rate. Emails are masked. Supports optional `query` (email substring) and `limit` (1–50). |
 
 ## Archive (Athena)
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/api/archive/query` | Body `{ query }`. Only `SELECT` / `WITH` allowed (sanitizer in `server/aws.js` rejects multi-statement queries, forbidden keywords, and any FROM/JOIN target outside the six allowed tables; result rows are email-masked server-side, including `%40`-encoded emails inside `compliance_daily` payload strings — EXCEPT for a verified `unmasked`-group identity, which receives raw rows per ADR-0020). The polling budget is 60 seconds — beyond that the route throws `"Athena query did not finish within 60 s. Try a narrower date range."` rather than calling `GetQueryResultsCommand` on a still-RUNNING query (which previously surfaced as a generic `athena_error`). Note: the partition column `date` is `varchar`, so filter with plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`) — wrapping in `DATE '…'` raises `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date` on Athena Engine v3. The `run_athena_sql` chat tool and the Archive page's pre-filled query both enforce the same rule. Returns rows array. |
+| POST | `/api/archive/query` | Body `{ query }`. Only `SELECT` / `WITH` allowed (sanitizer in `server/aws.js` rejects multi-statement queries, forbidden keywords, and any FROM/JOIN target outside the seven primary allowed tables and their `*_org2` mirrors; result rows are email-masked server-side, including `%40`-encoded emails inside `compliance_daily` payload strings — EXCEPT for a verified `unmasked`-group identity, which receives raw rows per ADR-0020). The polling budget is 60 seconds — beyond that the route throws `"Athena query did not finish within 60 s. Try a narrower date range."` rather than calling `GetQueryResultsCommand` on a still-RUNNING query (which previously surfaced as a generic `athena_error`). Note: the partition column `date` is `varchar`, so filter with plain string literals (`WHERE date BETWEEN '2026-04-01' AND '2026-04-30'`) — wrapping in `DATE '…'` raises `TYPE_MISMATCH: Cannot check if varchar is BETWEEN date and date` on Athena Engine v3. The `run_athena_sql` chat tool and the Archive page's pre-filled query both enforce the same rule. Returns rows array. |
 
 ## Response shape conventions
+
+### Browser request and export behavior
+
+The shared `useFetch` client cancels superseded requests, enforces a 65-second timeout, rejects malformed JSON, and exposes an awaitable retry. Callbacks captured for an older organization or URL cannot replace the active request. HTTP-200 partial/stale responses retain their source metadata; they are not automatically treated as HTTP errors.
+
+The custom picker validates ISO calendar dates, order, the first available date, today, and a 366-day maximum window. Endpoint limits still apply: engagement summaries advertise a 31-day upstream span, archive-backed `/range` routes support longer ranges with coverage metadata, and cost reports chunk up to 186 days. Most pages default to 7d; Cost defaults to today-only 1d and Cost Live has its own MTD/history controls.
+
+Users and Cost Live CSV downloads use the currently filtered/sorted rows in the browser. They follow the session's identity-aware email visibility, preserve numeric precision, and neutralize spreadsheet formulas. They are separate from the existing Spend Report upload APIs.
+
+### Server responses
 
 - All successful JSON responses include a `source` field where relevant: `"live"`, `"csv"`, `"s3"`, `"mock"`, `"upstream_error"`.
 - Errors use `{ error: "<code>", message: "<human text>" }`.

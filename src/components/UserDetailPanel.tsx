@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   BarChart, Bar, Legend,
@@ -102,6 +102,59 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
   const [costModels, setCostModels] = useState<CostUsersResp | null>(null)
   const [userTokens, setUserTokens] = useState<UserTokensResp | null>(null)
   const [costLoading, setCostLoading] = useState(false)
+  const panelRef = useRef<HTMLElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(onClose)
+  const titleId = useId()
+  const open = !!email
+
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+
+  useEffect(() => {
+    if (!open) return
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // Visibility is immediate; move focus on the opening frame.
+    const focusFrame = requestAnimationFrame(() => {
+      if (!panelRef.current?.contains(document.activeElement)) {
+        closeBtnRef.current?.focus({ preventScroll: true })
+      }
+    })
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !panelRef.current) return
+      const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+        'button, a[href], input, select, textarea, summary, [tabindex]',
+      )).filter((element) => {
+        const style = getComputedStyle(element)
+        return element.tabIndex >= 0 && !element.matches(':disabled')
+          && !element.closest('[hidden], [inert], [aria-hidden="true"]')
+          && style.visibility !== 'hidden' && style.display !== 'none'
+      })
+      event.preventDefault()
+      if (focusables.length === 0) {
+        panelRef.current.focus()
+        return
+      }
+      const index = focusables.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey
+        ? (index <= 0 ? focusables.length - 1 : index - 1)
+        : (index < 0 || index === focusables.length - 1 ? 0 : index + 1)
+      focusables[next].focus()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', onKey)
+      if (returnTo?.isConnected) returnTo.focus({ preventScroll: true })
+    }
+    // A new email, response or parent callback must not restart focus handling.
+  }, [open])
 
   useEffect(() => {
     if (!email) return
@@ -330,6 +383,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
       {/* Backdrop */}
       <div
         onClick={onClose}
+        aria-hidden="true"
         className={clsx(
           'fixed inset-0 bg-ink-900/20 backdrop-blur-[2px] transition-opacity z-30',
           email ? 'opacity-100' : 'opacity-0 pointer-events-none',
@@ -338,13 +392,19 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
 
       {/* Slide-in panel */}
       <aside
+        ref={panelRef}
+        role="dialog"
+        aria-modal={open ? true : undefined}
+        aria-labelledby={titleId}
+        aria-hidden={!open}
+        tabIndex={-1}
         className={clsx(
           'fixed right-0 top-0 bottom-0 w-[560px] max-w-[90vw] bg-paper border-l border-ink-100 shadow-2xl z-40 transition-transform duration-200 overflow-y-auto',
           // Standalone-PWA safe areas: the panel is fixed to the right/top/
           // bottom viewport edges, so pad its scroll box clear of the
           // landscape notch and home indicator (env()=0 elsewhere).
           'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)]',
-          email ? 'translate-x-0' : 'translate-x-full',
+          open ? 'translate-x-0 visible' : 'translate-x-full invisible',
         )}
       >
         {email && (
@@ -354,7 +414,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                 <div className="text-[11px] uppercase tracking-wider text-ink-400 font-medium">
                   {t('detail.title')}
                 </div>
-                <h2 className="text-xl font-semibold text-ink-800 mt-0.5">{maskEmail(email)}</h2>
+                <h2 id={titleId} className="text-xl font-semibold text-ink-800 mt-0.5">{maskEmail(email)}</h2>
                 {range && (
                   <div className="text-[11px] text-ink-400 mt-1">
                     {fmtDate(range.range.starting_date)} – {fmtDate(range.range.ending_date)}
@@ -362,8 +422,10 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                 )}
               </div>
               <button
+                ref={closeBtnRef}
+                type="button"
                 onClick={onClose}
-                className="rounded-full border border-ink-200 bg-white w-7 h-7 flex items-center justify-center text-ink-500 hover:bg-paper-muted"
+                className="rounded-full border border-ink-200 bg-white w-7 h-7 flex items-center justify-center text-ink-500 hover:bg-paper-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-claude-500"
                 aria-label={t('common.close')}
               >
                 ×

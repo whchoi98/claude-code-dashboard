@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { readPreference, removePreference, writePreference } from './preferences'
 
 /** One selectable Anthropic organization, as reported by GET /api/orgs. */
 export type OrgInfo = {
@@ -45,7 +46,7 @@ export function restoreOrgSelection() {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
   if (url.searchParams.get('org') || url.searchParams.get('group')) return
-  const saved = window.localStorage.getItem(STORAGE_KEY)
+  const saved = readPreference(STORAGE_KEY)
   if (!saved || saved === DEFAULT_ORG) return
   url.searchParams.set('org', saved)
   window.history.replaceState(window.history.state, '', url)
@@ -109,9 +110,9 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       // without this cleanup there is no UI path that stops the pre-mount
       // restore from re-injecting a dead ?org= on every fresh visit. An
       // empty list means /api/orgs itself failed — keep the preference then.
-      const saved = window.localStorage.getItem(STORAGE_KEY)
+      const saved = readPreference(STORAGE_KEY)
       if (saved && list.length > 0 && !list.some((o) => o.id === saved)) {
-        window.localStorage.removeItem(STORAGE_KEY)
+        removePreference(STORAGE_KEY)
       }
     })
     return () => { aborted = true }
@@ -146,7 +147,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // (read back by the mount-time restore effect above). Deliberately NOT
     // written for deep-linked ?org= visits — only switcher clicks are a
     // stated preference.
-    window.localStorage.setItem(STORAGE_KEY, id || DEFAULT_ORG)
+    writePreference(STORAGE_KEY, id || DEFAULT_ORG)
   }, [params, setParams])
 
   const value = useMemo<OrgContextValue>(

@@ -1,6 +1,6 @@
 # claude-code-dashboard
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
 [![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](./CHANGELOG.md)
 [![한국어](https://img.shields.io/badge/README-한국어-informational)](./README.ko.md)
 
@@ -36,7 +36,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 - **Columns**: Messages · CC Sessions · LOC Added · Commits · PRs · Tool Acceptance Rate
 - **Interactions**: Click row → drill-down panel following the page date range: activity trend (LOC/sessions/messages) + per-tool acceptance + daily table, plus per-product & per-model spend (share of the user's total, Δ vs the previous equal window) and a skills card (org top skills with $/use — the API has no user × skill dimension)
 - **Privacy**: Every email masked via `maskEmail()` — `ab*****@domain.com`
-- **Data source**: Analytics API `/users` (today)
+- **Data sources**: Analytics `/users/range` for the selected period and `/api/cost/user-tokens` for cache efficiency
 
 ![Users](./screenshots/Users.png)
 
@@ -44,7 +44,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 
 ### User Productivity
 
-**Purpose** — Per-user productivity score joining Analytics output with optional Spend Report cost data.
+**Purpose** — Per-user activity score from Analytics engagement. Cost efficiency is reported separately on Cost.
 
 - **Score formula**: `0.30·LOC/day + 0.25·acceptance + 0.20·commits/day + 0.15·active-day share + 0.10·sessions/day` — each capped at 1.0, multiplied by 100
 - **Components**: Top-10 horizontal bar chart + sortable matrix (Score · LOC · Sessions · Commits/PRs · Accept · Active days)
@@ -161,15 +161,15 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **19 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down incl. per-user cache hit rate + Cowork/Design columns) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code (incl. per-user table) · **Claude Chat** (conversation usage & activity) · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, group-scoped org KPIs, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history). Mobile-ready: hamburger drawer navigation + responsive layouts below `lg`.
-- **Three API integrations** — Analytics, Admin, Compliance (each via its own Secrets Manager secret; all three are optional, the dashboard degrades gracefully).
+- **20 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down incl. per-user cache hit rate + Cowork/Design columns) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code (incl. per-user table) · **Claude Chat** (conversation usage & activity) · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, group-scoped org KPIs, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · **Cost Live** (MTD and historical snapshots) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history). Mobile-ready: hamburger drawer navigation + responsive layouts below `lg`.
+- **Three API integrations** — Analytics provides live engagement and cost; Admin is optional for the legacy Admin routes. Compliance uses its dedicated key or the Analytics key when its scopes allow. Keyless local engagement views use deterministic mocks; live cost requires an Analytics key.
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
-- **AI natural-language query** — Server-sent-events streaming from Amazon Bedrock (Claude Sonnet 4.6 cross-region profile). Two modes: direct snapshot analysis, and autonomous Athena SQL generation + execution over the archive.
+- **AI natural-language query** — Amazon Bedrock streams multi-turn answers and chooses among analytics overview, cost, user activity, recent user usage and read-only Athena tools. The Analyze page and floating assistant share this tool-use conversation UI.
 - **Cognito + Lambda@Edge authentication** — every dashboard URL sits behind a Cognito Hosted UI login. Four viewer-request Lambda@Edge functions (`check-auth`, `parse-auth`, `refresh-auth`, `sign-out`) run at every CloudFront PoP. Unauthenticated traffic is blocked before it reaches WAF / ALB / ECS. See [ADR-0001](docs/decisions/0001-cognito-lambda-edge-auth.md).
 - **Self-service CSV upload** — the Cost page exposes upload / list / delete for Spend Report CSVs directly in the browser, including a client-side preview and period-overlap warnings. No AWS CLI access required. See [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md).
-- **Economic productivity score** — joins Spend Report CSV with Analytics productivity to rank users by `output / $` efficiency. The Cost page's date-range picker filters this section while leaving the CSV-native aggregates anchored.
+- **Cost-efficiency score** — joins live per-user spend with window-aligned Analytics activity; CSV is a fallback. The User Productivity page separately reports an activity score. Live Cost aggregates follow the selected period; a CSV fallback retains its own export period and displays that difference.
 - **Bilingual UI** — runtime English / Korean toggle with localStorage persistence.
-- **Privacy by default** — every user email is rendered masked (`co*****@gmail.com`).
+- **Identity-aware privacy** — emails are masked by default. Verified members of the Cognito `unmasked` group can see full addresses; tables, exports and AI output follow the documented identity policy.
 - **Audit trail** — Compliance API feed with risk-event highlighting (role changes, SSO toggles, data exports).
 
 ## Prerequisites
@@ -177,7 +177,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 - Node.js >= 20
 - Docker (for CDK image asset builds)
 - AWS CLI v2 with credentials for the target account
-- AWS CDK v2.170+
+- AWS CDK v2 (project-local CLI and locked dependencies in `infra/`)
 - Optional: Anthropic Analytics API key, Admin API key, Compliance API key
 
 ## Installation
@@ -188,9 +188,9 @@ git clone https://github.com/whchoi98/claude-code-dashboard.git
 cd claude-code-dashboard
 
 # Install all workspaces
-npm install
-(cd infra && npm install)
-(cd collector && npm install)
+npm ci
+(cd infra && npm ci)
+(cd collector && npm ci)
 
 # Configure local environment
 cp .env.example .env
@@ -208,23 +208,24 @@ npm run build
 npm run server
 # → http://localhost:5174
 
-# Deploy to AWS (reuses an existing VPC to avoid EIP quota issues)
-cd infra
-npx cdk deploy --all --require-approval never \
-  --context existingVpcId=vpc-xxxxxxxxxxxxxxxxx
-
-# After deploy, inject API keys into Secrets Manager
-aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
-  --secret-string 'sk-ant-api01-...'
+# Update the configured AWS deployment (requires its existing secrets)
+npm run build:edge
+(cd infra && npx cdk synth ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
+(cd infra && npx cdk diff ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
+(cd infra && npx cdk deploy ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628)
 ```
 
 ## Configuration
 
+The deployment commands above update the existing configured account. For another account, provision the Cognito/API secrets and update imported resource IDs first; see [onboarding](docs/onboarding.md) and [the infrastructure guide](infra/CLAUDE.md).
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ANTHROPIC_ANALYTICS_KEY` | Enterprise Analytics API key (sk-ant-api01-… with Analytics scope) | (required for live mode) |
-| `ANTHROPIC_ADMIN_KEY_ADMIN` | Admin API key (sk-ant-admin01-…) — enables Cost page | (optional) |
-| `ANTHROPIC_COMPLIANCE_KEY` | Compliance API key (sk-ant-api01-… with Compliance scope) | (optional) |
+| `ANTHROPIC_ADMIN_KEY_ADMIN` | Optional Admin API key for `/api/admin/*`; live Cost uses the Analytics key | (optional) |
+| `ANTHROPIC_COMPLIANCE_KEY` | Dedicated Compliance key; falls back to the Analytics key | (optional) |
+| `ANTHROPIC_ANALYTICS_KEY_2` | Analytics key for the second organization (`org2`) | (optional locally; enabled in committed CDK context) |
+| `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | Public identifiers used to verify the caller's masking policy | (injected from Cognito config in ECS; masked default if absent) |
 | `AWS_REGION` | AWS region for Bedrock / Athena / S3 | `ap-northeast-2` |
 | `BEDROCK_MODEL_ID` | Bedrock foundation model or inference profile | `global.anthropic.claude-sonnet-4-6` |
 | `ARCHIVE_S3_BUCKET` | S3 bucket for NDJSON archive + spend reports | (set by CDK) |
@@ -238,9 +239,9 @@ aws secretsmanager put-secret-value --secret-id ccd/analytics-key \
 ```
 claude-code-dashboard/
 ├── src/                    # React SPA (Vite)
-│   ├── components/         # Shared UI, DateRangeControl, UserDetailPanel
-│   ├── pages/              # 19 routes (incl. Executive, Agentic, Claude Chat + Changelog)
-│   ├── lib/                # i18n, useFetch, useDateRange, formatting
+│   ├── components/         # Shared UI, date picker, dialogs, page recovery
+│   ├── pages/              # 20 lazy routes (including Cost Live and Changelog)
+│   ├── lib/                # i18n, scoped requests, dates, CSV, preferences
 │   └── types.ts            # API schema types
 ├── server/                 # Express proxy + AWS integrations
 │   ├── index.js            # /api/analytics/*, /api/admin/*, /api/compliance/*
@@ -249,13 +250,15 @@ claude-code-dashboard/
 ├── collector/              # Daily Lambda — Analytics API → S3 NDJSON
 ├── infra/                  # AWS CDK (TypeScript) — 4 stacks
 ├── docs/                   # Architecture, ADRs, runbooks
-├── tests/                  # Harness tests (hooks, structure, secrets)
+├── tests/                  # Server/structure harness + frontend + browser tests
 └── scripts/                # setup.sh, install-hooks.sh
 ```
 
 ## Cost Estimate (ap-northeast-2)
 
 Monthly AWS charges for a single production deployment. Numbers assume the **default 2-task ECS service**, the **existing VPC reuse** pattern (no new NAT Gateway), and light-to-moderate dashboard traffic.
+
+This is the repository's historical planning example, not a refreshed price quotation. Current configured resources, including org2 and its tables, are described in [architecture](docs/architecture.md).
 
 | Resource | Spec | Monthly |
 |----------|------|---------|
@@ -286,20 +289,37 @@ Free-tier eligible accounts in their first 12 months should pay noticeably less 
 
 ```bash
 # Type check
-npx tsc --noEmit
+npm run typecheck
 
 # Production build
-npx vite build
+npm run build
+
+# Server/structure checks + frontend regression tests
+npm test
+
+# Desktop and mobile browser tests (synthetic APIs; no AWS or API keys)
+npx playwright install chromium
+npm run test:e2e
 
 # Server syntax
-node --check server/index.js server/aws.js server/mock.js collector/handler.js
+for file in server/*.js collector/*.js; do node --check "$file" || exit 1; done
 
 # CDK synth
 (cd infra && npx cdk synth --context existingVpcId=vpc-xxxxxxxxxxxxxxxxx)
 
-# Harness suite
-bash tests/run-all.sh
+# Run a single layer while developing
+npm run test:server
+npm run test:ui
 ```
+
+## Dashboard shortcuts and exports
+
+- Press **Ctrl+K / ⌘K** to find a page, then **Enter** to open the first result. Organization and group selections carry over; each page retains its own date preset policy.
+- On **Users** and **Cost Live**, search and sort the table, then choose **Download CSV**. The export follows the displayed rows and email visibility policy, preserves numeric precision, and includes UTF-8 support for Korean spreadsheet labels.
+- Custom dates are validated before applying. Escape or Cancel closes the picker and restores focus.
+- Failed data requests offer **Try again**. Page loading failures leave navigation available and offer a reload. Tables and mobile navigation support keyboard use.
+
+Documentation starts at [docs/README.md](docs/README.md). Implementation findings and verification scope: [project review](docs/project-review-2026-09-21.md).
 
 ## API Documentation
 
@@ -311,11 +331,11 @@ See [docs/api-reference.md](./docs/api-reference.md) for every route exposed by 
 2. Create a feature branch: `git checkout -b feat/short-description`.
 3. Commit with [Conventional Commits](https://www.conventionalcommits.org/) format — e.g. `feat: add per-user token heatmap` or `fix: mask email in Adoption page`.
 4. Push and open a PR against `main`.
-5. Ensure `/test-all` passes and fill in the PR checklist.
+5. Run `npm test` and `npm run build`; include `npm run test:e2e` for UI changes, then fill in the PR checklist.
 
 ## License
 
-Released under the [MIT License](./LICENSE).
+License reference: [MIT](https://opensource.org/license/mit/). A standalone `LICENSE` file is not present in this repository.
 
 ## Contact
 

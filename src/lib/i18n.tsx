@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { readPreference, writePreference } from './preferences'
 
 export type Locale = 'en' | 'ko'
 
@@ -79,6 +80,14 @@ const DICT = {
     'nav.hint.archive':           'S3 + Athena',
     'nav.logout':                 'Sign out',
     'nav.open_menu':              'Open menu',
+    'nav.close_menu':             'Close menu',
+    'nav.search':                 'Find a page',
+    'nav.search_hint':            'Search pages · Ctrl / ⌘ K',
+    'nav.search_results':         '{n} pages found',
+    'nav.no_results':             'No matching pages',
+    'nav.clear_search':           'Clear page search',
+    'nav.skip':                   'Skip to content',
+    'nav.label':                  'Dashboard pages',
     'nav.hint.logout':            'Clear session',
     'product.tag':       'Claude Code',
     'product.name':      'Enterprise Analytics',
@@ -87,6 +96,15 @@ const DICT = {
     'status.analytics_key': 'Analytics key',
     'status.admin_key':     'Admin key',
     'range.apply':          'Apply',
+    'range.custom':         'Custom range',
+    'range.start':          'Start',
+    'range.end':            'End',
+    'range.change':         'Change date range',
+    'range.last_days':      'Last {days} days',
+    'range.invalid':        'Enter a valid start and end date.',
+    'range.order':          'The end date must be on or after the start date.',
+    'range.bounds':         'Choose dates between {start} and {end}.',
+    'range.cancel':         'Cancel',
     'range.footnote':       'Data is UTC · refreshed daily · the most recent days may show partial counts (Analytics buffer)',
     'range.tooltip_1d':       'Guaranteed-finalized day (today−3 — conservative; fresher days may already be served)',
     'range.tooltip_1d_today': 'Today (partial data, ~4h refresh)',
@@ -117,6 +135,26 @@ const DICT = {
     'common.today':   'Today',
     'common.days7':   'Last 7 days',
     'common.days30':  'Last 30 days',
+    'common.retry':   'Try again',
+    'common.retrying': 'Retrying…',
+    'common.error_hint': 'The request could not be completed. Try again in a moment.',
+    'common.error_details': 'Error details',
+    'common.page_error': 'This page could not be displayed',
+    'common.page_error_hint': 'Try again or open another page from the menu. Reload if the problem continues.',
+    'common.reload': 'Reload',
+    'table.search': 'Search members by email or name',
+    'table.clear': 'Clear search',
+    'table.count': '{shown} of {total} members',
+    'table.export': 'Download CSV',
+    'table.export_hint': 'Export the filtered rows in their current order, with the same email visibility as the screen.',
+    'table.no_matches': 'No members match your search',
+    'table.reset': 'Reset filters',
+    'table.sort': 'Sort by {column}',
+    'table.open_user': 'View details for {user}',
+    'cost_live.filtered_total_row': 'Filtered total · {n} members',
+    'cost_live.stale': 'Showing previously fetched data. Refresh to check for updates.',
+    'chat.interrupted': 'Response interrupted. Please try again.',
+    'chat.input_label': 'Ask about your analytics',
 
     // Overview
     'overview.title':    'Overview',
@@ -522,6 +560,8 @@ const DICT = {
 
     // Audit / Compliance
     'audit.title':    'Audit',
+    'audit.filter.label': 'Filter audit event type',
+    'audit.search': 'Search audit events',
     'audit.subtitle': 'Compliance API activity feed — {shown} of {total} fetched events fall within {start} → {end}.',
     'audit.cap.warning': 'Showing {fetched} most recent events ({start} → {end}); the org generated more events in this window than the per-request cap allows. Older events from the early part of this window may be missing — refresh later (cache pre-warmed) or pick a narrower range.',
     'audit.partial.upstream': 'Partial results: the upstream Compliance API failed mid-fetch — showing the {fetched} most recent events collected for {start} → {end}. The server retries in the background; refresh in a moment.',
@@ -825,6 +865,14 @@ const DICT = {
     'nav.hint.archive':           'S3 + Athena',
     'nav.logout':                 '로그아웃',
     'nav.open_menu':              '메뉴 열기',
+    'nav.close_menu':             '메뉴 닫기',
+    'nav.search':                 '페이지 찾기',
+    'nav.search_hint':            '메뉴 검색 · Ctrl / ⌘ K',
+    'nav.search_results':         '검색된 페이지 {n}개',
+    'nav.no_results':             '일치하는 페이지가 없습니다',
+    'nav.clear_search':           '메뉴 검색 지우기',
+    'nav.skip':                   '본문으로 건너뛰기',
+    'nav.label':                  '대시보드 메뉴',
     'nav.hint.logout':            '세션 종료',
     'product.tag':       'Claude Code',
     'product.name':      '엔터프라이즈 애널리틱스',
@@ -833,6 +881,15 @@ const DICT = {
     'status.analytics_key': 'Analytics 키',
     'status.admin_key':     'Admin 키',
     'range.apply':          '적용',
+    'range.custom':         '기간 직접 선택',
+    'range.start':          '시작일',
+    'range.end':            '종료일',
+    'range.change':         '조회 기간 변경',
+    'range.last_days':      '최근 {days}일',
+    'range.invalid':        '올바른 시작일과 종료일을 입력하세요.',
+    'range.order':          '종료일은 시작일보다 빠를 수 없습니다.',
+    'range.bounds':         '{start}부터 {end} 사이의 날짜를 선택하세요.',
+    'range.cancel':         '취소',
     'range.footnote':       '데이터 시간대 UTC · 매일 업데이트 · 최근 며칠은 부분 집계일 수 있음 (Analytics 버퍼)',
     'range.tooltip_1d':       '확정 보장일 (오늘−3 — 보수적 기준, 더 최신 일자가 이미 제공될 수 있음)',
     'range.tooltip_1d_today': '오늘 (부분 집계 · 약 4시간 주기 갱신)',
@@ -862,6 +919,26 @@ const DICT = {
     'common.today':   '오늘',
     'common.days7':   '지난 7일',
     'common.days30':  '지난 30일',
+    'common.retry':   '다시 시도',
+    'common.retrying': '재시도 중…',
+    'common.error_hint': '요청을 완료하지 못했습니다. 잠시 후 다시 시도하세요.',
+    'common.error_details': '오류 상세',
+    'common.page_error': '이 화면을 표시하지 못했습니다',
+    'common.page_error_hint': '다시 시도하거나 메뉴에서 다른 화면을 열어 보세요. 문제가 계속되면 새로고침하세요.',
+    'common.reload': '새로고침',
+    'table.search': '이메일 또는 이름으로 구성원 검색',
+    'table.clear': '검색 지우기',
+    'table.count': '전체 {total}명 중 {shown}명',
+    'table.export': 'CSV 다운로드',
+    'table.export_hint': '검색·정렬한 행을 화면과 동일한 이메일 공개 범위로 내보냅니다.',
+    'table.no_matches': '검색 조건에 맞는 구성원이 없습니다',
+    'table.reset': '필터 초기화',
+    'table.sort': '{column} 기준 정렬',
+    'table.open_user': '{user} 상세 보기',
+    'cost_live.filtered_total_row': '검색 결과 합계 · {n}명',
+    'cost_live.stale': '이전 조회 결과입니다. 새로고침으로 최신 데이터를 확인하세요.',
+    'chat.interrupted': '응답이 중단되었습니다. 다시 시도하세요.',
+    'chat.input_label': '분석 데이터에 관해 질문하기',
 
     'overview.title':    '개요',
     'overview.subtitle': '조직 전체의 Claude 도입, 참여, Claude Code 생산성 지표입니다.',
@@ -1260,6 +1337,8 @@ const DICT = {
 
     // Audit (ko)
     'audit.title':    '감사',
+    'audit.filter.label': '감사 이벤트 유형 필터',
+    'audit.search': '감사 이벤트 검색',
     'audit.subtitle': 'Compliance API 활동 피드 — {start} → {end} 윈도우에 {shown}/{total}개 이벤트가 해당.',
     'audit.cap.warning': '최근 {fetched}개 이벤트만 표시 ({start} → {end}). 조직 활동량이 1회 요청 한도를 초과해, 윈도우 앞부분의 오래된 이벤트가 누락됐을 수 있습니다. 잠시 후 새로고침(서버 캐시 pre-warm) 또는 더 좁은 범위 선택을 권장합니다.',
     'audit.partial.upstream': '부분 결과: 업스트림 Compliance API가 수집 도중 실패해, {start} → {end} 범위에서 수집된 최근 {fetched}개 이벤트만 표시합니다. 서버가 백그라운드에서 재시도 중이니 잠시 후 새로고침하세요.',
@@ -1503,7 +1582,7 @@ const STORAGE_KEY = 'ccd.locale'
 
 function detectLocale(): Locale {
   if (typeof window === 'undefined') return 'ko'
-  const stored = window.localStorage.getItem(STORAGE_KEY) as Locale | null
+  const stored = readPreference(STORAGE_KEY) as Locale | null
   if (stored === 'en' || stored === 'ko') return stored
   const nav = window.navigator.language?.slice(0, 2)
   return nav === 'ko' ? 'ko' : 'en'
@@ -1518,7 +1597,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => detectLocale())
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, locale)
+    writePreference(STORAGE_KEY, locale)
     document.documentElement.lang = locale
   }, [locale])
 

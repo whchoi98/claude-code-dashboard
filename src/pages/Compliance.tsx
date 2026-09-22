@@ -128,7 +128,7 @@ export function Compliance() {
   // upstream cache and see results in <1s. The amber banner surfaces when
   // older events in the requested window were truncated.
   const url = `/api/compliance/activities?max=2000&pages=20&starting_date=${range.startingDate}&ending_date=${upper}`
-  const { data, loading, error } = useFetch<Resp>(url)
+  const { data, loading, error, refetch } = useFetch<Resp>(url)
 
   // The server already filtered by date; pass through directly.
   const events = useMemo(() => data?.data ?? [], [data])
@@ -208,7 +208,7 @@ export function Compliance() {
   }, [events, filterType, q])
 
   if (loading) return <LoadingState />
-  if (error) return <ErrorState error={error} />
+  if (error) return <ErrorState error={error} onRetry={refetch} />
 
   return (
     <div>
@@ -306,11 +306,12 @@ export function Compliance() {
           title={t('audit.feed')}
           subtitle={t('audit.feed.sub', { shown: filtered.length, total: events.length })}
           right={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <select
+                aria-label={t('audit.filter.label')}
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
-                className="text-xs px-2 py-1 rounded-md border border-ink-200 bg-white"
+                className="min-w-0 max-w-full text-xs px-2 py-1 rounded-md border border-ink-200 bg-white"
               >
                 <option value="all">{t('audit.filter.all')}</option>
                 <option value="risk">{t('audit.filter.risk')}</option>
@@ -320,10 +321,11 @@ export function Compliance() {
                 </optgroup>
               </select>
               <input
+                aria-label={t('audit.search')}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder={t('common.search')}
-                className="text-xs px-2 py-1 rounded-md border border-ink-200 bg-white w-48"
+                className="min-w-0 max-w-full text-xs px-2 py-1 rounded-md border border-ink-200 bg-white w-full sm:w-48"
               />
             </div>
           }
