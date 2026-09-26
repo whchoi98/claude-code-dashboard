@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](./CHANGELOG.md)
 [![English](https://img.shields.io/badge/README-English-informational)](./README.md)
 
 Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생산성·비용·감사 지표를 통합하고 AI 질의응답 레이어를 제공합니다.
@@ -56,9 +56,9 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ### 추세
 
-**목적** — 조직 레벨 도입 추이. 최대 31일 구간 시계열.
+**목적** — 조직 레벨 도입 추이. 최대 366일 구간 시계열.
 
-- **차트**: DAU/WAU/MAU 라인 · 좌석 대비 MAU 누적 영역 · 일일 도입률 라인 (API 제공값)
+- **차트**: DAU/WAU/MAU 라인 · **제품별 활성 사용자**(Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science, DAU/WAU/MAU 전환. 조직에 보고되지 않는 제품은 표시하지 않음) · 좌석 대비 MAU 누적 영역 · 일일 도입률 라인 (API 제공값)
 - **컨트롤**: 7일/14일/30일 프리셋 + 커스텀 날짜 선택기. URL 쿼리 파라미터로 공유 가능
 - **데이터 소스**: Analytics API `/summaries`
 
@@ -130,8 +130,9 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 - **KPI**: 전체 이벤트 · 고위험 이벤트 · 로그인 이벤트 · 고유 행위자
 - **차트**: 이벤트 타입 Top 12 막대 · 상위 행위자 막대 · 일자별 전체/위험 이벤트 라인
 - **피드**: 시간/행위자/이벤트/상세/IP 컬럼. 위험 이벤트는 Claude 톤 배경색으로 강조. 드롭다운 + 검색창으로 이벤트 타입/행위자 필터링.
-- **분류**: 위험 (역할 변경 · SSO 토글 · 데이터 export · 프로젝트 삭제) · 로그인 (SSO/소셜/로그아웃) · 활동 (채팅/파일/프로젝트 작업)
-- **데이터 소스**: Compliance API `/v1/compliance/activities`
+- **분류**(API 활동 타입 기준): 위험 (역할·RBAC·API 키 변경 · SSO·IP 제한 설정 · 데이터 export · 로그인 실패 · inference hooks 거부 · Anthropic 직원 접근) · 로그인 (SSO·매직 링크·소셜 로그인, 로그아웃) · 활동 (그 밖의 이벤트). 행위자 11종을 구분합니다: 사용자, API·admin 키, 서비스 계정, SCIM, 페더레이션 ID, Anthropic 등.
+- **이름**: 2026-09-24부터 피드는 파일·아티팩트 이름을 제공하지 않습니다. 그 이전에 보관된 이름은 Cognito `unmasked` 그룹만 볼 수 있고, 다른 세션은 이름을 가린 뷰를 조회합니다.
+- **데이터 소스**: Compliance API `/v1/compliance/activities`(1000건 페이지, 과거 기간은 서버측 `created_at` 범위) · 이력은 Athena `compliance_daily`
 
 ![감사](./screenshots/audit.png)
 
@@ -161,7 +162,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ## 주요 기능
 
-- **20개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운 — 사용자별 캐시 적중률·Cowork/Design 컬럼 포함) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 트렌드 · Claude Code(사용자별 테이블 포함) · **Claude Chat**(대화 사용량·활동) · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입 · 비용(라이브 사용자별 지출/토큰, 그룹 스코프 조직 KPI, 실명 RBAC 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · **비용 실시간**(MTD·과거 스냅샷) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **체인지로그**(앱 내 릴리스 이력). 모바일 지원: `lg` 미만 햄버거 드로어 내비 + 반응형 레이아웃.
+- **20개 페이지** — 개요 · **경영 요약**(CFO/CTO 단일 화면, 윈도우 집계 12 KPI + PDF 내보내기) · 사용자(드릴다운 — 사용자별 캐시 적중률·Cowork/Design 컬럼 포함) · 사용자별 생산성 · 사용자 검색(개별 활동 히트맵 + 비용) · 트렌드 · Claude Code(사용자별 테이블 포함) · **Claude Chat**(대화 사용량·활동) · Cowork · Office · Design · 생산성 · **에이전틱**(프롬프트당 작업 수 위임 지표 + 조직 지출 맥락) · 도입(스킬 사용·귀속 지출, 커넥터 읽기/쓰기 호출) · 비용(라이브 사용자별 지출/토큰, 그룹 스코프 조직 KPI, 실명 RBAC 그룹별 비용, Spend Limits, PDF 내보내기; CSV는 폴백) · **비용 실시간**(MTD·과거 스냅샷) · 감사 · 분석(AI, MD/PDF 내보내기) · 아카이브 · **체인지로그**(앱 내 릴리스 이력). 모바일 지원: `lg` 미만 햄버거 드로어 내비 + 반응형 레이아웃.
 - **세 개의 API 통합** — Analytics가 라이브 참여도·비용을 제공하고, Admin은 기존 Admin 경로에서 선택적으로 사용합니다. Compliance는 전용 키 또는 해당 권한이 있는 Analytics 키를 사용합니다. 키가 없는 로컬 참여도 화면은 샘플 데이터를 표시하며 라이브 비용에는 Analytics 키가 필요합니다.
 - **S3-우선 데이터 레이어** — Lambda collector가 매일 Analytics API 스냅샷과 감사 이벤트를 파티셔닝된 NDJSON으로 S3에 저장합니다(감사 이력은 Athena `compliance_daily`로 조회). 조회는 S3 먼저(~150 ms), 캐시 miss 시에만 실제 API fallback.
 - **AI 자연어 질의** — Amazon Bedrock이 참여도·비용·사용자 활동·최근 사용량·읽기 전용 Athena 도구를 선택해 여러 차례의 질문에 스트리밍으로 답합니다. 분석 페이지와 플로팅 도우미가 같은 대화 UI를 사용합니다.
@@ -169,8 +170,8 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 - **셀프서비스 CSV 업로드** — 비용 페이지에서 Spend Report CSV 업로드 / 목록 / 삭제를 브라우저로 직접 수행 — 클라이언트 프리뷰 + 기간 중복 경고 포함. AWS CLI 권한 불필요. [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md) 참조.
 - **비용 효율 점수** — 라이브 사용자별 지출과 기간을 맞춘 Analytics 활동을 결합하고 CSV는 폴백으로 사용합니다. 사용자별 생산성 페이지는 별도의 활동 점수를 제공합니다. 라이브 비용은 선택 기간을 따르며, CSV로 대체할 때는 파일의 자체 기간과 차이를 안내합니다.
 - **이중 언어 UI** — 영/한 실시간 토글 (localStorage 저장).
-- **로그인 사용자별 개인정보 표시** — 이메일은 기본적으로 마스킹합니다. Cognito `unmasked` 그룹으로 검증된 사용자는 전체 주소를 볼 수 있으며, 표·내보내기·AI 출력은 문서화된 정책을 따릅니다.
-- **감사 추적** — Compliance API 이벤트 피드 + 위험 이벤트 하이라이트 (역할 변경, SSO 토글, 데이터 export 등).
+- **로그인 사용자별 개인정보 표시** — 이메일은 기본적으로 마스킹합니다. Cognito `unmasked` 그룹으로 검증된 사용자는 전체 주소를 볼 수 있으며, 표·내보내기·AI 출력은 문서화된 정책을 따릅니다. 보관된 감사 파일·아티팩트 이름도 같은 규칙을 따릅니다.
+- **감사 추적** — Compliance API 이벤트 피드 + 위험 이벤트 하이라이트 (역할·키 변경, SSO·IP 설정, 데이터 export, 로그인 실패, Anthropic 접근 등) + Athena로 조회하는 일일 S3 아카이브.
 
 ## 사전 요구 사항
 

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [2.5.0] - 2026-09-26
+
 ### Added
 
 - Trends: active users by product (Claude Code, Chat, Cowork, Claude Design, Office Agents, Claude Science) with a DAU/WAU/MAU switch. The data comes from per-product fields the summaries endpoint already returns. Products an organization doesn't report are not drawn.
@@ -857,7 +861,8 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.2.0...v2.3.0
 [1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0
@@ -874,6 +879,10 @@ the three architectural decisions captured in this release.
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+_미출시 변경 사항 없음._
+
+## [2.5.0] - 2026-09-26
 
 ### 추가
 
@@ -1217,7 +1226,8 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.2.0...v2.3.0
 [1.9.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v1.8.0...v1.9.0

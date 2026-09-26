@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](./CHANGELOG.md)
 [![한국어](https://img.shields.io/badge/README-한국어-informational)](./README.ko.md)
 
 Enterprise analytics dashboard for Claude Code — engagement, productivity, cost, and audit insights with an AI query layer.
@@ -56,9 +56,9 @@ Click any section below to jump directly to it. Every metric shown on these page
 
 ### Trends
 
-**Purpose** — Longitudinal view of organization-level adoption over up to 31 days.
+**Purpose** — Longitudinal view of organization-level adoption over up to 366 days.
 
-- **Charts**: DAU/WAU/MAU line · Seats vs MAU stacked area · Daily adoption rate line (from API)
+- **Charts**: DAU/WAU/MAU line · **Active users by product** (Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science, with a DAU/WAU/MAU switch; products the organization doesn't report are hidden) · Seats vs MAU stacked area · Daily adoption rate line (from API)
 - **Controls**: 7d / 14d / 30d preset + custom date picker, shared via URL query params
 - **Data source**: Analytics API `/summaries`
 
@@ -130,8 +130,9 @@ Click any section below to jump directly to it. Every metric shown on these page
 - **KPIs**: Total events · High-risk events · Login events · Unique actors
 - **Charts**: Event type top-12 bar · Top actors bar · Daily events + daily risk line
 - **Feed**: Recent events with time/actor/event/detail/IP columns. Risk events are highlighted with a Claude-tone background. Filter by event type or actor via dropdown + search box.
-- **Classification**: Risk (role changes · SSO toggles · data exports · project deletes) · Login (SSO/social/logout) · Activity (chat/file/project operations)
-- **Data source**: Compliance API `/v1/compliance/activities`
+- **Classification** (the API's activity types): Risk (role, RBAC and API-key changes · SSO and IP-restriction settings · data exports · failed logins · inference-hook denials · Anthropic staff access) · Login (SSO, magic-link and social sign-ins, logout) · Activity (everything else). All 11 actor kinds are identified: users, API and admin keys, service accounts, SCIM, federated identities, Anthropic and more.
+- **Names**: since 2026-09-24 the feed no longer carries file or artifact names. Names archived earlier are visible to the Cognito `unmasked` group only; other sessions query name-redacted views.
+- **Data source**: Compliance API `/v1/compliance/activities` (1000-event pages; past windows use a server-side `created_at` range) · Athena `compliance_daily` for history
 
 ![Audit](./screenshots/audit.png)
 
@@ -161,7 +162,7 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 
 ## Features
 
-- **20 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down incl. per-user cache hit rate + Cowork/Design columns) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code (incl. per-user table) · **Claude Chat** (conversation usage & activity) · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption · Cost (live per-user spend/tokens, group-scoped org KPIs, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · **Cost Live** (MTD and historical snapshots) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history). Mobile-ready: hamburger drawer navigation + responsive layouts below `lg`.
+- **20 pages** — Overview · **Executive** (single-screen CFO/CTO snapshot, 12 window-aware KPIs + PDF export) · Users (drill-down incl. per-user cache hit rate + Cowork/Design columns) · User Productivity · User Search (per-user activity heatmap + cost) · Trends · Claude Code (incl. per-user table) · **Claude Chat** (conversation usage & activity) · Cowork · Office · Design · Productivity · **Agentic** (actions-per-prompt delegation metrics + org spend context) · Adoption (skill usage and attributed spend, connector read/write calls) · Cost (live per-user spend/tokens, group-scoped org KPIs, Cost by Group with real RBAC group names, Spend Limits, PDF export; CSV as fallback) · **Cost Live** (MTD and historical snapshots) · Audit · Analyze (AI, MD/PDF export) · Archive · **Changelog** (in-app release history). Mobile-ready: hamburger drawer navigation + responsive layouts below `lg`.
 - **Three API integrations** — Analytics provides live engagement and cost; Admin is optional for the legacy Admin routes. Compliance uses its dedicated key or the Analytics key when its scopes allow. Keyless local engagement views use deterministic mocks; live cost requires an Analytics key.
 - **S3-first data layer** — a Lambda collector snapshots the Analytics API daily into partitioned NDJSON. Queries hit S3 first (~150 ms) and fall back to the live API only on cache miss.
 - **AI natural-language query** — Amazon Bedrock streams multi-turn answers and chooses among analytics overview, cost, user activity, recent user usage and read-only Athena tools. The Analyze page and floating assistant share this tool-use conversation UI.
@@ -169,8 +170,8 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 - **Self-service CSV upload** — the Cost page exposes upload / list / delete for Spend Report CSVs directly in the browser, including a client-side preview and period-overlap warnings. No AWS CLI access required. See [ADR-0002](docs/decisions/0002-dashboard-csv-upload.md).
 - **Cost-efficiency score** — joins live per-user spend with window-aligned Analytics activity; CSV is a fallback. The User Productivity page separately reports an activity score. Live Cost aggregates follow the selected period; a CSV fallback retains its own export period and displays that difference.
 - **Bilingual UI** — runtime English / Korean toggle with localStorage persistence.
-- **Identity-aware privacy** — emails are masked by default. Verified members of the Cognito `unmasked` group can see full addresses; tables, exports and AI output follow the documented identity policy.
-- **Audit trail** — Compliance API feed with risk-event highlighting (role changes, SSO toggles, data exports).
+- **Identity-aware privacy** — emails are masked by default. Verified members of the Cognito `unmasked` group can see full addresses; tables, exports and AI output follow the documented identity policy. Archived audit file and artifact names follow the same rule.
+- **Audit trail** — Compliance API feed with risk-event highlighting (role and key changes, SSO and IP settings, data exports, failed logins, Anthropic access) plus a daily S3 archive queryable in Athena.
 
 ## Prerequisites
 
