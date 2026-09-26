@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="Claude Code Dashboard 아키텍처: 사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 부착된 ALB를 거쳐 ECS Fargate의 React SPA + Express API에 접속합니다. Express는 Anthropic Analytics·Admin·Compliance API를 keep-warm 캐시로 프록시하고, 일상 질의는 S3 아카이브를 먼저 읽습니다(라이브 API 폴백). Amazon Bedrock의 Claude가 자연어 분석에 응답하고, EventBridge가 매일 Collector Lambda를 기동해 Analytics 스냅샷과 감사 이벤트를 S3에 NDJSON과 raw 사이드카로 적재하며, Athena가 이를 SQL로 질의합니다. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입합니다.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="Claude Code Dashboard 아키텍처: 사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 부착된 ALB를 거쳐 ECS Fargate의 React SPA + Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API)를 응답 캐시와 함께 조회 전용으로 프록시하고, 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지는 라이브 API). Amazon Bedrock의 Claude가 자연어 분석에 응답하고, EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 raw 사이드카로 적재하며(관리자가 올린 지출 CSV도 S3에 보관), Athena가 이를 SQL로 질의합니다. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입합니다.">
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#5F5A4D"/>
@@ -19,6 +19,8 @@
     .flow{stroke:#5F5A4D;stroke-width:1.8;fill:none}
     .flowD{stroke:#8F897A;stroke-width:1.6;fill:none;stroke-dasharray:5 5}
     .flowA{stroke:#D97757;stroke-width:2.2;fill:none}
+    .flowAO{stroke:#D97757;stroke-width:1.8;fill:none;stroke-dasharray:6 5;opacity:.75}
+    .cardO{fill:#FFFFFF;stroke:#EDC9B4;stroke-width:1.5;stroke-dasharray:6 5}
     .edge{font-size:12.5px;fill:#6D675A}
     .edgeA{font-size:12.5px;fill:#94482E;font-weight:600}
   </style>
@@ -55,13 +57,14 @@
   <!-- EventBridge -->
   <rect x="330" y="624" width="212" height="96" rx="12" class="card"/>
   <text class="t name" x="352" y="662">EventBridge</text>
-  <text class="t sub" x="352" y="688">매일 14:00 UTC</text>
+  <text class="t sub" x="352" y="688">00:30 UTC 감사 이벤트</text>
+  <text class="t sub" x="352" y="708">14:00 UTC Analytics</text>
 
   <!-- Dashboard service -->
   <rect x="608" y="215" width="230" height="110" rx="12" class="card"/>
   <text class="t name" x="630" y="251">Dashboard 서비스</text>
   <text class="t sub" x="630" y="277">React SPA + Express API</text>
-  <text class="t sub" x="630" y="299">ECS Fargate · 상시 웜 캐시</text>
+  <text class="t sub" x="630" y="299">ECS Fargate · 응답 캐시</text>
 
   <!-- Bedrock -->
   <rect x="608" y="430" width="230" height="96" rx="12" class="card"/>
@@ -82,15 +85,16 @@
   <rect x="880" y="624" width="150" height="96" rx="12" class="card"/>
   <text class="t name" x="896" y="662">S3 아카이브</text>
   <text class="t sub" x="896" y="688">NDJSON · raw</text>
+  <text class="t sub" x="896" y="708">지출 CSV</text>
 
   <!-- Anthropic API boxes (external) -->
   <rect x="1100" y="118" width="248" height="96" rx="12" class="cardX"/>
   <text class="t name" x="1124" y="156">Analytics API</text>
-  <text class="t sub" x="1124" y="182">인게이지먼트 · 비용</text>
+  <text class="t sub" x="1124" y="182">참여도 · 비용 · 지출 한도</text>
 
-  <rect x="1100" y="240" width="248" height="96" rx="12" class="cardX"/>
+  <rect x="1100" y="240" width="248" height="96" rx="12" class="cardO"/>
   <text class="t name" x="1124" y="278">Admin API</text>
-  <text class="t sub" x="1124" y="304">워크스페이스 사용량</text>
+  <text class="t sub" x="1124" y="304">선택 · 워크스페이스 사용량</text>
 
   <rect x="1100" y="362" width="248" height="96" rx="12" class="cardX"/>
   <text class="t name" x="1124" y="400">Compliance API</text>
@@ -103,7 +107,7 @@
 
   <!-- flows: Express -> Anthropic APIs (accent) -->
   <path class="flowA" marker-end="url(#arA)" d="M838 245 L960 245 L960 166 L1100 166"/>
-  <path class="flowA" marker-end="url(#arA)" d="M838 270 L1005 270 L1005 288 L1100 288"/>
+  <path class="flowAO" marker-end="url(#arA)" d="M838 270 L1005 270 L1005 288 L1100 288"/>
   <path class="flowA" marker-end="url(#arA)" d="M838 295 L960 295 L960 410 L1100 410"/>
   <text class="t edgeA" x="845" y="230">HTTPS · 조회 전용</text>
 
@@ -113,7 +117,7 @@
   <path class="flow" marker-end="url(#ar)" d="M838 315 L940 315 L940 430"/>
   <text class="t edge" x="850" y="334">SQL 질의</text>
   <path class="flow" marker-end="url(#ar)" d="M800 325 L800 395 L858 395 L858 648 L880 648"/>
-  <text class="t edge" x="812" y="388">S3-first 리플레이</text>
+  <text class="t edge" x="812" y="388">기간 조회 S3 우선</text>
   <path class="flow" marker-end="url(#ar)" d="M955 526 L955 624"/>
   <text class="t edge" x="967" y="580">파티션 스캔</text>
 
@@ -125,13 +129,16 @@
   <!-- flows: collector -->
   <path class="flow" marker-end="url(#ar)" d="M542 672 L608 672"/>
   <path class="flow" marker-end="url(#ar)" d="M838 672 L880 672"/>
-  <text class="t edge" x="859" y="660" text-anchor="middle">적재</text>
+  <text class="t edge" x="859" y="694" text-anchor="middle">적재</text>
   <path class="flow" marker-end="url(#ar)" d="M780 720 L780 750 L1374 750 L1374 166 L1348 166"/>
-  <text class="t edge" x="1050" y="736">일일 수집 (raw + 평탄화)</text>
+  <path class="flow" marker-end="url(#ar)" d="M1374 410 L1348 410"/>
+  <text class="t edge" x="1068" y="736">일일 수집 (raw + 평탄화)</text>
 
   <!-- legend (stacked, clear of the cloud boundary) -->
   <path class="flowA" d="M52 774 L92 774"/>
   <text class="t edgeA" x="100" y="779">Anthropic API 데이터 경로</text>
   <path class="flow" d="M52 804 L92 804"/>
   <text class="t edge" x="100" y="809">요청 · 적재 경로</text>
+  <path class="flowAO" d="M52 834 L92 834"/>
+  <text class="t edgeA" x="100" y="839">선택 경로 (Admin API)</text>
 </svg>
