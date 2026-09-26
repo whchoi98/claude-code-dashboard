@@ -14,6 +14,7 @@ import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
 import { fmtCompact, fmtNum, fmtDate, fmtPct, acceptRate } from '../lib/format'
 import type { Summary, UserRecord } from '../types'
+import { RISK_TYPES } from '../lib/auditTypes'  // shared with the Audit page
 
 type SummariesResp = { source: 'live' | 'mock'; reason?: string; data: Summary[] }
 type DayEntry = { date: string; source: string; data: UserRecord[] }
@@ -45,14 +46,6 @@ type ComplianceResp = {
 }
 const COMPLIANCE_COMPLETE_STOPS = new Set(['starting_date', 'has_more=false', 'empty'])
 
-// Same risk classification used by the Compliance page — keep this aligned.
-const RISK_TYPES = new Set([
-  'claude_user_role_updated',
-  'org_user_invite_sent', 'org_user_invite_deleted', 'org_user_deleted',
-  'org_sso_toggled', 'org_sso_connection_deleted',
-  'org_data_export_started', 'org_data_export_completed',
-  'org_domain_verified', 'project_deleted',
-])
 
 // Same composite-score weights/targets the Productivity page uses — keep
 // these aligned so the Executive snapshot doesn't drift from the detail
@@ -190,9 +183,10 @@ export function Executive() {
       }
     }
 
-    // Top model by spend in the window
+    // Top model by spend in the window ('unspecified' = code execution and
+    // other model-less spend — part of the totals, but not a model)
     const byModel = new Map<string, number>()
-    for (const d of dailyCost) byModel.set(d.model, (byModel.get(d.model) ?? 0) + (d.spend ?? 0))
+    for (const d of dailyCost) if (d.model !== 'unspecified') byModel.set(d.model, (byModel.get(d.model) ?? 0) + (d.spend ?? 0))
     const topModel = [...byModel.entries()].sort(([, a], [, b]) => b - a)[0]
 
     const riskEvents = events.filter((e) => RISK_TYPES.has(e.type)).length

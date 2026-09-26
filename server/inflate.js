@@ -86,3 +86,26 @@ export function inflateUser(f) {
     last_activity_date: f.last_activity_date ?? null,
   }
 }
+
+// A raw-sidecar row is the exact upstream record, and older records can lack
+// sub-objects or counters the API added later — while pages read nested
+// counters unguarded. Overlay the raw row on the inflateUser skeleton: every
+// nested object exists, and any value the raw row carries (null included —
+// "not reported" stays null) wins. A nested object the raw row replaced with
+// a non-object keeps the skeleton's shape.
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+function overlay(base, top) {
+  if (top === undefined) return base
+  if (isPlainObject(base)) {
+    if (!isPlainObject(top)) return base
+    const out = { ...base }
+    for (const [k, v] of Object.entries(top)) out[k] = k in base ? overlay(base[k], v) : v
+    return out
+  }
+  return top
+}
+
+export function withUserShape(raw) {
+  const skeleton = inflateUser({ user_id: raw?.user?.id, user_email: raw?.user?.email_address })
+  return overlay(skeleton, raw)
+}

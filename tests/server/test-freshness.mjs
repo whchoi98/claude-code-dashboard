@@ -7,6 +7,10 @@ import {
   engagementMaxDay,
   engagementBufferDays,
   keyTag,
+  summariesUpstreamParams,
+  summariesRetryParams,
+  summariesShortfallParams,
+  isCalendarDay,
   _resetFreshness,
 } from '../../server/freshness.js'
 
@@ -63,6 +67,57 @@ ok('keyTag handles missing keys', keyTag(undefined) === 'nokey' && keyTag('') ==
 _resetFreshness()
 recordEngagementLatest(KEY, '2026-08-30', '2026-08-31')
 ok('yesterday-learned value still serves today', engagementMaxDay(KEY, '2026-09-01') === '2026-08-30')
+
+// ── summariesUpstreamParams (ending_date is EXCLUSIVE upstream) ───────────────
+{
+  const H = '2026-09-24' // learned horizon (newest served day, inclusive)
+  const win = summariesUpstreamParams('2026-09-20', '2026-09-26', H)
+  ok('horizon-reaching window omits ending_date (upstream default = latest + 1)',
+    JSON.stringify(win.params) === JSON.stringify({ starting_date: '2026-09-20' }))
+  ok('horizon-reaching window trims rows to the requested inclusive end', win.firstDay === '2026-09-20' && win.lastDay === '2026-09-26')
+  const past = summariesUpstreamParams('2026-09-01', '2026-09-07', H)
+  ok('historical window sends end + 1 (exclusive)',
+    past.params.starting_date === '2026-09-01' && past.params.ending_date === '2026-09-08' && past.lastDay === '2026-09-07')
+  const oneDay = summariesUpstreamParams('2026-09-23', '2026-09-23', H)
+  ok("'1d' preset (start = end) is a one-day request, not zero-width",
+    oneDay.params.starting_date === '2026-09-23' && oneDay.params.ending_date === '2026-09-24')
+  const atH = summariesUpstreamParams('2026-09-24', '2026-09-24', H)
+  ok('end exactly at the horizon includes the horizon day', !('ending_date' in atH.params) && atH.lastDay === '2026-09-24')
+  const inverted = summariesUpstreamParams('2026-09-30', '2026-09-26', H)
+  ok('start past the clamped end pins to the end', inverted.params.starting_date === H && inverted.firstDay === H)
+  const noEnd = summariesUpstreamParams('2026-09-20', undefined, H)
+  ok('no ending_date → horizon form, no upper filter', !('ending_date' in noEnd.params) && noEnd.lastDay === null && noEnd.endInclusive === H)
+  const fallback = summariesUpstreamParams('2026-09-20', '2026-09-24', '2026-09-23')
+  ok('conservative fallback horizon still lets the newer requested day through', !('ending_date' in fallback.params) && fallback.lastDay === '2026-09-24')
+  // Malformed query days must never reach Date math (a RangeError in the async
+  // route would be an unhandled rejection that exits the process).
+  let threw = false
+  for (const bad of ['2026-09-05T00:00:00Z', '2026-09-1', '0', ['2026-09-01', 'x'], '2026-02-31', '', null]) {
+    try {
+      const r = summariesUpstreamParams('2026-09-01', bad, H)
+      if ('ending_date' in r.params) threw = true   // a bad end must fall back to the horizon form
+    } catch { threw = true }
+  }
+  ok('malformed ending dates → horizon form, never throw', !threw)
+  const badStart = summariesUpstreamParams(['a', 'b'], '2026-09-07', H)
+  ok('malformed starting date → one-day window at the requested end', badStart.params.starting_date === '2026-09-07' && badStart.params.ending_date === '2026-09-08')
+  ok('isCalendarDay rejects impossible days', isCalendarDay('2026-09-24') && !isCalendarDay('2026-02-31') && !isCalendarDay('2026-9-1') && !isCalendarDay(['2026-09-24']))
+  // 400 retry for the horizon form
+  ok('retry asks explicitly for [start, latest + 1)',
+    JSON.stringify(summariesRetryParams({ starting_date: '2026-09-20' }, '2026-09-23')) === JSON.stringify({ starting_date: '2026-09-20', ending_date: '2026-09-24' }))
+  ok('retry pins a start past the latest day', summariesRetryParams({ starting_date: '2026-09-25' }, '2026-09-23').starting_date === '2026-09-23')
+  ok('no retry for an explicit-end request', summariesRetryParams({ starting_date: '2026-09-01', ending_date: '2026-09-08' }, '2026-09-23') === null)
+  ok('no retry without a parsable latest day', summariesRetryParams({ starting_date: '2026-09-20' }, null) === null)
+  // Shortfall self-check for the horizon form
+  const row = (d) => ({ starting_at: `${d}T00:00:00Z` })
+  const hp = { starting_date: '2026-09-18' }
+  ok('newest day at the requested end → no re-request', summariesShortfallParams(hp, [row('2026-09-18'), row('2026-09-24')], '2026-09-24') === null)
+  ok('one-day shortfall is normal lag → no re-request', summariesShortfallParams(hp, [row('2026-09-23')], '2026-09-24') === null)
+  ok('2+ days short → explicit [start, end + 1)',
+    JSON.stringify(summariesShortfallParams(hp, [row('2026-09-18')], '2026-09-24')) === JSON.stringify({ starting_date: '2026-09-18', ending_date: '2026-09-25' }))
+  ok('empty horizon answer → explicit re-request', summariesShortfallParams(hp, [], '2026-09-24')?.ending_date === '2026-09-25')
+  ok('explicit requests are never second-guessed', summariesShortfallParams({ starting_date: '2026-09-18', ending_date: '2026-09-20' }, [], '2026-09-19') === null)
+}
 
 console.log(failed === 0 ? `\n# all ${n} tests passed` : `\n# ${failed}/${n} tests FAILED`)
 process.exit(failed === 0 ? 0 : 1)

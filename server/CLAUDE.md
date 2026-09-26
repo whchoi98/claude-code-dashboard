@@ -33,12 +33,16 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
 - **`index.js`** — Entry. Loads env, instantiates Express, registers the
   Analytics / Admin / Compliance proxy routes, the S3-first
   `readUsersFromS3` / `readRawFromS3` helpers, and the **10-minute in-memory
-  upstream cache** (`cache` Map, `TTL_MS = 600_000`). The engagement `/range`
+  upstream cache** (`cache` Map, `TTL_MS = 600_000`; expired entries are swept every TTL — audit walks mint new cursor URLs each refresh, so an unswept Map grows until restart). The engagement `/range`
   routes serve their WHOLE window via `serveArchiveRange` (ADR-0019): S3
-  archive first for every day (24-wide pool; users from the columnar
-  partitions + `inflateUser`, skills/connectors/projects from the **raw
-  sidecar** `raw/<table>/` — exact live-API-shape rows the columnar tables
-  would lose fields from), live-API fallback bounded to the NEWEST ≤31
+  archive first for every day (24-wide pool; users, skills, connectors and
+  projects all read the **raw sidecar** `raw/<table>/` first — exact
+  live-API-shape rows the columnar tables would lose fields from (users:
+  chat `distinct_projects_*`, shared-content views, `science_metrics`);
+  raw user rows are overlaid on the `inflateUser` skeleton via
+  `withUserShape` so every nested object pages read exists; users fall back
+  to the columnar partition + `inflateUser` for a day without a readable
+  sidecar), live-API fallback bounded to the NEWEST ≤31
   missing days (5-wide pool — a 31-wide parallel burst measurably 429s the
   60 rpm org budget), older misses → `source:'unarchived'` empty days, and a
   `coverage` block in every response (`RangeCoverageNote` renders it).
@@ -57,7 +61,7 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   `/api/compliance/activities` rides that **response-level SWR cache**
   (`auditCache` = `makeTtlCache` from `aws.js`; in-flight dedup) around the
   `walkActivities` after_id walk: foreground walks carry a 45s budget +
-  15s-per-page `AbortSignal` (`AUDIT_WALK_BUDGET_MS` / `AUDIT_PAGE_TIMEOUT_MS`
+  30s-per-page `AbortSignal` (`AUDIT_WALK_BUDGET_MS` / `AUDIT_PAGE_TIMEOUT_MS`
   — hard-bounded under the CloudFront 60s origin timeout even against a
   hung socket) and degrade mid-walk failures (429/5xx/network) or budget
   exhaustion to a `partial: true` response; background walks (prewarm
@@ -79,8 +83,16 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   unit-tested in `tests/server/test-freshness.mjs`.
 - **`inflate.js`** — pure read-side helper `inflateUser()`: a flattened NDJSON
   row (written by `collector/flatten.js`) → nested Analytics-API user shape.
-  Imported by `index.js` `readUsersFromS3`; unit-tested in
-  `tests/server/test-flatten-inflate.mjs`.
+  Imported by `index.js` `readUsersFromS3` as the fallback for days without
+  a raw sidecar (fields the columnar table lacks come back as 0); unit-tested
+  in `tests/server/test-flatten-inflate.mjs`.
+- **`compliance.js`** — pure helpers for the audit walk (ADR-0022):
+  `AUDIT_UPSTREAM_PAGE` (1000-event upstream pages; fixed within a walk),
+  `activitiesWindowParams()` (server-side `created_at.gte/lt` for windows
+  ending BEFORE today — today-ending preset windows stay unfiltered so they
+  share one page chain) and `nextActivitiesCursor()` (documented `last_id`,
+  falling back to the last event id). Unit-tested in
+  `tests/server/test-compliance-walk.mjs`.
 - **`identity.js`** — identity-aware masking (ADR-0020).
   `makeIdentityResolver({ userPoolId, clientId, region })` verifies the
   Cognito ID token from the `ccd_id` HttpOnly cookie (CloudFront `ALL_VIEWER`
@@ -228,7 +240,10 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     `userUsageToUsers(data)` (input = uncached + cache_read + cache_creation
     1h+5m, reconciles with upstream `total_tokens`) and
     `spendLimitsToMembers(data)` (cents→USD; `amount:null` = unlimited →
-    `utilization:null`; actor field is `email_address`, not `email`).
+    `utilization:null`; a `"0"` cap is already at-limit → `utilization:1`;
+    one row per member — the monthly/period-less row wins, since the
+    reference documents one row per (member, period); actor field is
+    `email_address`, not `email`).
   - AI: `POST /chat/stream` (multi-turn tool-use chatbot — Bedrock
     `ConverseStream` + `toolConfig`, `MAX_TOOL_HOPS=4`; tools:
     `get_analytics_overview`, `run_athena_sql` via `sanitizeAthenaQuery`,
@@ -252,12 +267,31 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the seven
     Glue tables incl. `compliance_daily` + `plugins_daily` (v2.2) — and **masks result rows
     server-side** with `maskEmailsDeep` before responding), S3 CSV reading.
+  - `sanitizeAthenaQuery(sql, { revealAuditNames })`: unless the session is
+    a VERIFIED `unmasked` identity (`req.identity.unmask`, ADR-0020 — never
+    request/model input), every `compliance_daily(_org2)` token in the SQL is
+    rewritten to the `compliance_daily_redacted(_org2)` Glue view
+    (`redactAuditTableRefs`), which nulls `payload` `filename`/`title`/artifact `description` —
+    names archived before the feed withheld them (2026-09-24). Token-level on
+    the exact text that runs, so comma joins / quoting / subqueries can't
+    reach the base table. The default is the redacted form. Both
+    `/archive/query` and the chat `run_athena_sql` tool pass the flag.
   - The `analyticsReportsToCostResp` reshape function — pure, exported,
-    unit-tested in `tests/server/test-cost-live-reshape.mjs`.
+    unit-tested in `tests/server/test-cost-live-reshape.mjs`. With
+    `group_by[]` set the upstream returns one row per group and NO combined
+    row, so a product+model null row is a real group (code-execution spans)
+    and its SPEND is counted (as product `Other` / model `unspecified`, in
+    both `rows` and the `daily` series so trends and projections add up to
+    the headline) — but not its `requests`, which count execution spans, not
+    HTTP requests. `findCombinedTotalRow()` skips only a null/null row whose
+    value equals the sum of everything else in the bucket (the combined-total
+    shape). `aggregateTokenTiers` follows the same rule.
 - **`chat-tools.js`** — Pure, dependency-free helpers + tool registry for
   `/api/chat/stream`. Exports: `maskEmail`, `maskEmailsDeep`,
-  `historyToBedrockMessages`, `parseFollowups`, `rankUsers`,
-  `compactOverview`, `TOOL_SPECS`, `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
+  `historyToBedrockMessages`, `parseFollowups` (reads the follow-up call's
+  structured output — Converse `outputConfig` json_schema `FOLLOWUPS_SCHEMA`),
+  `FOLLOWUPS_SCHEMA`, `rankUsers`, `compactOverview`, `TOOL_SPECS`,
+  `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.
   No AWS client instantiation — fully unit-testable in isolation
   (`tests/server/test-chat-tools.mjs`). `maskEmailsDeep` masks BOTH literal
   and **`%40`-percent-encoded** emails (compliance events record other
@@ -279,9 +313,24 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
 - **Pagination cursor names differ per endpoint** — verify before wiring:
   - Analytics `users/range`, `cost_report`, `usage_report`: `?page=<token>`
     via `body.next_page`.
-  - Compliance `/v1/compliance/activities`: **`?after_id=<last_event_id>`**
-    derived from `data[-1].id`. The endpoint does NOT return `next_page`;
-    relying on it silently breaks pagination after page 1.
+  - Compliance `/v1/compliance/activities`: **`?after_id=<last_id>`** — the
+    response's opaque `last_id` (fallback: `data[-1].id`), stop on
+    `has_more:false`. The endpoint does NOT return `next_page`; relying on it
+    silently breaks pagination after page 1. Keep every other param fixed
+    within a walk (the cursor is bound to its query).
+  - Analytics engagement endpoints (`users`, `skills`, `connectors`,
+    `plugins`, …) document `next_page` only — treat a MISSING `has_more` as
+    "follow `next_page`" (`has_more ?? true`).
+  - `/analytics/summaries` `ending_date` is EXCLUSIVE — call through
+    `fetchSummaries()` (index.js; shared by the route and the chat snapshot):
+    `summariesUpstreamParams()` omits it for horizon-reaching windows and
+    sends end+1 otherwise, malformed query days are treated as absent (never
+    reach Date math — a RangeError in an async route kills the process), a
+    400 on the horizon form retries once with the named latest day + 1 (only
+    when that keeps the requested start), a horizon answer ending 2+ days
+    before the requested end is re-requested once explicitly (failures
+    suppressed for a TTL), and summaries 400s never feed the shared
+    freshness horizon (`fetchJson(..., { learnFreshness: false })`).
 - **Analytics *usage/engagement* dates must be clamped to the DYNAMIC
   finalization horizon before hitting upstream — but the *cost* endpoints
   must NOT be**. The Analytics engagement endpoints (`users`, `users/range`,

@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { generateMock } from './mock.js'
 import { registerAwsRoutes, makeTtlCache } from './aws.js'
-import { inflateUser } from './inflate.js'
+import { inflateUser, withUserShape } from './inflate.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import { makeIdentityResolver } from './identity.js'
-import { parseLatestAvailable, recordEngagementLatest, engagementMaxDay, engagementBufferDays } from './freshness.js'
+import { parseLatestAvailable, recordEngagementLatest, engagementMaxDay, engagementBufferDays, summariesUpstreamParams, summariesRetryParams, summariesShortfallParams } from './freshness.js'
+import { AUDIT_UPSTREAM_PAGE, activitiesWindowParams, nextActivitiesCursor } from './compliance.js'
 
 dotenv.config()
 
@@ -35,6 +36,21 @@ const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-northeast-
 // live under the org2/ prefix; primary keeps the legacy layout exactly.
 async function readUsersFromS3(date, org = 'primary') {
   if (!ARCHIVE_BUCKET) return null
+  // Prefer the RAW sidecar (exact live-API records, collector writeRaw): the
+  // columnar partition drops fields inflateUser can only zero-fill — chat
+  // distinct_projects_used/created, shared-content views, cowork connectors,
+  // science_metrics — so archive-served days under-counted Claude Chat's
+  // project KPIs. Days archived before the sidecar existed fall back to the
+  // columnar partition + inflate below.
+  // withUserShape guarantees the nested objects pages read unguarded. A
+  // failed raw read (corrupt object, transient S3 error) falls back to the
+  // columnar partition instead of failing the day.
+  try {
+    const raw = await readRawFromS3('users', date, org)
+    if (raw) return raw.map(withUserShape)
+  } catch (err) {
+    console.warn(`[s3] raw users ${org} ${date} unreadable, using columnar:`, err?.message || err)
+  }
   const Key = `${s3PrefixFor(org)}users/date=${date}/users-${date}.json`
   try {
     const resp = await s3Client.send(new GetObjectCommand({ Bucket: ARCHIVE_BUCKET, Key }))
@@ -114,6 +130,13 @@ app.get('/api/me', (req, res) => {
 // page loads at ~0ms while only costing a few minutes of freshness.
 const cache = new Map()
 const TTL_MS = 600_000  // 10 min — paired with the 5-min compliance prewarm interval below
+// Expired entries are never served (fetchJson re-fetches past TTL_MS) but
+// were never removed either: every audit refresh mints new page-2+ cursor
+// URLs, so the Map grew until the task restarted. Sweep on the TTL cadence.
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of cache) if (now - v.t >= TTL_MS) cache.delete(k)
+}, TTL_MS).unref?.()
 
 // NEVER rejects. Network-level failures (DNS, TCP reset, TLS, mid-body cut,
 // abort) return { ok:false, status:0 } like any upstream error — every call
@@ -121,7 +144,7 @@ const TTL_MS = 600_000  // 10 min — paired with the 5-min compliance prewarm i
 // handler is an unhandledRejection that EXITS the Node 20 process (observed:
 // one dead upstream socket killed the whole task). A default 30s timeout
 // bounds hung sockets when the caller doesn't pass its own signal.
-async function fetchJson(path, params, key, { signal } = {}) {
+async function fetchJson(path, params, key, { signal, learnFreshness = true } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
     if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, String(vv)))
@@ -148,7 +171,7 @@ async function fetchJson(path, params, key, { signal } = {}) {
     // Opportunistic freshness learning: an engagement 400 names the newest
     // served day — record it so clampAnalyticsEnd() tracks the real horizon
     // (the hourly probe in the listen callback is the primary source).
-    if (!res.ok && res.status === 400) {
+    if (!res.ok && res.status === 400 && learnFreshness) {
       const day = parseLatestAvailable(json?.error?.message)
       if (day) recordEngagementLatest(key, day, todayUtc(0))
     }
@@ -318,7 +341,7 @@ app.get('/api/health', (req, res) => {
       // engagement routes actually serve (Users.tsx tokens column).
       bufferDays: engagementBufferDays(analyticsKeyFor(org), todayUtc(0)),
       maxLookbackDays: 90,
-      summariesMaxRangeDays: 31,
+      summariesMaxRangeDays: 366,
       rateLimitPerMinute: 60,
     },
   })
@@ -332,31 +355,82 @@ app.get('/api/orgs', (_req, res) => {
 
 // ─── Analytics API ──────────────────────────────────────────────────────────
 
-app.get('/api/analytics/summaries', async (req, res) => {
-  const analyticsKey = analyticsKeyFor(orgFromReq(req))
-  const endingDate = clampAnalyticsEnd(req.query.ending_date, analyticsKey)
-  const startingDate = clampAnalyticsEnd(req.query.starting_date || todayUtc(-33), analyticsKey)
+// Summaries fetch shared by the route and the chat snapshot: inclusive→
+// exclusive translation (summariesUpstreamParams), ONE retry when the
+// horizon form still gets a 400 naming the latest available day, and a trim
+// to the requested inclusive days. Returns fetchJson's result plus `rows`.
+// Explicit shortfall re-requests that failed recently (key-tag|params →
+// ms). 400s aren't cached by fetchJson, so without this a persistent
+// summaries lag would re-send the failing request on every page load and
+// prewarm tick against the shared 60 rpm budget.
+const summariesExplicitFailedAt = new Map()
 
-  if (!analyticsKey) {
-    return res.json({ source: 'mock', ...generateMock.summaries(startingDate, endingDate) })
-  }
-  const upstream = await fetchJson(
-    '/v1/organizations/analytics/summaries',
-    { starting_date: startingDate, ending_date: endingDate },
-    analyticsKey,
+async function fetchSummaries(analyticsKey, rawStart, rawEnd) {
+  const { params, firstDay, lastDay, endInclusive } = summariesUpstreamParams(
+    rawStart, rawEnd, engagementMaxDay(analyticsKey, todayUtc(0)),
   )
-  if (!upstream.ok) {
-    // Mock is for KEYLESS dev only. A keyed deployment must never substitute
-    // fake rows for a transient upstream failure (a 429 here was observed
-    // rendering deterministic mock numbers on Executive as if they were real).
-    return res.json({
-      source: 'upstream_error',
-      reason: `upstream ${upstream.status}: ${JSON.stringify(upstream.body).slice(0, 240)}`,
-      data: [],
-    })
+  // learnFreshness:false — a summaries 400 names summaries' own latest day,
+  // which must not drag the shared users/skills horizon (the hourly users
+  // probe owns it).
+  const get = (p) => fetchJson('/v1/organizations/analytics/summaries', p, analyticsKey, { learnFreshness: false })
+  let upstream = await get(params)
+  if (!upstream.ok && upstream.status === 400) {
+    const retry = summariesRetryParams(params, parseLatestAvailable(upstream.body?.error?.message))
+    // A retry that has to pull the start back returns only days the trim
+    // below would discard — skip the extra request.
+    if (retry && retry.starting_date === params.starting_date) upstream = await get(retry)
+  } else if (upstream.ok) {
+    // Horizon form came back 2+ days short of the requested end: the
+    // upstream default did not behave as documented — ask explicitly once,
+    // keeping the first answer if that fails.
+    const explicit = summariesShortfallParams(params, upstream.body?.summaries, endInclusive)
+    const failKey = explicit && `${analyticsKey?.slice(-8)}|${explicit.starting_date}|${explicit.ending_date}`
+    if (explicit && Date.now() - (summariesExplicitFailedAt.get(failKey) || 0) >= TTL_MS) {
+      const again = await get(explicit)
+      if (again.ok) upstream = again
+      else {
+        summariesExplicitFailedAt.set(failKey, Date.now())
+        if (summariesExplicitFailedAt.size > 64) summariesExplicitFailedAt.delete(summariesExplicitFailedAt.keys().next().value)
+      }
+    }
   }
-  // Upstream returns `{summaries: [...]}`; normalize to `{data: [...]}` to match the dashboard contract.
-  res.json({ source: 'live', data: upstream.body?.summaries || [] })
+  const rows = (upstream.ok ? upstream.body?.summaries || [] : []).filter((r) => {
+    const day = String(r?.starting_at || '').slice(0, 10)
+    return day >= firstDay && (!lastDay || day <= lastDay)
+  })
+  return { ...upstream, rows, firstDay, endInclusive }
+}
+
+app.get('/api/analytics/summaries', async (req, res) => {
+  // Async Express 4 handlers don't forward rejections — anything thrown here
+  // would be an unhandledRejection that exits the process.
+  try {
+    const analyticsKey = analyticsKeyFor(orgFromReq(req))
+    const rawStart = req.query.starting_date || todayUtc(-33)
+    if (!analyticsKey) {
+      const { firstDay, endInclusive } = summariesUpstreamParams(rawStart, req.query.ending_date, engagementMaxDay(analyticsKey, todayUtc(0)))
+      return res.json({ source: 'mock', ...generateMock.summaries(firstDay, endInclusive) })
+    }
+    // ending_date is EXCLUSIVE upstream — passing the inclusive horizon day
+    // dropped the newest served day from every window and turned the '1d'
+    // preset (start = end) into a zero-width request.
+    const upstream = await fetchSummaries(analyticsKey, rawStart, req.query.ending_date)
+    if (!upstream.ok) {
+      // Mock is for KEYLESS dev only. A keyed deployment must never substitute
+      // fake rows for a transient upstream failure (a 429 here was observed
+      // rendering deterministic mock numbers on Executive as if they were real).
+      return res.json({
+        source: 'upstream_error',
+        reason: `upstream ${upstream.status}: ${JSON.stringify(upstream.body).slice(0, 240)}`,
+        data: [],
+      })
+    }
+    // Upstream returns `{summaries: [...]}`; normalize to `{data: [...]}` to match the dashboard contract.
+    res.json({ source: 'live', data: upstream.rows })
+  } catch (err) {
+    console.error('[summaries] unexpected failure:', err?.message || err)
+    res.status(500).json({ source: 'upstream_error', reason: 'internal_error', data: [] })
+  }
 })
 
 app.get('/api/analytics/users', async (req, res) => {
@@ -387,7 +461,10 @@ app.get('/api/analytics/users', async (req, res) => {
       })
     }
     if (Array.isArray(upstream.body?.data)) aggregated.push(...upstream.body.data)
-    if (!upstream.body?.has_more || !upstream.body?.next_page) break
+    // Engagement envelopes document `next_page` only (no has_more) — a
+    // missing has_more must not end the walk after page 1. Same rule as the
+    // collector's fetchAllPages.
+    if (!(upstream.body?.has_more ?? true) || !upstream.body?.next_page) break
     page = upstream.body.next_page
   }
   res.json({ source: 'live', date, data: aggregated })
@@ -640,7 +717,9 @@ const auditCache = makeTtlCache({ ttlMs: TTL_MS, cap: 24 })
 // forever.
 const AUDIT_WALK_BUDGET_MS = 45_000
 const AUDIT_BG_BUDGET_MS = 240_000
-const AUDIT_PAGE_TIMEOUT_MS = 15_000
+// 30s: pages are 1000 events (AUDIT_UPSTREAM_PAGE) — still inside the 45s
+// foreground budget, which caps the whole walk under the CloudFront 60s window.
+const AUDIT_PAGE_TIMEOUT_MS = 30_000
 
 // One canonical key per walk-parameter tuple — shared by the route and the
 // prewarm so the prewarm genuinely warms the keys real requests use. The org
@@ -669,6 +748,10 @@ async function walkActivities({ pagesCap, limit, eventType, maxRecords, starting
   let stopReason = 'cap'  // cap | empty | has_more=false | starting_date | max | upstream_<status> | upstream_network | time_budget
   let partial = false
   const t0 = Date.now()
+  // Fixed for the whole walk (the cursor is bound to the query that made it):
+  // past windows get a server-side created_at range, today-ending windows
+  // stay unfiltered so the preset walks share one page chain.
+  const windowParams = activitiesWindowParams(startingDate, endingDate, todayUtc(0))
   for (let i = 0; i < pagesCap; i++) {
     // Budget check BEFORE each page, and a per-page abort capped to the
     // remaining budget — a hung upstream socket must not push a foreground
@@ -678,6 +761,7 @@ async function walkActivities({ pagesCap, limit, eventType, maxRecords, starting
     if (left < 2000 && aggregated.length > 0) { stopReason = 'time_budget'; partial = true; break }
     const params = {
       limit,
+      ...windowParams,
       ...(afterId ? { after_id: afterId } : {}),
     }
     let upstream
@@ -715,7 +799,7 @@ async function walkActivities({ pagesCap, limit, eventType, maxRecords, starting
     }
     if (aggregated.length >= maxRecords) { stopReason = 'max'; break }
     if (!upstream.body?.has_more) { stopReason = 'has_more=false'; break }
-    afterId = pageData[pageData.length - 1].id
+    afterId = nextActivitiesCursor(upstream.body, pageData)
   }
 
   // Apply date and type filters. Date filtering is required because the
@@ -751,17 +835,17 @@ app.get('/api/compliance/activities', async (req, res) => {
       message: 'Set ANTHROPIC_COMPLIANCE_KEY (Enterprise Compliance API scope).',
     })
   }
-  // The Compliance API uses cursor pagination via `after_id` (the last event
-  // id of the previous page) to walk *backward* in time. It does NOT return a
-  // `next_page` token and does NOT accept timestamp-based filters. To honor a
-  // requested date window we paginate page by page and break out as soon as
-  // we cross the lower bound — for noisy orgs this prevents pulling tens of
-  // thousands of events when the user only asked for the last 14 days.
+  // The Compliance API paginates newest-first with an opaque `after_id`
+  // cursor (the previous response's `last_id`). Today-ending windows walk
+  // back from "now" and stop once they cross the lower bound; past windows
+  // add a server-side `created_at` range (activitiesWindowParams) so the walk
+  // starts inside the requested days instead of exhausting the record cap on
+  // newer events first.
   const walkParams = {
     org,             // leads the auditKey tuple (per-org cache entries)
     complianceKey,   // the org's key, used by walkActivities (NOT in auditKey)
     pagesCap: Math.min(Number(req.query.pages || 50), 200),
-    limit: Math.min(Number(req.query.limit || 100), 100),
+    limit: Math.min(Number(req.query.limit || AUDIT_UPSTREAM_PAGE), AUDIT_UPSTREAM_PAGE),
     eventType: req.query.type, // single type filter (client-side after fetch)
     maxRecords: Number(req.query.max || 5000),
     startingDate: req.query.starting_date, // YYYY-MM-DD; older events stop pagination
@@ -830,11 +914,14 @@ async function fetchAnalyticsSnapshot(org = 'primary') {
     return r.body
   }
 
-  const summaries = await callOrMock(
-    '/v1/organizations/analytics/summaries',
-    { starting_date: startingDate, ending_date: endingDate },
-    generateMock.summaries(startingDate, endingDate),
-  )
+  // Same exclusive-end translation + retry as the /summaries route.
+  let summaries
+  if (!analyticsKey) summaries = generateMock.summaries(startingDate, endingDate)
+  else {
+    const r = await fetchSummaries(analyticsKey, startingDate, endingDate)
+    if (!r.ok) throw new Error(`analytics snapshot upstream ${r.status} for /v1/organizations/analytics/summaries (org=${org})`)
+    summaries = { ...r.body, summaries: r.rows }
+  }
   const users = await callOrMock(
     '/v1/organizations/analytics/users',
     { date: endingDate, limit: 1000 },
@@ -936,7 +1023,7 @@ app.listen(PORT, () => {
         for (const w of windows) {
           const params = {
             org, complianceKey,
-            pagesCap: 20, limit: 100, eventType: undefined,
+            pagesCap: 20, limit: AUDIT_UPSTREAM_PAGE, eventType: undefined,
             maxRecords: 2000, startingDate: w.starting_date, endingDate: today,
             initialAfterId: undefined,
           }

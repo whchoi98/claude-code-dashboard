@@ -1,6 +1,6 @@
 # ADR-0017: Compliance audit events archived to S3 (compliance_daily)
 
-- **Status**: Accepted
+- **Status**: Accepted — archive walk amended by [ADR-0022](0022-compliance-time-windowed-walks.md) (2026-09-26: each UTC day is a bounded `created_at` query; pre-2026-09-24 partitions are protected from redacted overwrites)
 - **Date**: 2026-07-15
 - **Deciders**: @whchoi98
 - **Related**: [ADR-0004](0004-compliance-pagination-prewarm.md) · [ADR-0016](0016-audit-response-cache-partial-contract.md) · [ADR-0007](0007-athena-varchar-partitions.md)

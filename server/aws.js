@@ -28,6 +28,37 @@ import {
 //   hides per-user widgets in live mode (see Cost.tsx `dataSource === 'csv'`
 //   gating around the Top tables).
 // - `requests` is real (not approximated like the prior claude_code endpoint).
+// With group_by[] set, cost_report/usage_report return one row per group and
+// NO combined row (docs: "a single combined row when group_by[] is omitted,
+// or one row per group"). A row with product AND model null is therefore a
+// real group — code-execution spans surface that way ("these rows surface
+// with product: null") — and skipping it silently dropped that spend from
+// the headline. The single guarded exception: a null/null row whose value
+// equals the sum of every other row in its bucket IS a combined total (the
+// shape the original 2026-05 fixture assumed); counting it would double the
+// bucket, so it is returned here for the caller to skip.
+export function findCombinedTotalRow(results, valueOf) {
+  const rows = Array.isArray(results) ? results : []
+  if (rows.length < 2) return null
+  const total = rows.reduce((sum, r) => sum + valueOf(r), 0)
+  // Each null/null candidate is compared with EVERYTHING else in the bucket,
+  // so a combined row is still found when a code-execution row sits beside it.
+  for (const r of rows) {
+    if (r?.product || r?.model) continue
+    const v = valueOf(r)
+    const others = total - v
+    if (others > 0 && Math.abs(v - others) <= Math.max(0.01, others * 0.001)) return r
+  }
+  return null
+}
+const costCents = (r) => parseFloat(r?.amount ?? '0') || 0
+const usageTokens = (r) => {
+  const cc = r?.cache_creation || {}
+  return (r?.uncached_input_tokens ?? 0) + (r?.cache_read_input_tokens ?? 0)
+    + (cc.ephemeral_1h_input_tokens ?? 0) + (cc.ephemeral_5m_input_tokens ?? 0)
+    + (r?.output_tokens ?? 0)
+}
+
 export function analyticsReportsToCostResp(costBody, usageBody, period) {
   // key: `${product}|${model}` → row aggregate (cost + tokens merged on key)
   const acc = new Map()
@@ -39,14 +70,16 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
   // ── Pass 1: cost_report → spend + requests ─────────────────────────────
   for (const day of costBody?.data || []) {
     const date = (day?.starting_at || '').slice(0, 10)
+    const totalRow = findCombinedTotalRow(day?.results, costCents)
     for (const r of day?.results || []) {
+      if (r === totalRow) continue
       const product = r?.product
       const model = r?.model
-      // Skip un-grouped totals (when both null) — they'd double-count
-      if (!product && !model) continue
-      const cents = parseFloat(r?.amount ?? '0') || 0
+      const cents = costCents(r)
       const usd = cents / 100
-      const reqs = r?.requests ?? 0
+      // Code-execution rows (no product, no model) count execution spans, not
+      // HTTP requests (docs) — their spend counts, the request KPI does not.
+      const reqs = !product && !model ? 0 : (r?.requests ?? 0)
 
       const key = `${product ?? ''}|${model ?? ''}`
       const u = acc.get(key) ?? {
@@ -62,9 +95,12 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
       if (model) distinctModels.add(model)
       if (product) distinctProducts.add(product)
 
-      if (model && date) {
-        const dkey = `${date}|${model}`
-        const d = dailyAcc.get(dkey) ?? { date, model, spend: 0, input: 0, output: 0, requests: 0 }
+      // Rows without a model land under 'unspecified' so the daily series
+      // (trend, 7-day average, projection) adds up to the headline total.
+      if (date) {
+        const dmodel = model ?? 'unspecified'
+        const dkey = `${date}|${dmodel}`
+        const d = dailyAcc.get(dkey) ?? { date, model: dmodel, spend: 0, input: 0, output: 0, requests: 0 }
         d.spend    = Number((d.spend + usd).toFixed(4))
         d.requests += reqs
         dailyAcc.set(dkey, d)
@@ -75,10 +111,11 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
   // ── Pass 2: usage_report → input/output tokens (joined on (product,model)) ──
   for (const day of usageBody?.data || []) {
     const date = (day?.starting_at || '').slice(0, 10)
+    const totalRow = findCombinedTotalRow(day?.results, usageTokens)
     for (const r of day?.results || []) {
+      if (r === totalRow) continue
       const product = r?.product
       const model = r?.model
-      if (!product && !model) continue
       const cc = r?.cache_creation || {}
       const input = (r?.uncached_input_tokens ?? 0) +
                     (r?.cache_read_input_tokens ?? 0) +
@@ -99,9 +136,10 @@ export function analyticsReportsToCostResp(costBody, usageBody, period) {
       if (model) distinctModels.add(model)
       if (product) distinctProducts.add(product)
 
-      if (model && date) {
-        const dkey = `${date}|${model}`
-        const d = dailyAcc.get(dkey) ?? { date, model, spend: 0, input: 0, output: 0, requests: 0 }
+      if (date) {
+        const dmodel = model ?? 'unspecified'
+        const dkey = `${date}|${dmodel}`
+        const d = dailyAcc.get(dkey) ?? { date, model: dmodel, spend: 0, input: 0, output: 0, requests: 0 }
         d.input  += input
         d.output += output
         dailyAcc.set(dkey, d)
@@ -167,13 +205,14 @@ export const aggregateTokenTypeCost = (body) => aggregateAmountBy(body, 'token_t
 
 // Aggregate usage_report token-subtype COUNTS into cache tiers + the cache-hit
 // ratio (cache_read / total input tokens). Reads the SAME usage body the cost
-// reshape already consumes — no extra fetch. Skips the ungrouped (null
-// product&model) row to avoid double-counting.
+// reshape already consumes — no extra fetch. Null product&model rows are real
+// groups (see findCombinedTotalRow); only a combined-total row is skipped.
 export function aggregateTokenTiers(usageBody) {
   let uncached = 0, cache_read = 0, cache_creation = 0, output = 0
   for (const day of usageBody?.data || []) {
+    const totalRow = findCombinedTotalRow(day?.results, usageTokens)
     for (const r of day?.results || []) {
-      if (!r?.product && !r?.model) continue
+      if (r === totalRow) continue
       uncached += r?.uncached_input_tokens ?? 0
       cache_read += r?.cache_read_input_tokens ?? 0
       const cc = r?.cache_creation || {}
@@ -378,12 +417,25 @@ export function userUsageToUsers(data) {
 // Sort: capped members by utilization desc, then unlimited by spend desc.
 // NOTE: this actor carries `email_address` (not `email` like the analytics
 // report actors). Rows without an email are excluded.
+// The reference documents one row per (member, period); this is the
+// calendar-month view, so each member keeps ONE row — the monthly (or
+// period-less) one when present — and a future daily/weekly limit can neither
+// duplicate a member nor drop one whose only row has another period. A "0"
+// cap is already at-limit (docs) → utilization 1, instead of dropping the
+// member from the near-limit count.
 export function spendLimitsToMembers(data) {
   const usd = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n / 100 : 0 }
   const rows = Array.isArray(data) ? data : []
-  return rows
-    .filter((r) => r?.actor?.email_address)
-    .map((r) => {
+  const byEmail = new Map()
+  for (const r of rows) {
+    if (!r?.actor?.email_address) continue
+    const key = String(r.actor.email_address).toLowerCase()
+    const monthly = !r.period || r.period === 'monthly'
+    const cur = byEmail.get(key)
+    if (!cur || (monthly && !cur.monthly)) byEmail.set(key, { r, monthly })
+  }
+  return [...byEmail.values()]
+    .map(({ r }) => {
       const limit_usd = r.amount == null ? null : usd(r.amount)
       const spent_usd = usd(r.period_to_date_spend)
       return {
@@ -391,7 +443,8 @@ export function spendLimitsToMembers(data) {
         name: r.actor.name || null,
         limit_usd,
         spent_usd: Number(spent_usd.toFixed(2)),
-        utilization: limit_usd != null && limit_usd > 0 ? Number((spent_usd / limit_usd).toFixed(4)) : null,
+        utilization: limit_usd == null ? null
+          : limit_usd > 0 ? Number((spent_usd / limit_usd).toFixed(4)) : 1,
         period: r.period || 'monthly',
         source: r?.source?.type || 'unknown',
       }
@@ -895,9 +948,13 @@ export function makeTtlCache({ ttlMs = 600_000, cap = 40, maxAgeMs = ttlMs * 6, 
 }
 
 // ─── Athena SQL Sanitizer (defense in depth) ────────────────────────────────
-// Athena's IAM policy already restricts this task to the ccd workgroup, and
-// CDK grants glue:GetTable only on the ccd database. Even so, a naive regex
-// check on the `query` body lets an attacker:
+// Athena's IAM policy restricts this task to the ccd workgroup and S3 access
+// to the archive bucket, but the Glue read grant is account-wide
+// (glue:GetTable on `*`, compute-stack) — so this allowlist is the table
+// boundary. Known gap: only the FIRST identifier after FROM/JOIN is checked,
+// so a comma join can name another database's table (metadata only; its data
+// sits outside the task's S3 grant). A naive regex check on the `query` body
+// would also let an attacker:
 //   - chain a DDL after a semicolon (even if Athena rejects, UI errors leak)
 //   - hide intent inside block/line comments
 //   - read unlisted tables the Glue catalog would happily expose
@@ -926,10 +983,24 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'projects_daily_org2',
   'plugins_daily_org2',
   'compliance_daily_org2',
+  // name-redacted views (see redactAuditTableRefs)
+  'compliance_daily_redacted',
+  'compliance_daily_org2_redacted',
 ])
+// Audit events archived before 2026-09-24 still carry file / project-document
+// / artifact names in `payload` (filename, title, artifact description) — the
+// Compliance feed has withheld names since. compliance_daily_redacted(_org2) are Glue views that
+// null those keys (storage-stack). Only a VERIFIED 'unmasked' identity
+// (ADR-0020) queries the base tables; for everyone else EVERY occurrence of a
+// base-table name is rewritten to its view — not just FROM/JOIN targets, so a
+// comma join, quoting or a subquery can't reach the names either.
+const COMPLIANCE_BASE_TABLE_TOKEN = /\bcompliance_daily(_org2)?\b/gi
+export function redactAuditTableRefs(sql) {
+  return sql.replace(COMPLIANCE_BASE_TABLE_TOKEN, (_, org2) => `compliance_daily${org2 ? '_org2' : ''}_redacted`)
+}
 const ATHENA_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXECUTE|EXEC|MSCK|REPAIR|USE|COPY|UNLOAD|DESCRIBE|SHOW|EXPLAIN|INTO\s+OUTFILE|LOAD\s+DATA)\b/i
 
-export function sanitizeAthenaQuery(raw) {
+export function sanitizeAthenaQuery(raw, { revealAuditNames = false } = {}) {
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error('Query must be a non-empty string.')
   }
@@ -986,7 +1057,9 @@ export function sanitizeAthenaQuery(raw) {
     }
   }
 
-  return normalized
+  // 7) Non-admin sessions read the audit archive through the name-redacted
+  //    views — applied to the exact text that runs.
+  return revealAuditNames ? normalized : redactAuditTableRefs(normalized)
 }
 
 // Human-readable schema reference for code readers — NOT injected into any prompt.
@@ -1032,6 +1105,14 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
   id, type, created_at, actor_type, actor_email, actor_user_id, actor_api_key_id,
   actor_ip_address, actor_user_agent, organization_id,
   payload (FULL original event as a JSON string — json_extract_scalar(payload, '$.field'))
+  actor_type is one of 11 values (user_actor, api_actor, admin_api_key_actor,
+  service_account_actor, scim_directory_sync_actor, system_actor, anthropic_actor,
+  unauthenticated_user_actor, federated_identity_actor, federated_actor,
+  attested_device_actor). Since 2026-09-24 file / project-document / artifact
+  events carry no names; names archived earlier are visible to 'unmasked'
+  sessions only — everyone else reads compliance_daily_redacted(_org2).
+  claude_*_viewed = a Claude app loaded content (not deduplicated, not a person
+  viewing); compliance_api_accessed = mostly this dashboard's own reads.
 
 Always filter by partition: WHERE date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'.
 The partition column is varchar — do NOT wrap the literals in DATE '...';
@@ -1123,8 +1204,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   }
 
   // Execute an Athena SQL that has already passed sanitizeAthenaQuery.
-  async function runAthenaSafe(rawQuery) {
-    const safe = sanitizeAthenaQuery(rawQuery)
+  // opts.revealAuditNames must come from the VERIFIED req.identity (ADR-0020),
+  // never from request or model input.
+  async function runAthenaSafe(rawQuery, opts = {}) {
+    const safe = sanitizeAthenaQuery(rawQuery, opts)
     return runAthena(safe)
   }
 
@@ -1358,7 +1441,9 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const runTool = makeToolRunner({
       unmask,
       fetchAnalytics: () => fetchAnalytics(org),
-      runAthenaSafe,   // account-level: the table name carries the org
+      // account-level: the table name carries the org. Archived audit names
+      // follow the session's verified identity, like email unmasking.
+      runAthenaSafe: (q) => runAthenaSafe(q, { revealAuditNames: unmask }),
       fetchCostSummary: (opts) => fetchCostSummary(opts, org),
       // Per-user recent-day activity (user_usage_report — serves today, no
       // 3-day buffer). Aggregation happens HERE via userUsageToUsers so
@@ -1471,16 +1556,20 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   // a bad query still leaks intent via error messages.
   router.post('/archive/query', async (req, res) => {
     const { query } = req.body || {}
+    const unmask = req.identity?.unmask === true
     try {
-      const { rows } = await runAthenaSafe(query)
+      const { rows } = await runAthenaSafe(query, { revealAuditNames: unmask })
       // Mask emails server-side (incl. %40-encoded inside compliance_daily
       // payload/url strings) — the "always mask in UI" rule must hold even
       // for free-form SQL results the frontend can't anticipate. Exception
       // (ADR-0020): a VERIFIED 'unmasked'-group identity gets raw rows.
-      res.json({ rows: req.identity?.unmask === true ? rows : maskEmailsDeep(rows) })
+      res.json({ rows: unmask ? rows : maskEmailsDeep(rows) })
     } catch (err) {
       // sanitizeAthenaQuery throws Error with a helpful message — surface as 400.
-      const msg = err?.message || String(err)
+      // Athena errors quote row values ("Cannot cast 'alice@…' to INT"), so
+      // the message gets the same masking as the rows.
+      const raw = err?.message || String(err)
+      const msg = unmask ? raw : maskEmailsDeep(raw)
       const isValidation =
         msg.startsWith('Query must') ||
         msg.startsWith('Multi-statement') ||

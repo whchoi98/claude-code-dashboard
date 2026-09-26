@@ -1,6 +1,6 @@
 # ADR-0004: Compliance API pagination + startup prewarm
 
-- **Status**: Accepted — amended by [ADR-0016](0016-audit-response-cache-partial-contract.md) (2026-07-15)
+- **Status**: Accepted — amended by [ADR-0016](0016-audit-response-cache-partial-contract.md) (2026-07-15) and [ADR-0022](0022-compliance-time-windowed-walks.md) (2026-09-26: the endpoint does support `created_at` filters, `limit` ≤ 5000 and a `last_id` cursor)
 - **Date**: 2026-05-09
 - **Deciders**: @whchoi98
 

@@ -86,6 +86,22 @@ ok('malformed amount coerces to 0 spend, not NaN', (() => {
   return m.length === 1 && m[0].spent_usd === 0
 })())
 ok('empty / non-array → []', spendLimitsToMembers(null).length === 0)
+{
+  const zero = spendLimitsToMembers([{ actor: { email_address: 'z@y.com' }, amount: '0', period_to_date_spend: '0', source: { type: 'user' } }])
+  ok('a "0" cap is already at-limit (utilization 1, not dropped)', zero.length === 1 && zero[0].limit_usd === 0 && zero[0].utilization === 1)
+  const periods = spendLimitsToMembers([
+    { actor: { email_address: 'p@y.com' }, period: 'monthly', amount: '10000', period_to_date_spend: '2500' },
+    { actor: { email_address: 'p@y.com' }, period: 'weekly',  amount: '1000',  period_to_date_spend: '900' },
+    { actor: { email_address: 'q@y.com' }, amount: '10000', period_to_date_spend: '100' },
+  ])
+  ok('one row per member — no duplicates across periods', periods.length === 2 && periods.filter((m) => m.email === 'p@y.com').length === 1)
+  ok('the monthly row wins over other periods', eqf(periods.find((m) => m.email === 'p@y.com').limit_usd, 100))
+  const weeklyOnly = spendLimitsToMembers([
+    { actor: { email_address: 'w@y.com' }, period: 'weekly', amount: '500', period_to_date_spend: '100' },
+    { actor: { email_address: 'odd@y.com' }, period: 'calendar_month', amount: '500', period_to_date_spend: '100' },
+  ])
+  ok('a member whose only row has another period is kept, not dropped', weeklyOnly.length === 2)
+}
 
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

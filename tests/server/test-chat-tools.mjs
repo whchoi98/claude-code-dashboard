@@ -176,10 +176,20 @@ ok('unmask: user_usage STILL strips real names', unmaskUu.data.users.every((u) =
 // The system prompt must match the session: masked sessions keep the
 // echo-masked-emails mandate; unmasked sessions must NOT instruct the model
 // that emails are masked (it would hedge or refuse to show them).
+{
+  const failing = makeToolRunner({
+    fetchAnalytics: async () => ({}), fetchCostSummary: async () => ({}), fetchUserUsage: async () => ({}),
+    runAthenaSafe: async () => { throw new Error("INVALID_CAST_ARGUMENT: Cannot cast 'alice.kim@acme.com' to INT") },
+  })
+  const r = await failing('run_athena_sql', { sql: 'SELECT 1' })
+  ok('tool error messages are email-masked for masked sessions', r.ok === false && !r.data.error.includes('alice.kim@') && r.data.error.includes('@acme.com'))
+}
 ok('default prompt keeps masked-email mandate', CHAT_SYSTEM_PROMPT('en', '2026-08-11').includes('already masked'))
 const unmaskPrompt = CHAT_SYSTEM_PROMPT('en', '2026-08-11', null, true)
 ok('unmask prompt drops masked-email mandate', !unmaskPrompt.includes('already masked'))
 ok('unmask prompt states emails are real', unmaskPrompt.includes('REAL') || unmaskPrompt.includes('unmasked'))
+ok('only admin sessions are told archived audit names are visible',
+  unmaskPrompt.includes('archived before 2026-09-24') && !CHAT_SYSTEM_PROMPT('en', '2026-09-26').includes('archived before 2026-09-24'))
 
 // clampChatUserWindow (aws.js pure export) — the chat-side 31-day span cap.
 const { clampChatUserWindow } = await import('../../server/aws.js')

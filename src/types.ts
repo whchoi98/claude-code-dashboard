@@ -99,6 +99,24 @@ export type Summary = {
   cowork_daily_active_user_count: number
   cowork_weekly_active_user_count: number
   cowork_monthly_active_user_count: number
+  // Per-product active users. OMITTED (not 0) while the per-product
+  // breakdown is not enabled for the org — absent means "unknown".
+  claude_code_daily_active_user_count?: number
+  claude_code_weekly_active_user_count?: number
+  claude_code_monthly_active_user_count?: number
+  chat_daily_active_user_count?: number
+  chat_weekly_active_user_count?: number
+  chat_monthly_active_user_count?: number
+  claude_design_daily_active_user_count?: number
+  claude_design_weekly_active_user_count?: number
+  claude_design_monthly_active_user_count?: number
+  office_agent_daily_active_user_count?: number
+  office_agent_weekly_active_user_count?: number
+  office_agent_monthly_active_user_count?: number
+  science_daily_active_user_count?: number
+  science_weekly_active_user_count?: number
+  science_monthly_active_user_count?: number
+  science_entitled_user_count?: number | null
   assigned_seat_count: number
   pending_invite_count: number
   daily_adoption_rate: number
@@ -108,7 +126,16 @@ export type Summary = {
 
 export type Skill = {
   skill_name: string
+  // Readable name when skill_name is an opaque id (user/org/plugin skills).
+  skill_display_name?: string | null
   distinct_user_count: number
+  invocation_count?: number | null
+  // private | organization | public (claude.ai only); null elsewhere.
+  share_status?: 'private' | 'organization' | 'public' | null
+  // Minor units of `currency` (cents). Null when spend reporting is off.
+  estimated_overage_spend?: string | null
+  attributed_list_price?: string | null
+  currency?: string | null
   chat_metrics: { distinct_conversation_skill_used_count: number }
   claude_code_metrics: { distinct_session_skill_used_count: number }
   office_metrics: {
@@ -121,7 +148,15 @@ export type Skill = {
 
 export type Connector = {
   connector_name: string
+  connector_display_name?: string | null
   distinct_user_count: number
+  // Tool-call classification; null (never 0) while not reported for the org
+  // or the surface. read + write + unclassified = the day's classified calls.
+  read_call_count?: number | null
+  write_call_count?: number | null
+  unclassified_call_count?: number | null
+  managed_auth_distinct_user_count?: number | null
+  individual_auth_distinct_user_count?: number | null
   chat_metrics: { distinct_conversation_connector_used_count: number }
   claude_code_metrics: { distinct_session_connector_used_count: number }
   office_metrics: {

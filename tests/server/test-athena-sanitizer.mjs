@@ -31,12 +31,36 @@ const cases = [
   ['line-comment only (no body)',     "-- harmless\n", 'Only SELECT'],
 ]
 
+// Archived audit names (pre-2026-09-24): non-admin sessions must run against the
+// name-redacted views wherever a base table is named; verified admins
+// (revealAuditNames) keep the base tables. [desc, query, reveal, check(sql)]
+const redactCases = [
+  ['masked: FROM rewritten to the view', "SELECT payload FROM compliance_daily WHERE date='2026-09-01'", false,
+    (q) => /FROM compliance_daily_redacted WHERE/.test(q) && !/\bcompliance_daily\b/.test(q)],
+  ['masked: org2 twin rewritten', "SELECT 1 FROM compliance_daily_org2", false,
+    (q) => q.includes('compliance_daily_org2_redacted') && !/\bcompliance_daily_org2\b/.test(q)],
+  ['masked: comma join → both sides', "SELECT * FROM claude_code_analytics a, compliance_daily c", false,
+    (q) => q.includes('compliance_daily_redacted c') && !/\bcompliance_daily\b/.test(q)],
+  ['masked: quoted + upper case', 'SELECT * FROM claude_code_analytics."COMPLIANCE_DAILY"', false,
+    (q) => /compliance_daily_redacted/i.test(q) && !/"COMPLIANCE_DAILY"/.test(q)],
+  ['masked: subquery + qualified column', "SELECT compliance_daily.payload FROM (SELECT * FROM compliance_daily) compliance_daily", false,
+    (q) => !/\bcompliance_daily\b/i.test(q) && (q.match(/compliance_daily_redacted/g) || []).length === 3],
+  ['masked: view name not double-rewritten', "SELECT 1 FROM compliance_daily_redacted", false,
+    (q) => q === "SELECT 1 FROM compliance_daily_redacted"],
+  ['masked: other tables untouched', "SELECT 1 FROM claude_code_analytics", false,
+    (q) => q === "SELECT 1 FROM claude_code_analytics"],
+  ['admin: base table kept', "SELECT json_extract_scalar(payload, '$.filename') FROM compliance_daily WHERE date='2026-09-01'", true,
+    (q) => /FROM compliance_daily WHERE/.test(q) && !q.includes('_redacted')],
+  ['default is the redacted form', "SELECT 1 FROM compliance_daily", undefined,
+    (q) => q.includes('compliance_daily_redacted')],
+]
+
 let pass = 0
 let fail = 0
 let testNum = 0
 
 console.log('TAP version 13')
-console.log(`1..${cases.length}`)
+console.log(`1..${cases.length + redactCases.length}`)
 
 for (const [desc, query, expect] of cases) {
   testNum += 1
@@ -73,6 +97,15 @@ for (const [desc, query, expect] of cases) {
       fail += 1
     }
   }
+}
+
+for (const [desc, query, reveal, check] of redactCases) {
+  testNum += 1
+  let got
+  try { got = reveal === undefined ? sanitizeAthenaQuery(query) : sanitizeAthenaQuery(query, { revealAuditNames: reveal }) } catch (err) { got = `ERROR ${err.message}` }
+  const good = typeof got === 'string' && !got.startsWith('ERROR') && check(got)
+  console.log(`${good ? 'ok' : 'not ok'} ${testNum} - ${desc}${good ? '' : ` (got: ${got})`}`)
+  if (good) pass += 1; else fail += 1
 }
 
 console.log(`# passed: ${pass} / ${pass + fail} (failed: ${fail})`)

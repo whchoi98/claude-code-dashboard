@@ -16,15 +16,12 @@ import { useT } from '../lib/i18n'
 import { fmtNum, fmtDate, maskEmail, isUnmasked } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
+import {
+  RISK_TYPES, LOGIN_TYPES, MACHINE_ACTOR_TYPES, auditCategory, actorKey, actorLabel, isNameRedactedType,
+  type AuditActor,
+} from '../lib/auditTypes'
 
-type Actor = {
-  type: 'user_actor' | 'api_actor'
-  email_address?: string
-  user_id?: string
-  api_key_id?: string
-  ip_address?: string
-  user_agent?: string
-}
+type Actor = AuditActor
 
 type ActivityEvent = {
   id: string
@@ -55,49 +52,35 @@ type Resp = {
 /** Stop reasons that mean the requested window was fully covered. */
 const COMPLETE_STOPS = new Set(['starting_date', 'has_more=false', 'empty'])
 
-// Event categories for filtering + coloring
-const RISK_TYPES = new Set([
-  'claude_user_role_updated',
-  'org_user_invite_sent', 'org_user_invite_deleted',
-  'org_user_deleted',
-  'org_sso_toggled', 'org_sso_connection_deleted',
-  'org_data_export_started', 'org_data_export_completed',
-  'org_domain_verified',
-  'project_deleted',
-])
-const LOGIN_TYPES = new Set([
-  'user_signed_in_sso', 'user_signed_in_google', 'user_signed_in_apple',
-  'user_signed_out', 'social_login_succeeded', 'user_logged_out',
-])
-
-function riskLabel(t: string): 'risk' | 'login' | 'info' {
-  if (RISK_TYPES.has(t)) return 'risk'
-  if (LOGIN_TYPES.has(t)) return 'login'
-  return 'info'
-}
+// Event categories (RISK_TYPES / LOGIN_TYPES / auditCategory) live in
+// lib/auditTypes — shared with Executive so the two pages can't drift.
+const riskLabel = auditCategory
 
 function actorDisplay(a: Actor): string {
-  if (a.type === 'api_actor') return `🔑 ${a.api_key_id ?? 'unknown key'}`
-  if (a.email_address)       return `👤 ${maskEmail(a.email_address)}`
-  if (a.user_id)             return `👤 ${a.user_id}`
-  return 'unknown'
+  return actorLabel(a, maskEmail)
 }
 
+const shortId = (v: unknown) => (v ? String(v).slice(-8) : '')
+
+// One-line table summary. File/document/artifact names are no longer in the
+// feed (2026-09-24), so those rows show the resource kind + short id.
 function eventSummary(ev: ActivityEvent): string {
   switch (ev.type) {
     case 'claude_user_role_updated':
       return `${ev.user_email ? maskEmail(String(ev.user_email)) : ''}: ${ev.previous_role} → ${ev.current_role}`
     case 'claude_chat_viewed':
-      return `chat ${ev.claude_chat_id ? String(ev.claude_chat_id).slice(-8) : ''}`
-    case 'project_created': case 'project_renamed': case 'project_deleted':
-      return ev.project_name ? String(ev.project_name) : ''
+      return `chat ${shortId(ev.claude_chat_id)}`
     case 'compliance_api_accessed':
       return `${ev.request_method ?? ''} ${ev.status_code ?? ''}`
     case 'social_login_succeeded':
       return String(ev.provider ?? '')
-    case 'file_uploaded':
-      return ev.file_name ? String(ev.file_name) : ''
+    case 'claude_file_exported':
+      return `file ${shortId(ev.claude_file_id)}${ev.export_destination ? ` → ${String(ev.export_destination)}` : ''}`
     default:
+      if (/^claude_(file|project_file)_/.test(ev.type)) return `file ${shortId(ev.claude_file_id)}`
+      if (/^claude_project_document_/.test(ev.type)) return `doc ${shortId(ev.claude_project_document_id ?? ev.document_id)}`
+      if (/^claude_artifact_/.test(ev.type)) return `${ev.artifact_type ? String(ev.artifact_type) : 'artifact'} ${shortId(ev.claude_artifact_version_id ?? ev.claude_artifact_id)}`
+      if (/^claude_project_/.test(ev.type)) return `project ${shortId(ev.claude_project_id)}`
       return ''
   }
 }
@@ -118,15 +101,13 @@ export function Compliance() {
   const today = new Date().toISOString().slice(0, 10)
   const upper = range.preset === 'custom' ? range.endingDate : today
 
-  // Pass the date window to the server so it can paginate via after_id only
-  // until it crosses range.startingDate (huge savings for noisy orgs that
-  // produce 1000+ events/day). The Compliance API has no timestamp filter
-  // and pagination is sequential — every 100 events is ~1.5s of network
-  // round-trip. We cap at max=2000 (~30s worst case) so the response stays
-  // within ALB/CloudFront 60s timeout. The server's startup prewarm
-  // re-fetches the same windows in the background so most users hit the
-  // upstream cache and see results in <1s. The amber banner surfaces when
-  // older events in the requested window were truncated.
+  // Pass the date window to the server: today-ending windows walk the feed
+  // newest-first and stop at range.startingDate; past (custom) windows get a
+  // server-side created_at range so they start inside the requested days.
+  // max=2000 caps the response (2 upstream pages of 1000); the server's
+  // prewarm refreshes the preset windows in the background so most requests
+  // hit the response cache. The amber banner surfaces when older events in
+  // the requested window were truncated.
   const url = `/api/compliance/activities?max=2000&pages=20&starting_date=${range.startingDate}&ending_date=${upper}`
   const { data, loading, error, refetch } = useFetch<Resp>(url)
 
@@ -142,16 +123,16 @@ export function Compliance() {
 
     for (const e of events) {
       byType.set(e.type, (byType.get(e.type) ?? 0) + 1)
-      const actorKey = e.actor.email_address ?? e.actor.api_key_id ?? e.actor.user_id ?? 'unknown'
-      byActor.set(actorKey, (byActor.get(actorKey) ?? 0) + 1)
-      uniqueActors.add(actorKey)
+      const key = actorKey(e.actor)
+      byActor.set(key, (byActor.get(key) ?? 0) + 1)
+      uniqueActors.add(key)
 
       const day = e.created_at.slice(0, 10)
       const bucket = byDay.get(day) ?? { date: day, count: 0, risk: 0 }
       bucket.count += 1
       if (RISK_TYPES.has(e.type)) { bucket.risk += 1; risk += 1 }
       if (LOGIN_TYPES.has(e.type)) login += 1
-      if (e.actor.type === 'api_actor') apiCalls += 1
+      if (MACHINE_ACTOR_TYPES.has(e.actor.type)) apiCalls += 1
       byDay.set(day, bucket)
     }
 
@@ -244,7 +225,7 @@ export function Compliance() {
           <KpiCard accent label={t('audit.kpi.total')} value={fmtNum(derived.total)} hint={t('audit.kpi.total.hint')} />
           <KpiCard       label={t('audit.kpi.risk')}  value={fmtNum(derived.risk)}  hint={t('audit.kpi.risk.hint')} />
           <KpiCard       label={t('audit.kpi.login')} value={fmtNum(derived.login)} hint={t('audit.kpi.login.hint')} />
-          <KpiCard       label={t('audit.kpi.actors')} value={fmtNum(derived.uniqueActors)} hint={`${derived.apiCalls} api calls`} />
+          <KpiCard       label={t('audit.kpi.actors')} value={fmtNum(derived.uniqueActors)} hint={t('audit.kpi.actors.hint', { count: derived.apiCalls })} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-6">
@@ -284,15 +265,15 @@ export function Compliance() {
               <YAxis />
               <Tooltip />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="Risk" fill="#D97757" radius={[3, 3, 0, 0]} />
-              <Line type="monotone" dataKey="Events" stroke="#1F1E1D" strokeWidth={2} dot={false} />
+              <Bar dataKey="Risk" name={t('audit.series.risk')} fill="#D97757" radius={[3, 3, 0, 0]} />
+              <Line type="monotone" dataKey="Events" name={t('audit.series.events')} stroke="#1F1E1D" strokeWidth={2} dot={false} />
               <ReferenceLine
                 y={derived.riskThreshold}
                 stroke="#D97757"
                 strokeDasharray="4 4"
                 strokeOpacity={0.5}
                 label={{
-                  value: `risk threshold ${derived.riskThreshold}`,
+                  value: t('audit.daily.threshold', { threshold: derived.riskThreshold }),
                   position: 'insideTopRight',
                   fill: '#D97757',
                   fontSize: 10,
@@ -316,7 +297,7 @@ export function Compliance() {
                 <option value="all">{t('audit.filter.all')}</option>
                 <option value="risk">{t('audit.filter.risk')}</option>
                 <option value="login">{t('audit.filter.login')}</option>
-                <optgroup label="Types">
+                <optgroup label={t('audit.filter.types')}>
                   {allTypes.map((x) => <option key={x} value={x}>{x}</option>)}
                 </optgroup>
               </select>
@@ -343,10 +324,11 @@ export function Compliance() {
 }
 
 function AuditFeedTable({ events, onSelect }: { events: ActivityEvent[]; onSelect: (e: ActivityEvent) => void }) {
+  const t = useT()
   type K = 'time' | 'actor' | 'event' | 'ip'
   const accessors: Record<K, (e: ActivityEvent) => string | number | null | undefined> = {
     time:  (e) => e.created_at,
-    actor: (e) => e.actor.email_address || e.actor.api_key_id || e.actor.user_id,
+    actor: (e) => actorKey(e.actor),
     event: (e) => e.type,
     ip:    (e) => e.actor.ip_address,
   }
@@ -361,11 +343,11 @@ function AuditFeedTable({ events, onSelect }: { events: ActivityEvent[]; onSelec
       <table className="w-full text-xs">
         <thead className="bg-paper-muted/60 sticky top-0">
           <tr>
-            <Th label="Time"   k="time" />
-            <Th label="Actor"  k="actor" />
-            <Th label="Event"  k="event" />
-            <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Detail</th>
-            <Th label="IP"     k="ip" />
+            <Th label={t('audit.col.time')}  k="time" />
+            <Th label={t('audit.col.actor')} k="actor" />
+            <Th label={t('audit.col.event')} k="event" />
+            <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">{t('audit.col.detail')}</th>
+            <Th label={t('audit.col.ip')}    k="ip" />
           </tr>
         </thead>
         <tbody>
@@ -545,11 +527,22 @@ function EventDetailPanel({ event, onClose }: { event: ActivityEvent | null; onC
                 {([
                   ['type', event.actor.type],
                   ['email', event.actor.email_address ? maskEmail(event.actor.email_address) : null],
+                  ['unauthenticated_email', event.actor.unauthenticated_email_address ? maskEmail(event.actor.unauthenticated_email_address) : null],
                   ['user_id', event.actor.user_id],
                   ['api_key_id', event.actor.api_key_id],
+                  ['admin_api_key_id', event.actor.admin_api_key_id],
+                  ['service_account_id', event.actor.service_account_id],
+                  ['directory_id', event.actor.directory_id],
+                  ['issuer', event.actor.issuer],
+                  ['subject', event.actor.subject],
+                  ['service', event.actor.service],
+                  ['external_client_id', event.actor.external_client_id],
+                  ['provider', event.actor.provider ? [event.actor.provider.type, event.actor.provider.account_id ?? event.actor.provider.subscription_id ?? event.actor.provider.project_number ?? event.actor.provider.subject].filter(Boolean).join(' · ') : null],
                   ['ip_address', event.actor.ip_address],
                   ['user_agent', event.actor.user_agent],
-                ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([k, v]) => (
+                  // Every identity string goes through the same masking as the
+                  // raw JSON below — OIDC subjects and issuers can carry emails.
+                ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([k, v]) => [k, maskEmailsInText(String(v))] as const).map(([k, v]) => (
                   <div key={k} className="flex gap-3 px-3 py-1.5">
                     <dt className="w-24 flex-none text-ink-400 font-mono text-[11px] pt-0.5">{k}</dt>
                     <dd className="min-w-0 break-all text-ink-700">{v}</dd>
@@ -557,6 +550,12 @@ function EventDetailPanel({ event, onClose }: { event: ActivityEvent | null; onC
                 ))}
               </dl>
             </section>
+
+            {isNameRedactedType(event.type) && (
+              <p className="rounded-lg border border-ink-100 bg-paper-muted/50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-500">
+                {t('audit.detail.names_redacted')}
+              </p>
+            )}
 
             {fields.length > 0 && (
               <section>

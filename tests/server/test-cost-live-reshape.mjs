@@ -2,7 +2,7 @@
 // Runs with: node tests/server/test-cost-live-reshape.mjs
 // Exit code 0 on success, 1 on any failure (TAP-like output).
 
-import { analyticsReportsToCostResp, aggregateCostType, aggregateTokenTypeCost, aggregateTokenTiers, fetchAllReportPages } from '../../server/aws.js'
+import { analyticsReportsToCostResp, aggregateCostType, aggregateTokenTypeCost, aggregateTokenTiers, fetchAllReportPages, findCombinedTotalRow } from '../../server/aws.js'
 
 const period = { starting_date: '2026-05-01', ending_date: '2026-05-02' }
 
@@ -14,7 +14,7 @@ const COST = {
       results: [
         { product: 'claude_code', model: 'claude-opus-4-7',   amount: '1234.50', list_amount: '1234.50', currency: 'USD', requests: 12 },
         { product: 'claude_code', model: 'claude-sonnet-4-6', amount:   '56.00', list_amount:   '56.00', currency: 'USD', requests:  5 },
-        // ungrouped totals row — must be skipped to avoid double-count
+        // combined-total row (= 1234.50 + 56.00) — must be skipped to avoid double-count
         { product: null, model: null, amount: '1290.50', currency: 'USD', requests: 17 },
       ],
     },
@@ -37,8 +37,8 @@ const USAGE = {
       results: [
         { product: 'claude_code', model: 'claude-opus-4-7',   uncached_input_tokens: 1000, cache_read_input_tokens: 100, cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 0 }, output_tokens: 500 },
         { product: 'claude_code', model: 'claude-sonnet-4-6', uncached_input_tokens: 200, output_tokens: 80 },
-        // ungrouped totals — must be skipped
-        { product: null, model: null, uncached_input_tokens: 9999, output_tokens: 9999 },
+        // combined total of the two rows above (1650 + 280 = 1930 tokens) — must be skipped
+        { product: null, model: null, uncached_input_tokens: 1200, cache_read_input_tokens: 100, cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 0 }, output_tokens: 580 },
       ],
     },
     {
@@ -89,13 +89,15 @@ const cases = [
     if (r[0].token_type !== 'cache_read_input_tokens') throw new Error(`not sorted desc: ${r[0].token_type}`)
     if (Math.abs(r[0].spend_usd - 4749.49) > 1e-6) throw new Error(`cache_read $: ${r[0].spend_usd}`)
   }],
-  ['aggregateTokenTiers: tier counts + cache-hit ratio, skips ungrouped row', () => {
+  ['aggregateTokenTiers: tier counts + cache-hit ratio, skips a combined-total row', () => {
     const usage = { data: [{ results: [
       { product: 'claude_code', model: 'm',
         uncached_input_tokens: 100, cache_read_input_tokens: 900,
         cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 50 },
         output_tokens: 200 },
-      { product: null, model: null, uncached_input_tokens: 9999, cache_read_input_tokens: 9999 }, // skip
+      // combined total (= the row above, 1300 tokens) — skip
+      { product: null, model: null, uncached_input_tokens: 100, cache_read_input_tokens: 900,
+        cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 50 }, output_tokens: 200 },
     ] }] }
     const r = aggregateTokenTiers(usage)
     if (r.uncached !== 100) throw new Error(`uncached: ${r.uncached}`)
@@ -136,7 +138,7 @@ const cases = [
     if (haiku.total_prompt_tokens !== 0) throw new Error(`haiku prompt: ${haiku.total_prompt_tokens}`)
     if (haiku.total_completion_tokens !== 0) throw new Error(`haiku completion: ${haiku.total_completion_tokens}`)
   }],
-  ['ungrouped (null product, null model) results are skipped (no double-count)', () => {
+  ['combined-total null/null row (= sum of the groups) is skipped (no double-count)', () => {
     const r = analyticsReportsToCostResp(COST, USAGE, period)
     // Total spend: opus 20.345 + sonnet 0.56 + haiku 0.10 = 21.005, then rounded
     // to 2 decimals via toFixed(2) — JS may produce 21.00 or 21.01 at the half-way
@@ -147,6 +149,47 @@ const cases = [
     if (r.totals.net_spend_usd > 25) throw new Error(`net total too high (ungrouped row leaked?): ${r.totals.net_spend_usd}`)
     // Total requests: 12+5+8+2 = 27 (NOT 27+17 — ungrouped row excluded)
     if (r.totals.requests !== 27) throw new Error(`totals requests: ${r.totals.requests}`)
+  }],
+  ['null product+model row that is NOT a combined total (code execution) is counted', () => {
+    const cost = { data: [{ starting_at: '2026-05-01T00:00:00Z', results: [
+      { product: 'claude_code', model: 'claude-opus-4-7', amount: '1000', requests: 4 },
+      { product: null, model: null, amount: '250', requests: 3 },   // code-execution spans
+    ] }] }
+    const usage = { data: [{ starting_at: '2026-05-01T00:00:00Z', results: [
+      { product: 'claude_code', model: 'claude-opus-4-7', uncached_input_tokens: 400, output_tokens: 100 },
+      { product: null, model: null, uncached_input_tokens: 0, output_tokens: 0 },
+    ] }] }
+    const r = analyticsReportsToCostResp(cost, usage, period)
+    if (Math.abs(r.totals.net_spend_usd - 12.5) > 1e-6) throw new Error(`net: ${r.totals.net_spend_usd} (code-exec $2.50 dropped?)`)
+    // code-execution `requests` count execution spans, not HTTP requests
+    if (r.totals.requests !== 4) throw new Error(`requests: ${r.totals.requests} (spans must not inflate the request KPI)`)
+    const other = r.rows.find((x) => x.product === 'Other' && x.model === 'unspecified')
+    if (!other || Math.abs(other.total_net_spend_usd - 2.5) > 1e-6) throw new Error(`Other row: ${JSON.stringify(other)}`)
+    const dailySum = r.daily.reduce((sum, d) => sum + d.spend, 0)
+    if (Math.abs(dailySum - r.totals.net_spend_usd) > 1e-6) throw new Error(`daily ${dailySum} != totals ${r.totals.net_spend_usd}`)
+    if (!r.daily.some((d) => d.model === 'unspecified')) throw new Error('model-less spend missing from the daily series')
+    const tiers = aggregateTokenTiers({ data: [{ results: [
+      { product: 'claude_code', model: 'm', uncached_input_tokens: 10, output_tokens: 5 },
+      { product: null, model: null, uncached_input_tokens: 7, output_tokens: 0 },
+    ] }] })
+    if (tiers.uncached !== 17) throw new Error(`tiers must count a non-total null/null row: ${tiers.uncached}`)
+  }],
+  ['findCombinedTotalRow: sum-equal null/null row only', () => {
+    const cents = (r) => parseFloat(r.amount)
+    const a = { product: 'p', model: 'm', amount: '100' }
+    const b = { product: 'p', model: 'n', amount: '50' }
+    const total = { product: null, model: null, amount: '150.05' }  // within max(1 cent, 0.1%)
+    if (findCombinedTotalRow([a, b, total], cents) !== total) throw new Error('sum-equal row not detected')
+    if (findCombinedTotalRow([a, { product: null, model: null, amount: '40' }], cents) !== null) throw new Error('code-exec row misread as total')
+    if (findCombinedTotalRow([total], cents) !== null) throw new Error('lone null row is a real group')
+    const n1 = { product: null, model: null, amount: '150' }, n2 = { product: null, model: null, amount: '150' }
+    if (findCombinedTotalRow([a, b, n1, n2], cents) !== null) throw new Error('two null rows, neither the sum of the rest → keep both')
+    const exec = { product: null, model: null, amount: '25' }
+    const combined = { product: null, model: null, amount: '175' }   // = 100 + 50 + 25
+    if (findCombinedTotalRow([a, b, exec, combined], cents) !== combined) throw new Error('combined row beside a code-execution row not found')
+    const tiny = { product: null, model: null, amount: '0.4' }
+    if (findCombinedTotalRow([{ product: 'p', model: 'm', amount: '0.5' }, tiny], cents) !== null) throw new Error('a sub-cent code-exec row misread as a total')
+    if (findCombinedTotalRow(undefined, cents) !== null) throw new Error('undefined results')
   }],
   ['daily series: 4 (date, model) entries, sorted by date then model', () => {
     const r = analyticsReportsToCostResp(COST, USAGE, period)

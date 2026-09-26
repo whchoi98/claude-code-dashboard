@@ -25,10 +25,11 @@ export class CollectorStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../collector')),
-      // 15 min (Lambda max): the compliance walk needs ~120-150 paced pages
-      // for its 2-complete-day window at 2026-07 volume (~6k events/day) and
+      // 15 min (Lambda max): the compliance archive fetches each UTC day as a
+      // bounded query (~3 pages/day at ~6k events/day since ADR-0022) and
       // self-limits via getRemainingTimeInMillis at a 60 s margin; the
-      // analytics snapshot (separate 14:00 UTC rule) uses ~1-2 min of it.
+      // headroom serves multi-week complianceStart backfills. The analytics
+      // snapshot (separate 14:00 UTC rule) uses ~1-2 min of it.
       timeout: cdk.Duration.minutes(15),
       memorySize: 512,
       logRetention: logs.RetentionDays.ONE_MONTH,

@@ -108,7 +108,7 @@ const ATHENA_SCHEMA_HINT_FOR_TOOL = `Athena database \`claude_code_analytics\`. 
 • projects_daily: project_id, project_name, distinct_user_count, distinct_conversation_count, message_count, created_at, created_by_id, created_by_email (created_by_* nullable)
 • plugins_daily (per-plugin-per-day, data starts 2026-08): plugin_name, plugin_id (nullable), distinct_users, install_count, invocation_count, claude_code_uses, cowork_uses
 • claude_code_analytics also carries (since 2026-08, NULLABLE — null means the org feature is not enabled, NOT zero activity): last_activity_date (YYYY-MM-DD, user's absolute last active day), cowork_plugins_used, cowork_distinct_plugins, cowork_artifacts_created
-• compliance_daily (audit events, partition day = event created_at day): id, type, created_at (ISO timestamp string), actor_type (user_actor|api_actor), actor_email, actor_user_id, actor_api_key_id, actor_ip_address, actor_user_agent, organization_id, payload (FULL original event as a JSON string — reach type-specific fields via json_extract_scalar(payload, '$.field')). Mask actor_email in any answer. compliance_daily is EVENT-TIME partitioned and current through YESTERDAY — the 3-day finalization rule below does NOT apply to it.
+• compliance_daily (audit events, partition day = event created_at day): id, type, created_at (ISO timestamp string), actor_type (user_actor, api_actor, admin_api_key_actor, service_account_actor, scim_directory_sync_actor, system_actor, anthropic_actor, unauthenticated_user_actor, federated_identity_actor, federated_actor, attested_device_actor), actor_email, actor_user_id, actor_api_key_id, actor_ip_address, actor_user_agent, organization_id, payload (FULL original event as a JSON string — reach type-specific fields via json_extract_scalar(payload, '$.field')). Mask actor_email in any answer. compliance_daily is EVENT-TIME partitioned and current through YESTERDAY — the 3-day finalization rule below does NOT apply to it. payload filename/title can be empty: the feed has carried no file, project-document or artifact names since 2026-09-24, and names archived earlier are shown to administrators only — an empty name does not mean there was no file. claude_*_viewed events record a Claude app loading content (repeated loads are not deduplicated), not a person viewing it, and compliance_api_accessed rows are mostly this dashboard's own reads — leave both out when using audit counts as an activity signal.
 Every table has an *_org2 twin (claude_code_analytics_org2, summaries_daily_org2, skills_daily_org2, connectors_daily_org2, projects_daily_org2, plugins_daily_org2, compliance_daily_org2) with the IDENTICAL layout holding the second organization's (org2) data — query the table family matching the session's org.
 Partition column is varchar — do NOT wrap literals in DATE '...'. All values integers; rates are computed.`
 
@@ -222,10 +222,10 @@ export function CHAT_SYSTEM_PROMPT(locale, today, org = null, unmask = false) {
     // raw makes it hedge or refuse to show them — and vice versa would make
     // it "reconstruct" masked strings.
     unmask
-      ? 'PRIVACY: this session belongs to an administrator in the unmasked group. Emails returned by tools are REAL addresses — show them as-is when relevant.'
+      ? 'PRIVACY: this session belongs to an administrator in the unmasked group. Emails returned by tools are REAL addresses — show them as-is when relevant. Audit events archived before 2026-09-24 still carry file and artifact names in the compliance_daily payload (filename, title, artifact description), and this session sees them; other sessions get them redacted.'
       : 'PRIVACY: emails returned by tools are already masked (e.g. al*****@acme.com). Echo them exactly as given; never reconstruct or guess a full address. Do not escape the asterisks with backslashes.',
     `Today is ${today} (UTC). When writing Athena date filters on the analytics tables, end ranges no later than 3 days ago. EXCEPTION: compliance_daily is event-time partitioned and current through yesterday — end its ranges at yesterday.`,
-    'A question about a day INSIDE the buffer (today or the last ~3 days) is still answerable — NEVER reply "no data" without trying: get_user_usage serves per-user requests/tokens through TODAY (~4h watermark, partial), and compliance_daily has per-actor audit events through YESTERDAY (COUNT(*) GROUP BY actor_email). Present those numbers as preliminary.',
+    'A question about a day INSIDE the buffer (today or the last ~3 days) is still answerable — NEVER reply "no data" without trying: get_user_usage serves per-user requests/tokens through TODAY (~4h watermark, partial), and compliance_daily has per-actor audit events through YESTERDAY (COUNT(*) GROUP BY actor_email, excluding compliance_api_accessed and claude_*_viewed). Present those numbers as preliminary.',
     lang,
   ].join('\n')
 }
@@ -298,7 +298,8 @@ export function makeToolRunner({ fetchAnalytics, runAthenaSafe, fetchCostSummary
       }
       return { ok: false, data: { error: `Unknown tool: ${name}` } }
     } catch (err) {
-      return { ok: false, data: { error: err?.message || String(err) } }
+      // Upstream / Athena errors can quote row values — same masking as data.
+      return { ok: false, data: guard({ error: err?.message || String(err) }) }
     }
   }
 }

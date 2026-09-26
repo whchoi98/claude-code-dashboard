@@ -13,7 +13,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- Trends: active users by product (Claude Code, Chat, Cowork, Claude Design, Office Agents, Claude Science) with a DAU/WAU/MAU switch. The data comes from per-product fields the summaries endpoint already returns. Products an organization doesn't report are not drawn.
+- Adoption:
+  - skill display names
+  - a skill usage and spend table: invocations, share status, estimated overage spend, attributed list-price value
+  - a connector tool-call table: read, write and unclassified calls, write share, managed-auth users
+  - a labeled `third-party` plugin bucket
+- Cost: Office Agents and Claude in Slack labels.
+
+### Changed
+
+- Audit:
+  - Risk and login classification now follows the Compliance API's activity types. Before this, the Login KPI counted nothing.
+  - All 11 actor kinds are identified instead of "unknown", including admin keys, service accounts, SCIM, federated identities and Anthropic access.
+  - File and artifact events explain that names are no longer returned (2026-09-24).
+- Audit: live walks request 1000-event pages with the documented `last_id` cursor, about 10× fewer Compliance requests and self-generated audit events. Past custom windows use a server-side `created_at` range and now show their events.
+- Audit archive: file and artifact names (and published-artifact descriptions) archived before 2026-09-24 are visible to administrators (the unmasked group) only. Archive queries and the chatbot read `compliance_daily_redacted` views for everyone else. The stored data is unchanged.
+- Collector: the daily audit archive fetches each UTC day as a bounded query, about 3 requests per day instead of 110–150 per run. It writes a day only once it is complete and no longer overwrites pre-2026-09-24 partitions that may still hold file names.
+- Chatbot:
+  - Follow-up suggestions use structured output, and answers can run to 16k tokens.
+  - The cost tool no longer claims per-user cost is unavailable.
+  - Tool routing lives in the tool descriptions only.
+  - The compliance schema hint covers actor kinds, the name removal and what `*_viewed` events mean.
+
+### Fixed
+
+- Summaries: the exclusive `ending_date` was sent as inclusive, so every window dropped its newest day and the 1d preset sent a zero-width range.
+- Archive-served days reported 0 for Claude Chat project counts. User rows are now read from the raw sidecar.
+- Cost totals and the daily trend skipped code-execution spend (rows with no product and model). Its execution-span counts stay out of the request KPI.
+- Users pagination stopped after the first page because engagement responses carry no `has_more`.
+- Archive query and chatbot SQL error messages are now email-masked like result rows. Athena errors can quote row values.
+- Spend limits: a $0 cap counts as at-limit, and each member keeps one row (monthly first) even if other periods appear.
 
 ## [2.4.0] - 2026-09-22
 
@@ -843,7 +875,39 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_미출시 변경 사항 없음._
+### 추가
+
+- 추세: 제품별 활성 사용자 차트를 추가했습니다(Claude Code, Chat, Cowork, Claude Design, Office Agents, Claude Science). DAU/WAU/MAU를 전환할 수 있고, summaries가 이미 주던 제품별 필드를 씁니다. 조직에 보고되지 않는 제품은 그리지 않습니다.
+- 도입:
+  - 스킬 표시 이름
+  - 스킬 사용·지출 표: 호출 수, 공유 범위, 초과 지출 추정, 정가 가치
+  - 커넥터 도구 호출 표: 읽기·쓰기·미분류 호출, 쓰기 비중, 관리형 인증 사용자
+  - `third-party` 플러그인 집계 버킷 표시
+- 비용: Office Agents, Claude in Slack 라벨을 추가했습니다.
+
+### 변경
+
+- 감사:
+  - 위험·로그인 분류가 Compliance API의 활동 타입을 따릅니다. 이전에는 로그인 KPI가 한 건도 세지 못했습니다.
+  - 행위자 11종을 'unknown' 대신 각각 식별합니다(admin 키, 서비스 계정, SCIM, 페더레이션, Anthropic 접근 등).
+  - 파일·아티팩트 이벤트에는 이름이 더 이상 제공되지 않는다는 안내를 표시합니다(2026-09-24).
+- 감사 조회: 라이브 워크가 1000건 페이지와 문서화된 `last_id` 커서를 씁니다. Compliance 요청과 자체 감사 이벤트가 약 10분의 1로 줄었습니다. 과거 사용자 지정 기간은 서버측 `created_at` 범위로 조회해서 해당 기간의 이벤트가 표시됩니다.
+- 감사 아카이브: 2026-09-24 이전에 보관된 파일·아티팩트 이름(게시된 아티팩트 설명 포함)은 관리자(unmasked 그룹)만 봅니다. 그 밖의 사용자는 아카이브 질의와 챗봇에서 `compliance_daily_redacted` 뷰를 읽습니다. 저장된 데이터는 바꾸지 않았습니다.
+- collector: 일일 감사 아카이브를 UTC 하루씩 경계 쿼리로 받습니다. 요청이 실행당 110~150건에서 하루 약 3건으로 줄었습니다. 완결된 날짜만 쓰고, 파일 이름이 남아 있을 수 있는 2026-09-24 이전 파티션은 덮어쓰지 않습니다.
+- 챗봇:
+  - 후속 질문 제안에 structured output을 쓰고, 답변 최대 길이를 16k 토큰으로 늘렸습니다.
+  - 비용 도구가 더 이상 사용자별 비용이 없다고 답하지 않습니다.
+  - 도구 선택 기준은 도구 설명에만 둡니다.
+  - compliance 스키마 힌트에 행위자 종류, 이름 제공 중단, `*_viewed` 이벤트의 의미를 반영했습니다.
+
+### 수정
+
+- summaries: 배타 경계인 `ending_date`를 포함 경계로 보내서, 모든 기간에서 최신일이 빠지고 1d 프리셋은 폭이 0인 요청이 되던 문제를 고쳤습니다.
+- 아카이브에서 서빙하는 날짜의 Claude Chat 프로젝트 수가 0으로 나오던 문제를 고쳤습니다. 이제 사용자 행을 raw 사이드카에서 읽습니다.
+- 비용 합계와 일별 추세에서 코드 실행 비용(제품·모델이 없는 행)이 빠지던 문제를 고쳤습니다. 실행 구간 수는 요청 수 KPI에 넣지 않습니다.
+- 사용자 목록 페이지네이션이 engagement 응답에 `has_more`가 없어 첫 페이지에서 멈추던 문제를 고쳤습니다.
+- 아카이브 질의와 챗봇 SQL의 오류 메시지도 결과 행처럼 이메일을 마스킹합니다. Athena 오류에는 행 값이 인용될 수 있습니다.
+- 지출 한도: $0 한도를 한도 도달로 집계하고, 다른 기간의 한도 행이 와도 멤버마다 한 행(월 단위 우선)만 남깁니다.
 
 ## [2.4.0] - 2026-09-22
 

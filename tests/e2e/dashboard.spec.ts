@@ -173,3 +173,38 @@ test('supports Korean labels and mobile date controls', async ({ page }, testInf
   await expect(page.getByRole('heading', { name: '변경 내역', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByRole('main')).not.toContainText('All notable changes to this project')
 })
+
+test('shows per-product active users from the summaries breakdown', async ({ page }) => {
+  await page.goto('/trends?range=7d')
+  await expect(page.getByRole('heading', { name: 'Active users by product', exact: true })).toBeVisible()
+  const periods = page.getByRole('group', { name: 'Active-user window' })
+  await expect(periods.getByRole('button', { name: 'DAU', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await periods.getByRole('button', { name: 'MAU', exact: true }).click()
+  await expect(periods.getByRole('button', { name: 'MAU', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const main = page.getByRole('main')
+  await expect(main.getByText('Office Agents').first()).toBeVisible()
+  // science_* is omitted by the mock → absent products are not drawn as zero.
+  await expect(main.getByText('Claude Science')).toHaveCount(0)
+})
+
+test('shows skill spend, connector call classes and the third-party plugin bucket', async ({ page }) => {
+  await page.goto('/adoption?range=7d')
+  const main = page.getByRole('main')
+  await expect(main.getByRole('button', { name: /Est\. overage spend/ })).toBeVisible()
+  await expect(main.getByRole('button', { name: /Write calls/ })).toBeVisible()
+  // Recharts wraps long ticks into word <tspan>s, so match loosely.
+  await expect(main.getByText(/Third-party/).first()).toBeVisible()
+  await expect(main).not.toContainText('NaN')
+})
+
+test('classifies audit events with real activity types and actor kinds', async ({ page }) => {
+  await page.goto('/compliance?range=7d')
+  const main = page.getByRole('main')
+  await expect(main.getByText('Login events').locator('..')).toContainText('1')
+  await expect(main.getByText('High-risk events').locator('..')).toContainText('2')
+  await expect(main.getByText('apikey_admin_42').first()).toBeVisible()
+  await expect(main.getByText('scim:directory_77').first()).toBeVisible()
+  await main.getByRole('button', { name: /^claude_file_viewed ·/ }).click()
+  await expect(page.getByRole('dialog')).toContainText('no longer returns file, project-document or artifact names')
+})
+

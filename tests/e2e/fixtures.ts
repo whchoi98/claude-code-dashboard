@@ -30,7 +30,7 @@ export function apiFixture(url: URL): unknown {
   if (path === '/api/health') return {
     ok: true, analyticsKey: 'analytics', adminKey: 'none', apiUrl: 'https://example.test',
     apiVersion: '2023-06-01',
-    dataConstraints: { firstAvailableDate: '2026-01-01', bufferDays: 3, maxLookbackDays: 90, summariesMaxRangeDays: 31, rateLimitPerMinute: 60 },
+    dataConstraints: { firstAvailableDate: '2026-01-01', bufferDays: 3, maxLookbackDays: 90, summariesMaxRangeDays: 366, rateLimitPerMinute: 60 },
   }
   if (path === '/api/groups') return {
     source: 'members', file: null, groups: ['Engineering', 'Design'],
@@ -51,8 +51,14 @@ export function apiFixture(url: URL): unknown {
     return { range: period, days }
   }
   if (path === '/api/compliance/activities') return {
-    source: 'live', has_more: false, stop_reason: 'has_more=false', partial: false, total_fetched: 1, in_window: 1,
-    data: [{ id: 'event-1', type: 'claude_login', created_at: `${today}T09:00:00Z`, actor: { type: 'user_actor', email_address: emails[0] }, organization_id: 'test-org' }],
+    source: 'live', has_more: false, stop_reason: 'has_more=false', partial: false, total_fetched: 4, in_window: 4,
+    // Real activity-enum types and actor shapes (Compliance API reference).
+    data: [
+      { id: 'event-1', type: 'sso_login_succeeded', created_at: `${today}T09:00:00Z`, actor: { type: 'user_actor', email_address: emails[0], user_id: 'user_1' }, organization_id: 'test-org' },
+      { id: 'event-2', type: 'admin_api_key_created', created_at: `${today}T08:30:00Z`, actor: { type: 'admin_api_key_actor', admin_api_key_id: 'apikey_admin_42' }, organization_id: 'test-org' },
+      { id: 'event-3', type: 'claude_file_viewed', created_at: `${today}T08:00:00Z`, actor: { type: 'user_actor', email_address: emails[1], user_id: 'user_2' }, organization_id: 'test-org', claude_file_id: 'claude_file_0123456789ab', filename: null },
+      { id: 'event-4', type: 'scim_user_deleted', created_at: `${today}T07:00:00Z`, actor: { type: 'scim_directory_sync_actor', directory_id: 'directory_77', workos_event_id: 'evt_1' }, organization_id: 'test-org' },
+    ],
   }
   const rows = emails.map((user_email, index) => ({
     user_email, account_uuid: `sample-${index}`, product: 'claude_code', model: 'claude_sonnet_4_6',

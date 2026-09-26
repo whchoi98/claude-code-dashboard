@@ -289,23 +289,25 @@ export const handler = async (event = {}, context = {}) => {
 }
 
 // ── Compliance audit archival ────────────────────────────────────────────
-// /v1/compliance/activities only walks backward via after_id (newest-first,
-// no timestamp filter), so each run walks from "now" until it crosses the
-// capture window's lower bound and buckets events by their created_at day.
+// Each UTC day in the capture window is fetched as its OWN bounded query —
+// documented `created_at.gte/lt` (RFC 3339) + `limit` up to 5000 + the
+// response's opaque `last_id` as the next `after_id` — so a day's events are
+// complete exactly when a page answers `has_more: false`. The previous design
+// walked the unfiltered feed backward from "now" (110-150 pages of 100 per
+// run, each request itself a `compliance_api_accessed` event); bounded days
+// take ~3 requests each and no longer traverse "today" first.
 // Default window: the last 2 COMPLETE UTC days (yesterday + the day before —
 // the overlap re-write is idempotent insurance, same-key PutObject).
 // Compliance is real-time: no 3-day finalization buffer applies.
 // Payload overrides: complianceStart / complianceEnd (inclusive YYYY-MM-DD),
 // complianceDays (window size when no explicit start; analytics BACKFILL
 // invokes — any payload with an explicit `date` — default to 0 so a 30-day
-// backfill loop doesn't re-walk the same live window 30 times against the
-// shared 60 rpm budget), compliancePages (walk cap, default 200 — audit
-// volume runs ~6k events/day as of 2026-07-15 (heavily self-amplified by
-// the dashboard's own prewarm reads), so today's partial + 2 complete days
-// ≈ 110-150 pages; the Lambda-remaining-time guard below is the real
-// limiter, and the newest-first walk order means yesterday (T-1) completes
-// before the overlap day (T-2) — a budget cut drops only T-2, which
-// yesterday's run already archived as ITS T-1).
+// backfill loop doesn't re-archive the same window 30 times),
+// compliancePages (per-DAY page cap, default 50 = 100k events/day), and
+// allowRedactedOverwrite (see COMPLIANCE_REDACTION_GUARD_BEFORE).
+// Only a COMPLETE day is written: a page/time cap, an empty page that still
+// claims has_more, or a zero-event result never overwrites a partition
+// (same-key PutObject would silently shrink the archive).
 // Failures here must NOT sink the analytics snapshot — errors are reported
 // in results.compliance_error + console.error (the CloudWatch signal)
 // instead of thrown. The Analytics key carries read:compliance_activities.
@@ -314,10 +316,60 @@ export const handler = async (event = {}, context = {}) => {
 // partitions go under org2/compliance/ + org2/raw/compliance/.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+export const COMPLIANCE_ARCHIVE_PAGE = 2000
+// 2026-09-24: the Activity Feed stopped returning file names, project
+// document names and artifact titles — retroactively, for every stored
+// activity. A day's partition is last written at the 00:30 run two days
+// later, so partitions up to 2026-09-22 may still hold the names (the exact
+// cut-over time on 09-24 is unknown); re-archiving one would replace them
+// with the redacted feed. Days before this date are skipped unless the
+// payload sets allowRedactedOverwrite: true. Normal runs only touch T-1/T-2.
+export const COMPLIANCE_REDACTION_GUARD_BEFORE = '2026-09-24'
+
+const nextUtcDay = (day) => dateMinusDays(new Date(`${day}T00:00:00Z`), -1)
+
+// Fetch ONE UTC day as a bounded query. fetchPage(params) → response body.
+// Returns { events, complete, stop, pages }. Complete = an EMPTY page that
+// doesn't claim has_more:true, or a SHORT page (fewer events than requested)
+// with an explicit has_more:false. Anything else is confirmed with one more
+// request: a full page whose flag says false (a flag glitch), and a page
+// whose flag is missing (an envelope once dropped has_more, and a silently
+// lowered server-side limit would make a truncated page look short).
+// Trusting either could overwrite a complete partition with its first page.
+// Exported for tests/server/test-collector-compliance.mjs.
+export async function collectComplianceDay(day, fetchPage, { pagesCap = 50, pageSize = COMPLIANCE_ARCHIVE_PAGE, timeLeft, pauseMs = 0 } = {}) {
+  const events = []
+  const windowParams = {
+    limit: pageSize,
+    'created_at.gte': `${day}T00:00:00Z`,
+    'created_at.lt': `${nextUtcDay(day)}T00:00:00Z`,
+  }
+  let afterId
+  for (let i = 0; i < pagesCap; i++) {
+    // Leave a Lambda-budget margin: an incomplete day is simply not written.
+    if (typeof timeLeft === 'function' && timeLeft() < 60_000) return { events, complete: false, stop: 'time', pages: i }
+    const body = await fetchPage({ ...windowParams, ...(afterId ? { after_id: afterId } : {}) })
+    // A 200 without a data array is a malformed/degraded response, NOT an
+    // empty day — treating it as empty would let a partial capture
+    // overwrite a complete partition.
+    if (!Array.isArray(body?.data)) throw new Error('malformed activities response (no data array)')
+    for (const ev of body.data) {
+      if ((ev?.created_at || '').slice(0, 10) === day) events.push(ev)
+    }
+    const empty = body.data.length === 0
+    if (empty && body.has_more !== true) return { events, complete: true, stop: 'end_of_window', pages: i + 1 }
+    if (empty) return { events, complete: false, stop: 'empty_page', pages: i + 1 }
+    if (body.has_more === false && body.data.length < pageSize) return { events, complete: true, stop: 'end_of_window', pages: i + 1 }
+    afterId = (typeof body.last_id === 'string' && body.last_id) || body.data[body.data.length - 1]?.id
+    if (pauseMs) await sleep(pauseMs)
+  }
+  return { events, complete: false, stop: 'pages', pages: pagesCap }
+}
+
 async function archiveComplianceEvents(event, context, today, results, org = 'primary') {
   const s3Prefix = orgS3Prefix(org)
   const out = { events: 0, days: 0 }
-  const pagesCap = Number(event.compliancePages ?? 200)
+  const pagesCap = Number(event.compliancePages ?? 50)
   const days = Number(event.complianceDays ?? (event.date ? 0 : 2))
   if (days <= 0 && !event.complianceStart) return out
   try {
@@ -325,70 +377,43 @@ async function archiveComplianceEvents(event, context, today, results, org = 'pr
     const startDay = event.complianceStart
       || dateMinusDays(new Date(`${endDay}T00:00:00Z`), days - 1)
 
-    const byDay = new Map()
-    let afterId
-    let stop = 'pages'
-    let oldestDay = null
-    for (let i = 0; i < pagesCap; i++) {
-      // Leave a Lambda-budget margin: stopping here (stop='pages') engages
-      // the partial-day drop below instead of a hard timeout mid-write.
-      const remaining = context?.getRemainingTimeInMillis?.()
-      if (typeof remaining === 'number' && remaining < 60_000) { stop = 'time'; break }
-
-      // Bounded retry on 429/5xx/network — the walk shares the org-wide
-      // 60 rpm budget with the dashboard's keep-warm schedulers, so a
-      // single throttle must not abort the whole day's archive. Per-page
-      // abort keeps one hung socket from eating the Lambda budget.
-      let body
+    // Bounded retry on 429/5xx/network — one throttle must not abort the
+    // day. Per-page abort keeps one hung socket from eating the Lambda
+    // budget (2000-event pages are a few MB).
+    const fetchPage = async (params) => {
       for (let attempt = 1; ; attempt++) {
         try {
-          body = await fetchJson('/v1/compliance/activities', {
-            limit: 100, ...(afterId ? { after_id: afterId } : {}),
-          }, { signal: AbortSignal.timeout(15_000), org })
-          break
+          return await fetchJson('/v1/compliance/activities', params, { signal: AbortSignal.timeout(30_000), org })
         } catch (err) {
           if (attempt >= 3) throw err
           await sleep(5000 * attempt * attempt) // 5s, 20s
         }
       }
-      // A 200 without a data array is a malformed/degraded response, NOT
-      // the end of the feed — treating it as empty would let a partial
-      // capture overwrite a complete partition below.
-      if (!Array.isArray(body.data)) throw new Error('malformed activities response (no data array)')
-      const page = body.data
-      if (page.length === 0) { stop = 'empty'; break }
-      for (const ev of page) {
-        const day = (ev.created_at || '').slice(0, 10)
-        if (day >= startDay && day <= endDay) {
-          if (!byDay.has(day)) byDay.set(day, [])
-          byDay.get(day).push(ev)
-        }
+    }
+    const timeLeft = () => context?.getRemainingTimeInMillis?.() ?? Infinity
+
+    // Registered up front so progress survives a mid-loop throw.
+    const summary = {}
+    results.compliance_day_status = summary
+    // Newest first: a Lambda-budget cut drops the overlap day (T-2), which
+    // yesterday's run already archived as ITS T-1.
+    for (let day = endDay; day >= startDay; day = dateMinusDays(new Date(`${day}T00:00:00Z`), 1)) {
+      if (day < COMPLIANCE_REDACTION_GUARD_BEFORE && event.allowRedactedOverwrite !== true) {
+        summary[day] = 'skipped_redaction_guard'
+        continue
       }
-      oldestDay = (page[page.length - 1].created_at || '').slice(0, 10)
-      if (oldestDay < startDay) { stop = 'window'; break }
-      if (!body.has_more) { stop = 'end_of_feed'; break }
-      afterId = page[page.length - 1].id
-      await sleep(600) // pace the shared 60 rpm budget (walk ≈ 15-20 req/min incl. fetch latency)
-    }
-
-    // Only a walk that crossed BELOW startDay ('window') proves the oldest
-    // captured day is complete. Any other stop (page/time cap, an 'empty'
-    // page, a has_more=false glitch) may have cut mid-day — writing that
-    // day would OVERWRITE a previously complete partition with a shorter
-    // one (same-key PutObject), silently shrinking the audit archive.
-    if (stop !== 'window' && oldestDay && byDay.has(oldestDay)) {
-      byDay.delete(oldestDay)
-      results.compliance_dropped_partial_day = oldestDay
-    }
-
-    for (const [day, evs] of [...byDay.entries()].sort()) {
+      const r = await collectComplianceDay(day, fetchPage, { pagesCap, timeLeft, pauseMs: 1000 })
+      if (!r.complete) { summary[day] = `incomplete_${r.stop}`; continue }
+      // Zero events for a whole day is implausible while the dashboard
+      // itself reads the feed; never let it replace a stored partition.
+      if (r.events.length === 0) { summary[day] = 'empty_not_written'; continue }
       results[`compliance_${day}`] = await writePartition('compliance', day,
-        toNdjson(evs.map(flattenActivity)), s3Prefix)
-      await writeRaw('compliance', day, evs, s3Prefix)
-      out.events += evs.length
+        toNdjson(r.events.map(flattenActivity)), s3Prefix)
+      await writeRaw('compliance', day, r.events, s3Prefix)
+      summary[day] = `ok_${r.pages}p`
+      out.events += r.events.length
       out.days += 1
     }
-    results.compliance_stop = stop
   } catch (err) {
     results.compliance_error = String(err?.message || err)
     console.error('[collector] compliance archival failed:', results.compliance_error)

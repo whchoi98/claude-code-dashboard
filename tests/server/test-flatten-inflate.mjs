@@ -1,7 +1,7 @@
 // Round-trip test for the collector flatten ↔ server inflate contract.
 // node tests/server/test-flatten-inflate.mjs — exit 0 on success, 1 on failure.
 import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin } from '../../collector/flatten.js'
-import { inflateUser } from '../../server/inflate.js'
+import { inflateUser, withUserShape } from '../../server/inflate.js'
 
 let n = 0, failed = 0
 const ok = (name, cond) => { n++; console.log(`${cond ? 'ok' : 'not ok'} ${n} - ${name}`); if (!cond) failed++ }
@@ -145,6 +145,26 @@ ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES
     && sparse.install_count === 0 && sparse.invocation_count === 0 && sparse.claude_code_uses === 0 && sparse.cowork_uses === 0)
   const PLUGIN_COLUMN_NAMES = ['plugin_name', 'plugin_id', 'distinct_users', 'install_count', 'invocation_count', 'claude_code_uses', 'cowork_uses']
   ok('flattenPlugin emits exactly its 7 documented columns', PLUGIN_COLUMN_NAMES.every((c) => c in p) && Object.keys(p).length === 7)
+}
+
+// ── withUserShape: raw sidecar rows keep the full nested shape ──────────────
+{
+  const sparseRaw = {
+    user: { id: 'u1', email_address: 'a@x.com' },
+    chat_metrics: { message_count: 7, distinct_projects_used_count: 3 },
+    cowork_metrics: { distinct_session_count: 2, artifacts_created_count: null },
+    office_metrics: null,
+    extra_field: 'kept',
+  }
+  const u = withUserShape(sparseRaw)
+  ok('raw values win', u.chat_metrics.message_count === 7 && u.chat_metrics.distinct_projects_used_count === 3)
+  ok('missing counters come from the skeleton', u.chat_metrics.distinct_conversation_count === 0)
+  ok('missing nested objects exist', typeof u.office_metrics.word.distinct_session_count === 'number'
+    && typeof u.claude_code_metrics.core_metrics.lines_of_code.added_count === 'number')
+  ok('explicit null counter stays null (not reported ≠ 0)', u.cowork_metrics.artifacts_created_count === null)
+  ok('a null nested object keeps the skeleton shape', typeof u.office_metrics.excel === 'object')
+  ok('identity + unknown extra fields preserved', u.user.email_address === 'a@x.com' && u.extra_field === 'kept')
+  ok('raw input is not mutated', sparseRaw.office_metrics === null && !('claude_code_metrics' in sparseRaw))
 }
 
 console.log(`\n1..${n}`)

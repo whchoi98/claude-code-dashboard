@@ -225,6 +225,53 @@ export class StorageStack extends cdk.Stack {
     table('plugins_daily_org2', PLUGIN_COLUMNS, 'org2/plugins')
     table('compliance_daily_org2', COMPLIANCE_COLUMNS, 'org2/compliance')
 
+    // Name-redacted views of the audit archive (ADR-0022). Partitions archived
+    // before 2026-09-24 still carry file / project-document / artifact names
+    // in `payload` (`filename`, `title`, artifact `description`) — the
+    // Compliance feed has withheld names since. These views return the same
+    // rows with those JSON keys set to null; the API rewrites every compliance_daily(_org2) reference to its
+    // view unless the session is a verified 'unmasked' administrator
+    // (sanitizeAthenaQuery revealAuditNames). The S3 data is untouched.
+    // Athena reads a Glue VIRTUAL_VIEW from the Presto-encoded original SQL.
+    const redactedView = (name: string, baseTable: string) => {
+      // String.raw keeps every backslash: the SQL literal (and thus the Trino
+      // regex) is `"(filename|title|description)":"(?:[^"\\]|\\.)*"` — a JSON
+      // string value including escaped quotes/backslashes. `description` is
+      // the published-artifact description, as revealing as its title.
+      // tests/server/test-redaction-view.mjs compiles the pattern straight out
+      // of this file.
+      const payloadSql = String.raw`regexp_replace(payload, '"(filename|title|description)":"(?:[^"\\]|\\.)*"', '"$1":null')`
+      const cols = [...COMPLIANCE_COLUMNS.map((c) => c.name as string), 'date']
+      const originalSql = `SELECT ${cols.map((c) => (c === 'payload' ? `${payloadSql} AS payload` : `"${c}"`)).join(', ')} `
+        + `FROM "claude_code_analytics"."${baseTable}"`
+      const prestoView = {
+        originalSql,
+        catalog: 'awsdatacatalog',
+        schema: 'claude_code_analytics',
+        columns: cols.map((c) => ({ name: c, type: 'varchar' })),
+        owner: 'claude-code-dashboard',
+        runAsInvoker: false,
+        properties: {},
+      }
+      new glue.CfnTable(this, `View${name}`, {
+        catalogId: cdk.Stack.of(this).account,
+        databaseName: 'claude_code_analytics',
+        tableInput: {
+          name,
+          tableType: 'VIRTUAL_VIEW',
+          parameters: { presto_view: 'true', comment: 'Presto View' },
+          viewOriginalText: `/* Presto View: ${Buffer.from(JSON.stringify(prestoView)).toString('base64')} */`,
+          viewExpandedText: '/* Presto View */',
+          storageDescriptor: {
+            columns: cols.map((c) => ({ name: c, type: 'string' })),
+            serdeInfo: {},
+          },
+        },
+      }).addDependency(db)
+    }
+    redactedView('compliance_daily_redacted', 'compliance_daily')
+    redactedView('compliance_daily_org2_redacted', 'compliance_daily_org2')
+
     this.athenaWorkGroup = new athena.CfnWorkGroup(this, 'Wg', {
       name: 'claude-code-dashboard',
       state: 'ENABLED',

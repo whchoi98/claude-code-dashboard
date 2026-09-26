@@ -22,8 +22,9 @@ The tables below were reverse-engineered from the live API responses observed by
 
 | Doc | URL |
 |---|---|
-| Claude Code Analytics API — overview, scopes, all `/v1/organizations/analytics/*` endpoints (users, summaries, skills, connectors, chat projects, cost_report, usage_report) | <https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api> |
-| Claude Code Analytics API (LLM-friendly raw markdown) | <https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api.md> |
+| Claude Enterprise Analytics API — overview, scopes, freshness, all `/v1/organizations/analytics/*` endpoints (users, summaries, skills, connectors, plugins, artifacts, chat projects, cost_report, usage_report, user_cost_report, user_usage_report) | <https://platform.claude.com/docs/en/manage-claude/analytics-api> |
+| Endpoint reference (field-level; `.md` suffix = raw markdown) | <https://platform.claude.com/docs/en/api/beta/organization/analytics> |
+| Claude Code Analytics API — the Admin-key `usage_report/claude_code` endpoint (not the dashboard's primary path) | <https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api> |
 
 ### Compliance API
 
@@ -163,13 +164,15 @@ Org-wide daily roll-up over the requested range. Returns `{ data: Summary[] }` (
 
 ## 2. Analytics API — cost family
 
-Canonical reference: [Claude Code Analytics API §Cost & usage reports](https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api).
+Canonical reference: [Claude Enterprise Analytics API](https://platform.claude.com/docs/en/manage-claude/analytics-api) · [cost report reference](https://platform.claude.com/docs/en/api/beta/organization/analytics/cost).
 
 > ADR-0003 documents the decision to use these two endpoints (with the analytics key) instead of the admin-key cost path.
 
-### `GET /v1/organizations/analytics/cost_report?starting_date=&ending_date=`
+### `GET /v1/organizations/analytics/cost_report?starting_at=&ending_at=`
 
-Response: `{ data: [{ starting_at, ending_at, results: [...] }] }` — one envelope per day.
+Response: `{ data: [{ starting_at, ending_at, results: [...] }] }` — one envelope per day. `starting_at` / `ending_at` are RFC 3339 timestamps and `ending_at` is exclusive (`dailyReportParams` sends `[D, E+1)`).
+
+With `group_by[]` set, each bucket has one row per group and **no combined total row** ("a single combined row when `group_by[]` is omitted, or one row per group"). A row with `product` and `model` both null is a real group: code-execution spans "surface with `product: null`". `analyticsReportsToCostResp` counts it as `Other` / `unspecified`.
 
 #### `cost_report.results[]`
 
@@ -180,7 +183,7 @@ Response: `{ data: [{ starting_at, ending_at, results: [...] }] }` — one envel
 | `amount` | string | **Decimal string in MINOR currency units (cents).** Parse with `parseFloat` then `/100` — do not round, the value can carry sub-cent precision. |
 | `requests` | number | request count for the (product, model, day) bucket |
 
-### `GET /v1/organizations/analytics/usage_report?starting_date=&ending_date=`
+### `GET /v1/organizations/analytics/usage_report?starting_at=&ending_at=`
 
 Response: same envelope shape as `cost_report` but `results[]` carries token breakdowns instead of currency.
 
@@ -215,7 +218,7 @@ Per-user USD spend for the requested period. Paginated via `?page=` token (same 
 
 | Field | Type | Notes |
 |---|---|---|
-| `actor.type` | string | `"user_actor"` for named users; `"api_actor"` for API-key rows (no email — excluded from per-user join). |
+| `actor.type` | string | Documented as `"user_actor"`. `email` can be null for deleted accounts and service accounts; those rows are excluded from the email-keyed per-user join. |
 | `actor.user_id` | string? | Anthropic user UUID (present on `user_actor`). |
 | `actor.name` | string? | Display name (present on `user_actor`). |
 | `actor.email` | string? | Raw email address (present on `user_actor`). Mask via `maskEmail()` before display. |
@@ -292,13 +295,19 @@ Categorized as the dashboard does internally (`src/pages/Compliance.tsx:RISK_TYP
 
 | `type` | Extra top-level fields |
 |---|---|
-| `claude_chat_viewed` | `claude_chat_id` (chat UUID) |
-| `project_created` | `project_name` |
-| `project_renamed` | `project_name` (post-rename) |
+| `claude_chat_viewed` | `claude_chat_id` |
+| `claude_user_role_updated` | `user_email`, `previous_role`, `current_role` |
 | `compliance_api_accessed` | `request_method`, `status_code` |
-| `file_uploaded` | `file_name` |
+| `social_login_succeeded` | `provider` |
+| `claude_file_*` / `claude_project_file_*` | `claude_file_id` (`filename` is empty since 2026-09-24) |
+| `claude_file_exported` | `claude_file_id`, `export_destination` |
+| `claude_artifact_*` | `claude_artifact_version_id`, `artifact_type` (`title` is empty since 2026-09-24) |
 
-> The catalog above is what the dashboard's UI handles explicitly. Anthropic emits other event types — they appear in the audit feed labeled `info` and are dropped into the table without per-event detail extraction. Add a `case` in `eventSummary()` (`Compliance.tsx:76`) when you start surfacing a new one.
+> The feed's activity enum has 514 values (2026-09) plus the Access Transparency types `anthropic_access` and `cmek_preserve`. The risk and login sets the UI uses live in `src/lib/auditTypes.ts`; any other type is labeled `info`. Add a case to `eventSummary()` in `Compliance.tsx` when you start surfacing a new one.
+>
+> **2026-09-24:** the feed stopped returning file, project-document and artifact names, retroactively. A name lookup needs the content endpoints under `read:compliance_user_data`. Names archived before that date stay in `compliance_daily`, readable by administrators only — other sessions query `compliance_daily_redacted` (ADR-0022). `claude_*_viewed` records a Claude app loading content (not deduplicated), not a person viewing it.
+>
+> **Actors:** 11 `actor.type` values — `user_actor`, `api_actor`, `admin_api_key_actor`, `service_account_actor`, `scim_directory_sync_actor`, `system_actor`, `anthropic_actor`, `unauthenticated_user_actor`, `federated_identity_actor`, `federated_actor`, `attested_device_actor`. Each has its own identifying fields (see `actorKey()` in `src/lib/auditTypes.ts`).
 
 ---
 
@@ -306,10 +315,11 @@ Categorized as the dashboard does internally (`src/pages/Compliance.tsx:RISK_TYP
 
 | Family | Cursor field | Returned in | Stop condition |
 |---|---|---|---|
-| Analytics — `users/range`, `summaries`, `skills`, `connectors`, `projects` | `?page=<token>` | `body.next_page` (with `body.has_more: true`) | `has_more=false` or empty `next_page` |
+| Analytics engagement — `users`, `skills`, `connectors`, `plugins`, `projects` | `?page=<token>` | `body.next_page` (no `has_more` documented) | empty `next_page` (a missing `has_more` means "follow `next_page`") |
+| Analytics — `summaries` | — (not paginated) | — | `ending_date` is **exclusive**; see `summariesUpstreamParams()` |
 | Analytics — `cost_report`, `usage_report` | same | same | same |
 | Admin — `usage_report/*`, `cost_report` | same | same | same |
-| **Compliance — `activities`** | **`?after_id=<event_id>`** | **NOT a separate field — derive from `data[-1].id`** | `has_more=false` or returned `data.length < limit` |
+| **Compliance — `activities`** | **`?after_id=<last_id>`** | **`body.last_id`** (opaque; fallback `data[-1].id`); also `first_id` for `before_id` | `has_more=false`. Filters: `created_at.{gte,gt,lte,lt}` (RFC 3339), `activity_types[]` / `exclude_activity_types[]`, `actor_ids[]`; `limit` ≤ 5000. Keep params fixed within a walk. |
 
 The Compliance cursor is the most common drift point. The proxy at `server/index.js` enforces the right shape; never paginate Compliance from the client side without re-checking.
 
@@ -317,8 +327,8 @@ The Compliance cursor is the most common drift point. The proxy at `server/index
 
 ## 5. Other contract details
 
-- **Rate limit**: 60 requests / minute per key (Analytics). The collector + `users/range` proxy work within this budget by going S3-first.
-- **Data freshness**: Analytics endpoints lag real time by ~3 days (the `firstAvailableDate` constraint exposed via `/api/health`). Compliance is real-time.
+- **Rate limit**: Analytics allows 60 requests per minute per **organization**, shared by every key and every dashboard task. The collector and the range proxies stay inside it by reading S3 first. Compliance has its own budget of 600 per minute per parent organization, and every Compliance read is itself logged as a `compliance_api_accessed` activity.
+- **Data freshness**: the engagement endpoints serve up to a finalization horizon that the server learns per key (`server/freshness.js`: typically today−1 or today−2, today−3 fallback; exposed as `bufferDays` via `/api/health`). The cost family serves recent days with partial data at a ~4 h `data_refreshed_at` watermark. Compliance is real-time.
 - **Available history**: Analytics goes back to `2026-01-01`. Older windows return empty `data` arrays.
 - **Empty days vs. missing days**: a day with no activity returns an empty `data` array, not a 404. The collector writes a partition file regardless so Athena queries don't have to handle missing partitions.
 - **Email casing**: Anthropic returns lowercased email addresses. `maskEmail()` doesn't normalize, so consumers should be case-insensitive when matching against external user lists.
@@ -330,13 +340,17 @@ The Compliance cursor is the most common drift point. The proxy at `server/index
 | Source field | Dashboard surface |
 |---|---|
 | `Summary.daily_active_user_count` | Overview KPI · Trends chart · Executive headline · `/api/analytics/summaries` |
+| `Summary.<product>_{daily,weekly,monthly}_active_user_count` (claude_code, chat, cowork, claude_design, office_agent, science; omitted when not reported) | Trends "Active users by product" |
+| `Skill.skill_display_name` · `invocation_count` · `share_status` · `estimated_overage_spend` · `attributed_list_price` | Adoption skill labels + skill usage & spend table |
+| `Connector.connector_display_name` · `read/write/unclassified_call_count` · `managed_auth_distinct_user_count` | Adoption connector labels + tool-call table |
+| Plugin `plugin_name = "third-party"` (aggregate bucket) | Adoption plugin chart (labeled, excluded from stale detection) |
 | `Summary.monthly_adoption_rate` | Overview KPI · Executive KPI |
 | `UserRecord.claude_code_metrics.core_metrics.lines_of_code.added_count` | Claude Code "LOC" KPI · Productivity trend · Executive headline |
 | `UserRecord.claude_code_metrics.tool_actions.*.{accepted,rejected}_count` | Tool-acceptance leaderboard + WoW context · Productivity composite score |
 | `Skill.distinct_user_count` | Adoption "peak users per skill" bar · stale-skill detector |
 | `cost_report.results[].amount` | Cost page total spend · Executive spend KPI · per-developer KPI |
 | `usage_report.results[].output_tokens` | Cost page output-tokens KPI · cost reshape |
-| Compliance `actor.email_address` (masked) | Audit feed table · Top actors chart · Risk-by-actor heatmap proposal |
+| Compliance `actor` (11 kinds; emails masked) | Audit feed table · Top actors chart · unique-actor KPI (`actorKey`) |
 | Compliance `type ∈ RISK_TYPES` | Audit risk KPI · daily risk bars · Executive risk count |
 
 Updates to any of these should also touch [`metrics-catalog.md`](./metrics-catalog.md) so the user-facing definition stays aligned.

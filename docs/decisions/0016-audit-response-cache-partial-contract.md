@@ -1,6 +1,6 @@
 # ADR-0016: Audit response-level cache + degraded-200 partial contract
 
-- **Status**: Accepted
+- **Status**: Accepted — walk mechanics amended by [ADR-0022](0022-compliance-time-windowed-walks.md) (2026-09-26: 1000-event pages, `last_id` cursor, `created_at` range for past windows; the cache and `partial` contract are unchanged)
 - **Date**: 2026-07-15
 - **Deciders**: @whchoi98
 - **Amends**: [ADR-0004](0004-compliance-pagination-prewarm.md) · **Extends**: [ADR-0015](0015-performance-caching-layer.md)

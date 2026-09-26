@@ -89,6 +89,8 @@ const PRODUCT_COLORS: Record<string, string> = {
   claude_in_chrome: '#8A8474',
   code_review:      '#CC7722',
   research:         '#6A8EAE',
+  office_agent:     '#5B7FA6',
+  'claude-tag':     '#7F8C5A',   // hyphenated upstream id (Claude in Slack)
   other:            '#D7D3C7',
 }
 const PRODUCT_LABELS: Record<string, string> = {
@@ -99,6 +101,8 @@ const PRODUCT_LABELS: Record<string, string> = {
   claude_in_chrome: 'Claude in Chrome',
   code_review: 'Code Review',
   research: 'Research',
+  office_agent: 'Office Agents',
+  'claude-tag': 'Claude in Slack',
   other: 'Other',
 }
 // snake_case product id → display label; Title-Cases any unknown/new id.
@@ -565,15 +569,18 @@ export function Cost() {
   const trendsPivot = useMemo(() => {
     if (!data?.daily || data.daily.length === 0) return { rows: [], models: [] }
     const byDate = new Map<string, Record<string, any>>()
-    const models = new Set<string>()
+    const spendByModel = new Map<string, number>()
     for (const d of data.daily) {
-      models.add(d.model)
+      spendByModel.set(d.model, (spendByModel.get(d.model) ?? 0) + (d.spend ?? 0))
       const row = byDate.get(d.date) ?? { date: d.date }
       row[shortModel(d.model)] = (row[shortModel(d.model)] ?? 0) + d.spend
       byDate.set(d.date, row)
     }
     const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
-    return { rows, models: [...models].sort() }
+    // A spend chart: token-only series (e.g. model-less usage rows) would be
+    // zero-height legend noise.
+    const models = [...spendByModel.entries()].filter(([, v]) => v > 0).map(([m]) => m).sort()
+    return { rows, models }
   }, [data])
 
   if (loading) return <LoadingState />
@@ -987,6 +994,8 @@ export function Cost() {
                     key={m}
                     type="monotone"
                     dataKey={shortModel(m)}
+                    // 'unspecified' = spend with no model (code execution etc.)
+                    name={m === 'unspecified' ? t('cost.model.unspecified') : shortModel(m)}
                     stackId="m"
                     stroke={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
                     fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}

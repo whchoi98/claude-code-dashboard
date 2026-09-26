@@ -24,6 +24,19 @@ const USERS = [
   { id: 'u_20', email: 'tina.jo@acme.com' },
 ]
 const SEAT_COUNT = 25
+// Per-product active users for the summaries mock (share of org-wide DAU/WAU/MAU).
+const PRODUCT_SHARES = { claude_code: 0.6, chat: 0.5, claude_design: 0.12, office_agent: 0.06 }
+function perProductActive({ dau, wau, mau }) {
+  const out = {}
+  for (const [product, share] of Object.entries(PRODUCT_SHARES)) {
+    out[`${product}_daily_active_user_count`] = Math.floor(dau * share)
+    out[`${product}_weekly_active_user_count`] = Math.floor(wau * share)
+    out[`${product}_monthly_active_user_count`] = Math.floor(mau * share)
+  }
+  return out
+}
+const SHARE_STATUSES = ['organization', 'private', 'public', null]
+
 const SKILLS = [
   'code-review', 'pdf-processing', 'webapp-testing', 'sql-generator',
   'doc-writer', 'data-analysis', 'diagram-builder', 'test-generator',
@@ -165,6 +178,10 @@ export const generateMock = {
         cowork_daily_active_user_count: Math.floor(dau * 0.15),
         cowork_weekly_active_user_count: Math.floor(wau * 0.2),
         cowork_monthly_active_user_count: Math.floor(mau * 0.25),
+        // Per-product breakdown, derived (no extra rand() calls — keeps every
+        // other mock value stable). science_* is deliberately OMITTED: an org
+        // without that product reports no field at all (absent ≠ 0).
+        ...perProductActive({ dau, wau, mau }),
         assigned_seat_count: SEAT_COUNT,
         pending_invite_count: Math.max(0, Math.floor(2 + rand() * 3)),
         daily_adoption_rate:   Number(((dau / SEAT_COUNT) * 100).toFixed(2)),
@@ -177,11 +194,18 @@ export const generateMock = {
 
   skills(date) {
     const rand = rng(hashSeed(date) ^ 0xA11)
-    const data = SKILLS.map((name) => {
+    const data = SKILLS.map((name, i) => {
       const distinctUsers = Math.floor(1 + rand() * 10)
       return {
         skill_name: name,
+        skill_display_name: null,
         distinct_user_count: distinctUsers,
+        // Derived fields (no rand() — existing mock values stay unchanged).
+        invocation_count: distinctUsers * 3 + i,
+        share_status: SHARE_STATUSES[i % SHARE_STATUSES.length],
+        currency: 'USD',
+        estimated_overage_spend: (distinctUsers * 137.5 + i * 11).toFixed(4),
+        attributed_list_price: (distinctUsers * 412.25 + i * 23).toFixed(4),
         chat_metrics: { distinct_conversation_skill_used_count: Math.floor(distinctUsers * (1 + rand() * 3)) },
         claude_code_metrics: { distinct_session_skill_used_count: Math.floor(distinctUsers * (1 + rand() * 2)) },
         office_metrics: {
@@ -209,16 +233,31 @@ export const generateMock = {
         cowork_metrics: { distinct_session_plugin_used_count: Math.floor(rand() * 3) },
       }
     })
+    // Upstream aggregate bucket for plugin activity reported without a name
+    // (appended after the rand()-driven rows so their values stay stable).
+    data.push({
+      plugin_name: 'third-party', plugin_id: null,
+      distinct_user_count: 2, install_count: 0, invocation_count: 5,
+      claude_code_metrics: { distinct_session_plugin_used_count: 3 },
+      cowork_metrics: { distinct_session_plugin_used_count: 0 },
+    })
     return { data, has_more: false, next_page: null }
   },
 
   connectors(date) {
     const rand = rng(hashSeed(date) ^ 0xBEE)
-    const data = CONNECTORS.map((name) => {
+    const data = CONNECTORS.map((name, i) => {
       const distinctUsers = Math.floor(1 + rand() * 14)
       return {
         connector_name: name,
+        connector_display_name: null,
         distinct_user_count: distinctUsers,
+        // Derived tool-call classification (no rand()).
+        read_call_count: distinctUsers * 9 + i,
+        write_call_count: distinctUsers * 2 + (i % 3),
+        unclassified_call_count: distinctUsers + i,
+        managed_auth_distinct_user_count: i % 2 === 0 ? Math.max(0, distinctUsers - 1) : null,
+        individual_auth_distinct_user_count: i % 2 === 0 ? 1 : null,
         chat_metrics: { distinct_conversation_connector_used_count: Math.floor(distinctUsers * (1 + rand() * 2)) },
         claude_code_metrics: { distinct_session_connector_used_count: Math.floor(distinctUsers * (1 + rand() * 1.5)) },
         office_metrics: {
