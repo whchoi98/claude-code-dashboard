@@ -53,18 +53,11 @@ ok('history caps to last 12 turns', historyToBedrockMessages(
 ).length <= 12)
 
 // parseFollowups
-ok('parseFollowups reads JSON array', eq(
-  parseFollowups('["Q1?","Q2?","Q3?","Q4?"]'),
+ok('parseFollowups reads schema object, caps at 3', eq(
+  parseFollowups('{"questions":["Q1?","Q2?","Q3?","Q4?"]}'),
   ['Q1?', 'Q2?', 'Q3?'],
 ))
-ok('parseFollowups fenced json', eq(
-  parseFollowups('```json\n["A?","B?"]\n```'),
-  ['A?', 'B?'],
-))
-ok('parseFollowups line fallback', eq(
-  parseFollowups('1. First question?\n2. Second question?'),
-  ['First question?', 'Second question?'],
-))
+ok('parseFollowups wrong shape → []', eq(parseFollowups('{"questions":"x"}'), []))
 ok('parseFollowups garbage → []', eq(parseFollowups('no questions here'), []))
 
 // rankUsers (UserRecord shape from src/types.ts)

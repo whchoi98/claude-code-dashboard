@@ -26,7 +26,10 @@ npx tsc --noEmit
 # 2. Optional local build check
 npx vite build
 
-# 3. Deploy the target stack (default = ccd-compute)
+# 3. Regenerate the gitignored Lambda@Edge bundle (CDK packages infra/edge/dist/)
+npm run build:edge
+
+# 4. Deploy the target stack (default = ccd-compute)
 cd infra
 npx cdk deploy ${1:-ccd-compute} --require-approval never \
   --context existingVpcId=vpc-0dfa5610180dfa628 \

@@ -56,26 +56,20 @@ export function historyToBedrockMessages(history) {
   return turns.map((t) => ({ role: t.role, content: [{ text: t.text }] }))
 }
 
-// Extract up to 3 follow-up questions. Prefer a JSON array (optionally fenced);
-// fall back to numbered/bulleted question lines. Returns [] on anything unusable.
+// Schema for the follow-up call's Converse outputConfig (structured output —
+// Bedrock guarantees the shape, so no fence/regex/line fallback is needed).
+export const FOLLOWUPS_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: { questions: { type: 'array', items: { type: 'string' } } },
+  required: ['questions'], additionalProperties: false,
+})
+
+// Up to 3 follow-up questions from a FOLLOWUPS_SCHEMA response; [] on anything unusable.
 export function parseFollowups(text) {
-  const raw = String(text || '')
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const candidate = fence ? fence[1] : raw
-  const arrMatch = candidate.match(/\[[\s\S]*\]/)
-  if (arrMatch) {
-    try {
-      const arr = JSON.parse(arrMatch[0])
-      if (Array.isArray(arr)) {
-        const out = arr.map((s) => String(s).trim()).filter(Boolean)
-        if (out.length) return out.slice(0, 3)
-      }
-    } catch { /* fall through to line parsing */ }
-  }
-  const lines = raw.split('\n')
-    .map((l) => l.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
-    .filter((l) => l.endsWith('?'))
-  return lines.slice(0, 3)
+  try {
+    const qs = JSON.parse(String(text || '')).questions
+    return Array.isArray(qs) ? qs.map((s) => String(s).trim()).filter(Boolean).slice(0, 3) : []
+  } catch { return [] }
 }
 
 const cc = (u) => u?.claude_code_metrics?.core_metrics || {}
@@ -158,7 +152,7 @@ export const TOOL_SPECS = [
   {
     toolSpec: {
       name: 'get_cost_summary',
-      description: 'Org-wide spend in USD plus token totals, grouped by product and model, over a date range (defaults to the last ~31 days). There is NO per-user cost dimension in the live API (ADR-0003). Use for "where is the money going / spend by model" questions.',
+      description: 'Org-wide spend in USD plus token totals, grouped by product and model, over a date range (defaults to the last ~31 days). Returns org-level totals only — no per-user rows; per-user spend lives on the dashboard\'s Cost page and is not exposed through these chat tools. Use for "where is the money going / spend by model" questions.',
       inputSchema: {
         json: {
           type: 'object',
@@ -221,7 +215,6 @@ export function CHAT_SYSTEM_PROMPT(locale, today, org = null, unmask = false) {
   return [
     'You are an enterprise analytics assistant for Claude Code Enterprise. This is a multi-turn conversation — use the prior turns for context.',
     'Use the provided tools to fetch real data before answering; never invent numbers. Cite exact figures and compute rates/growth explicitly.',
-    'Pick the right tool: get_analytics_overview for org-level adoption; search_users for per-user rankings on finalized days; run_athena_sql for historical/time-series/custom aggregations; get_cost_summary for USD spend; get_user_usage for per-user activity (requests/tokens) on RECENT days — today and the not-yet-finalized buffer days.',
     ...(orgLine ? [orgLine] : []),
     'Data caveats to respect: a 3-day finalization buffer on the analytics tables, a 90-day live lookback, and no Bedrock usage in cost.',
     // The privacy line must match how the runner actually serves this

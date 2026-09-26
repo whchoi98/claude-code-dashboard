@@ -108,7 +108,7 @@ See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision
 |-----------|-------------|---------|
 | `get_analytics_overview` | Live Analytics API | Org-wide adoption snapshot: DAU/WAU/MAU, assigned seats, top skills and connectors. No per-user rows and no USD cost. |
 | `run_athena_sql` | S3 archive via Athena | One read-only `SELECT`/`WITH` over the seven primary Glue tables (`claude_code_analytics`, `summaries_daily`, `skills_daily`, `connectors_daily`, `projects_daily`, `compliance_daily`, `plugins_daily`) or their `*_org2` mirrors. Goes through `sanitizeAthenaQuery`; results capped at 200 rows. Partition column `date` is `varchar` — use plain string literals, not `DATE '…'`. |
-| `get_cost_summary` | Live Analytics API | Org-wide spend in USD + tokens, grouped by product and model, over an optional date range. No per-user cost dimension (see [ADR-0003](decisions/0003-hybrid-live-cost.md)). |
+| `get_cost_summary` | Live Analytics API | Org-wide spend in USD + tokens, grouped by product and model, over an optional date range. Org-level only; per-user spend (`user_cost_report`, [ADR-0009](decisions/0009-live-user-cost.md)) is served by `/api/cost/users`, not by a chat tool. |
 | `get_user_usage` | Live Analytics `user_usage_report` | Per-user requests/tokens through today. Tool windows are capped to the newest 31 days; returned scope, freshness and clamp flags are preserved. |
 | `search_users` | Live Analytics API snapshot | Top Claude Code contributors ranked by LOC + commits + PRs, with tool acceptance rate. Emails are masked. Supports optional `query` (email substring) and `limit` (1–50). |
 

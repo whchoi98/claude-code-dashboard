@@ -20,11 +20,12 @@ description: Cut a new release — bump version, update CHANGELOG, tag, and (opt
    - Move everything under `[Unreleased]` into a new `[X.Y.Z] - YYYY-MM-DD` section.
    - Leave `[Unreleased]` empty.
    - Update reference links at the bottom of each language section.
-4. **Bump `package.json`** version (and `infra/package.json`, `collector/package.json` if they track the same version).
+4. **Bump `package.json`** version and its lockfile, plus the `version-X.Y.Z-blue` badge in both `README.md` and `README.ko.md`.
+   `infra/` and `collector/` package versions are independent — leave them.
 5. **Commit**: `chore(release): vX.Y.Z`.
 6. **Tag**: `git tag -a vX.Y.Z -m "Release X.Y.Z"`.
 7. **Push**: `git push && git push --tags` (only after confirming with the user).
-8. **Deploy** (on request): `cd infra && npx cdk deploy ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628`.
+8. **Deploy** (on request): `npm run build:edge && cd infra && npx cdk deploy ccd-compute --context existingVpcId=vpc-0dfa5610180dfa628`.
 
 ## Safety
 

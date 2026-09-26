@@ -48,8 +48,7 @@ claude-code-dashboard/
 ├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots; publish via scripts/deploy-pages.sh → gh-pages branch)
 ├── docs/                   Architecture, ADRs, runbooks, onboarding, API reference
 ├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish) + generate-pwa-icons.mjs (sharp via `npm i --no-save` — NOT a package.json dep)
-├── tests/                  Server/structure harness + Vitest frontend + Playwright browser tests
-└── tools/prompts/          AI prompt templates
+└── tests/                  Server/structure harness + Vitest frontend + Playwright browser tests
 ```
 
 ## Key Commands

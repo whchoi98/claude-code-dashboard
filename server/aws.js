@@ -3,7 +3,7 @@ import multer from 'multer'
 import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import {
   MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
-  historyToBedrockMessages, parseFollowups, maskEmailsDeep,
+  historyToBedrockMessages, parseFollowups, FOLLOWUPS_SCHEMA, maskEmailsDeep,
 } from './chat-tools.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import {
@@ -1318,9 +1318,8 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   async function generateFollowups(userMsg, answer, locale) {
     const langName = locale === 'ko' ? 'Korean' : 'English'
     const prompt = [
-      'Given this analytics Q&A, propose exactly 3 short, specific follow-up questions a user would naturally ask next.',
+      'Given this analytics Q&A, propose 3 short, specific follow-up questions a user would naturally ask next.',
       `Write them in ${langName}. Reference concrete entities (model names, metrics, time windows) where possible.`,
-      'Return ONLY a JSON array of 3 strings, nothing else.',
       '', `QUESTION: ${userMsg}`, '', `ANSWER: ${answer.slice(0, 2000)}`,
     ].join('\n')
     try {
@@ -1328,6 +1327,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
         modelId: MODEL_ID,
         messages: [{ role: 'user', content: [{ text: prompt }] }],
         inferenceConfig: { maxTokens: 300, temperature: 0.4 },
+        outputConfig: { textFormat: { type: 'json_schema', structure: { jsonSchema: { name: 'followups', schema: FOLLOWUPS_SCHEMA } } } },
       }))
       const text = out.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') || ''
       return parseFollowups(text)
@@ -1394,7 +1394,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           system: [{ text: CHAT_SYSTEM_PROMPT(locale, today, orgInfo, unmask) }],
           messages,
           toolConfig: { tools: TOOL_SPECS },
-          inferenceConfig: { maxTokens: 2000, temperature: 0.2 },
+          inferenceConfig: { maxTokens: 16000, temperature: 0.2 },
         }))
 
         // Reconstruct assistant content blocks (text + toolUse) from the stream.
@@ -1416,6 +1416,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
             blocks[i].json += ev.contentBlockDelta.delta.toolUse.input
           }
           if (ev.messageStop) stopReason = ev.messageStop.stopReason
+          if (ev.metadata?.usage) console.log(`[chat] org=${org} hop=${hop} usage=${JSON.stringify(ev.metadata.usage)}`)
         }
 
         const assistantContent = blocks.filter(Boolean).map((b) =>

@@ -18,18 +18,20 @@ Execute every validation command in order; stop at the first failure and surface
    ```
 3. **Server syntax check** (ESM, no bundler):
    ```bash
-   node --check server/index.js
-   node --check server/aws.js
-   node --check server/mock.js
-   node --check collector/handler.js
+   for f in server/*.js collector/*.js; do node --check "$f" || exit 1; done
    ```
-4. **CDK synth** (requires `--context existingVpcId`):
+4. **CDK synth** (requires the Lambda@Edge bundle and `--context existingVpcId`):
    ```bash
+   npm run build:edge
    cd infra && npx cdk synth --context existingVpcId=vpc-0dfa5610180dfa628 > /dev/null
    ```
-5. **Harness tests**:
+5. **Server harness + Vitest frontend suite**:
    ```bash
-   bash tests/run-all.sh
+   npm test
+   ```
+6. **Browser tests** (for routing or browser-interaction changes; first run `npx playwright install chromium`):
+   ```bash
+   npm run test:e2e
    ```
 
 ## Recovery
