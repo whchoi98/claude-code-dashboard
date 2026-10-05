@@ -97,7 +97,7 @@ See [ADR-0008](decisions/0008-tool-use-chatbot.md) for the architecture decision
 | `status` | `{ message }` | Transient status text (e.g. tool-call limit reached). |
 | `tool_call` | `{ id, name, input }` | The model is calling a tool; `input` has sensitive fields redacted. |
 | `tool_result` | `{ id, name, ok, rowCount }` | Tool execution finished; `ok=false` means the tool errored. |
-| `text` | `{ text }` | A streamed text delta from the model's response. |
+| `text` | `{ text }` | A streamed text delta from the model's response. The first delta of each new text block after the first (typically the answer after a tool call) starts with a server-inserted paragraph break, so concatenated payloads render as separate Markdown blocks; the transcript sent back to the model keeps each block's raw text. |
 | `followups` | `{ suggestions: string[] }` | Up to 3 dynamic follow-up questions generated after the answer. |
 | `error` | `{ message, hint }` | Fatal stream error; the connection ends. |
 | `done` | `{ ok, modelId, hops }` | Stream complete; `hops` is the number of tool-call rounds used. |

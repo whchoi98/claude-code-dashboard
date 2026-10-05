@@ -64,6 +64,15 @@ export const FOLLOWUPS_SCHEMA = JSON.stringify({
   required: ['questions'], additionalProperties: false,
 })
 
+// Each tool hop streams its answer as a new text block, and the client appends
+// deltas verbatim — a pre-tool line ("Fetching the data…") would run straight
+// into the next hop's "## Heading" and break its Markdown. Returns the break to
+// stream before a new text block, given everything streamed so far.
+export function textBlockSeparator(prev) {
+  if (!prev || prev.endsWith('\n\n')) return ''
+  return prev.endsWith('\n') ? '\n' : '\n\n'
+}
+
 // Up to 3 follow-up questions from a FOLLOWUPS_SCHEMA response; [] on anything unusable.
 export function parseFollowups(text) {
   try {

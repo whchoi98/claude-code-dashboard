@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- Claude Code: the "Acceptance Rates" radial labels printed raw floats (for example `78.00417…`). They now show one decimal and a percent sign, like the tooltip.
+- Chatbot: text streamed before a tool call ran straight into the next hop's answer, so a heading such as `## Top 5` rendered inline. The stream now puts a paragraph break before each new text block.
 
 ## [2.5.0] - 2026-09-26
 
@@ -880,7 +883,10 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_미출시 변경 사항 없음._
+### 수정
+
+- Claude Code: "도구별 수락률" 원형 차트 라벨이 `78.00417…`처럼 원시 소수로 나오던 문제를 고쳤습니다. 툴팁처럼 소수 첫째 자리 퍼센트로 표시합니다.
+- 챗봇: 도구 호출 전에 스트리밍된 문장이 다음 단계 답변과 붙어 `## Top 5` 같은 제목이 본문처럼 보이던 문제를 고쳤습니다. 새 텍스트 블록 앞에 문단 구분을 넣어 스트리밍합니다.
 
 ## [2.5.0] - 2026-09-26
 

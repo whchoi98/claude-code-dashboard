@@ -4,7 +4,7 @@
 
 import {
   maskEmail, maskEmailsDeep, historyToBedrockMessages,
-  parseFollowups, rankUsers, compactOverview,
+  parseFollowups, rankUsers, compactOverview, textBlockSeparator,
 } from '../../server/chat-tools.js'
 
 let testNum = 0
@@ -59,6 +59,12 @@ ok('parseFollowups reads schema object, caps at 3', eq(
 ))
 ok('parseFollowups wrong shape → []', eq(parseFollowups('{"questions":"x"}'), []))
 ok('parseFollowups garbage → []', eq(parseFollowups('no questions here'), []))
+
+// textBlockSeparator — a later hop's "## Heading" must start its own paragraph
+ok('textBlockSeparator: nothing streamed yet → no break', textBlockSeparator('') === '')
+ok('textBlockSeparator: pre-tool line → paragraph break', textBlockSeparator('데이터를 가져오겠습니다!') === '\n\n')
+ok('textBlockSeparator: one trailing newline → one more', textBlockSeparator('Done.\n') === '\n')
+ok('textBlockSeparator: already a paragraph end → none', textBlockSeparator('Done.\n\n') === '')
 
 // rankUsers (UserRecord shape from src/types.ts)
 const U = (email, loc, commits) => ({

@@ -3,7 +3,7 @@ import multer from 'multer'
 import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import {
   MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
-  historyToBedrockMessages, parseFollowups, FOLLOWUPS_SCHEMA, maskEmailsDeep,
+  historyToBedrockMessages, parseFollowups, FOLLOWUPS_SCHEMA, maskEmailsDeep, textBlockSeparator,
 } from './chat-tools.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import {
@@ -1492,10 +1492,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           }
           if (ev.contentBlockDelta?.delta?.text) {
             const t = ev.contentBlockDelta.delta.text
-            if (!blocks[i]) blocks[i] = { type: 'text', text: '' }
+            // The break goes on the stream only; the Bedrock transcript keeps each block's own text.
+            let sep = ''
+            if (!blocks[i]) { blocks[i] = { type: 'text', text: '' }; sep = textBlockSeparator(finalText) }
             blocks[i].text += t
-            finalText += t
-            sseSend(res, 'text', { text: t })
+            finalText += sep + t
+            sseSend(res, 'text', { text: sep + t })
           }
           if (ev.contentBlockDelta?.delta?.toolUse?.input != null) {
             blocks[i].json += ev.contentBlockDelta.delta.toolUse.input

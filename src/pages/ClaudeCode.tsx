@@ -151,7 +151,7 @@ export function ClaudeCode() {
                 <RadialBar
                   background={{ fill: '#F3F1EB' }}
                   dataKey="rate" cornerRadius={6} fill="#D97757"
-                  label={{ position: 'insideStart', fill: '#FAF9F5', fontSize: 10 }}
+                  label={{ position: 'insideStart', fill: '#FAF9F5', fontSize: 10, formatter: (v: number) => `${Number(v).toFixed(1)}%` }}
                 />
                 <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
               </RadialBarChart>
