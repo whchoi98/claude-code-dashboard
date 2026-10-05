@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Claude Code Dashboard — 조직의 Claude Code 도입·생산성·비용을 하나의 화면에서</title>
-<meta name="description" content="Anthropic Analytics · Admin · Compliance API와 S3 아카이브를 결합해 Claude Code 도입 현황, 생산성, 라이브 비용, 감사 로그를 AI 자연어 질의와 함께 보여주는 엔터프라이즈 분석 대시보드입니다." />
+<meta name="description" content="Anthropic Analytics · Compliance API와 S3 아카이브를 결합해 Claude Code 도입 현황, 생산성, 비용, 감사 로그를 AI 자연어 질의와 함께 보여주는 엔터프라이즈 분석 대시보드입니다." />
 <meta property="og:title" content="Claude Code Dashboard — 도입·생산성·비용, 하나의 화면" />
-<meta property="og:description" content="사용자별 생산성 · 라이브 비용 & RBAC 그룹 스코프 · 감사 로그 · AI 자연어 분석." />
+<meta property="og:description" content="사용자별 생산성 · 비용 & RBAC 그룹 스코프 · 감사 로그 · AI 자연어 분석." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://whchoi98.github.io/claude-code-dashboard/" />
 <meta property="og:image" content="https://whchoi98.github.io/claude-code-dashboard/img/overview.png" />
@@ -228,7 +228,7 @@
       height:auto; transform:translate(-50%,-50%) rotate(90deg)}
     .arch-rot-hint{display:block; font-size:12.5px; color:var(--text-3); text-align:center; margin:12px 0 30px}
   }
-  .diagram{display:grid; gap:18px; grid-template-columns:repeat(4,1fr); align-items:stretch}
+  .diagram{display:grid; gap:18px; grid-template-columns:repeat(4,1fr); align-items:stretch; list-style:none; margin:0; padding:0}
   .lane{display:flex; flex-direction:column; gap:14px; min-width:0; position:relative}
   @media (min-width:1025px){
     .lane:not(:last-child)::after{
@@ -325,7 +325,8 @@
 
   /* AI & 아카이브 lane은 시각화의 다음 단계가 아니므로 흐름 화살표를 표시하지 않음 */
   .lane.noarrow::after{display:none!important}
-  section[tabindex="-1"]:focus-visible{outline:none}
+  section[tabindex="-1"]:focus-visible, main[tabindex="-1"]:focus-visible{outline:none}
+  .sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0}
 </style>
 </head>
 <body>
@@ -352,35 +353,35 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
       </a>
-      <a class="nav-cta" href="https://c4e.whchoi.net" target="_blank" rel="noopener">라이브 데모</a>
+      <a class="nav-cta" href="https://c4e.whchoi.net" target="_blank" rel="noopener">라이브 데모<span class="sr-only">(새 창)</span></a>
     </div>
   </div>
 </nav>
 
-<main id="main">
+<main id="main" tabindex="-1">
 <!-- ===================== HERO ===================== -->
 <header class="hero" id="top">
   <div class="wrap hero-grid">
     <div>
-      <span class="eyebrow reveal"><span class="dot"></span> ANTHROPIC ANALYTICS · ADMIN · COMPLIANCE API</span>
+      <span class="eyebrow reveal"><span class="dot"></span> ANTHROPIC ANALYTICS · COMPLIANCE API</span>
       <h1 class="hero-title reveal">조직의 Claude Code를<br><em>하나의 대시보드</em>에서.</h1>
-      <p class="hero-sub reveal">Anthropic Analytics · Admin · Compliance API와 S3 아카이브를 결합해, Claude Code 도입 현황·사용자별 생산성·라이브 비용·감사 로그를 AI 자연어 분석과 함께 보여주는 엔터프라이즈 분석 대시보드입니다.</p>
+      <p class="hero-sub reveal">Anthropic Analytics · Compliance API와 S3 아카이브를 결합해, Claude Code 도입 현황·사용자별 생산성·비용·감사 로그를 AI 자연어 분석과 함께 보여주는 엔터프라이즈 분석 대시보드입니다.</p>
       <div class="hero-actions reveal">
-        <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기 (로그인 필요)</a>
+        <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기 (초대 계정 전용)<span class="sr-only">(새 창)</span></a>
         <a href="#screens" class="btn btn-ghost">화면 둘러보기</a>
       </div>
       <div class="metrics reveal">
-        <div class="metric"><div class="v num">19</div><div class="l">대시보드 화면 (Overview → Archive)</div></div>
-        <div class="metric"><div class="v num">4</div><div class="l">데이터 소스 (3 Anthropic API + S3 아카이브)</div></div>
+        <div class="metric"><div class="v num">20</div><div class="l">대시보드 화면 (변경 이력 포함)</div></div>
+        <div class="metric"><div class="v num">4</div><div class="l">데이터 소스 (Analytics API · Compliance API · S3 아카이브 · 지출 CSV)</div></div>
         <div class="metric"><div class="v num">2</div><div class="l">언어 (한국어 · English 런타임 전환)</div></div>
         <div class="metric"><div class="v">AI</div><div class="l">자연어 질의 · 스트리밍 리포트</div></div>
       </div>
     </div>
 
-    <aside class="hero-fig reveal" aria-label="데이터 흐름 모티프">
+    <aside class="hero-fig reveal" aria-label="데이터 흐름 그림">
       <div class="cap">APIS → S3 → DASHBOARD</div>
-      <div class="cap2">세 개의 Anthropic API와 S3 아카이브가 하나의 분석 화면으로 모입니다.</div>
-      <svg class="glyph" viewBox="0 0 420 300" role="img" aria-label="Anthropic API와 S3 아카이브에서 대시보드로 이어지는 데이터 흐름">
+      <div class="cap2">Anthropic API와 S3 아카이브, CSV 지출 리포트가 하나의 분석 화면으로 모입니다.</div>
+      <svg class="glyph" viewBox="0 0 420 300" role="img" aria-label="Analytics API, Compliance API, S3 아카이브, 지출 CSV에서 대시보드로 이어지는 데이터 흐름">
         <defs>
           <radialGradient id="halo" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="#D97757" stop-opacity=".35"/>
@@ -410,7 +411,7 @@
         <path d="M210 122 L215 145 L238 150 L215 155 L210 178 L205 155 L182 150 L205 145 Z" fill="#D97757"/>
         <g font-family="JetBrains Mono, monospace" font-size="11" fill="#6D675A">
           <text x="60" y="246" text-anchor="middle">Analytics API</text>
-          <text x="150" y="52" text-anchor="middle">Admin API</text>
+          <text x="150" y="52" text-anchor="middle">지출 CSV</text>
           <text x="360" y="72" text-anchor="middle">Compliance API</text>
           <text x="350" y="246" text-anchor="middle">S3 아카이브</text>
           <text x="210" y="207" text-anchor="middle" fill="#94482E" font-weight="600">DASHBOARD</text>
@@ -426,7 +427,7 @@
     <div class="sec-head reveal">
       <div class="kicker">왜 Claude Code Dashboard인가</div>
       <h2>흩어진 리포트 대신, <em>하나의 화면</em>.</h2>
-      <p>"Claude Code 도입 효과가 어때?"라는 질문에 답하려면 Console 지표, CSV 스펜드 리포트, API 응답을 오가며 짜깁기해야 합니다. Claude Code Dashboard는 세 개의 Anthropic API와 S3 아카이브를 도입·생산성·비용·감사 네 축으로 재구성해, 경영진과 엔지니어가 같은 화면을 보게 합니다.</p>
+      <p>"Claude Code 도입 효과가 어때?"라는 질문에 답하려면 Console 지표, CSV 지출 리포트, API 응답을 오가며 짜깁기해야 합니다. Claude Code Dashboard는 Anthropic Analytics·Compliance API와 S3 아카이브를 도입·생산성·비용·감사 네 축으로 재구성해, 경영진과 엔지니어가 같은 화면을 보게 합니다.</p>
     </div>
     <div class="pillars">
       <article class="pillar reveal">
@@ -435,15 +436,15 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 5-7"/></svg>
         </div>
         <h3>도입 & 생산성 가시화</h3>
-        <p>누가 얼마나 쓰는지부터 LOC·커밋·PR·툴 수용률까지. 사용자별 활동 점수와 랭킹, DAU/WAU/MAU 추이로 도입 곡선을 추적합니다.</p>
+        <p>누가 얼마나 쓰는지부터 LOC·커밋·PR·도구 수락률까지. 사용자별 활동 점수와 랭킹, DAU·WAU·MAU 추이로 도입 곡선을 추적합니다.</p>
       </article>
       <article class="pillar reveal">
         <div class="pn">02</div>
         <div class="ic">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         </div>
-        <h3>라이브 비용 & 그룹 스코프</h3>
-        <p>조직·RBAC 그룹·사용자 단위의 라이브 USD와 토큰, 모델·제품별 분해, 캐시 효율까지. 그룹 탭 하나로 조직 지표가 그룹 스코프로 바뀝니다.</p>
+        <h3>비용 & 그룹 스코프</h3>
+        <p>조직·RBAC 그룹·사용자 단위 지출(USD)과 토큰, 모델·제품별 분해, 캐시 효율, 멤버별 월 누적 지출까지. 비용 화면에서는 그룹 탭 하나로 조직 합계까지 그룹 기준으로 바뀝니다.</p>
       </article>
       <article class="pillar reveal">
         <div class="pn">03</div>
@@ -451,56 +452,56 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2L12 16.8 5.7 21l2.3-7.2-6-4.4h7.6z"/></svg>
         </div>
         <h3>AI 자연어 분석</h3>
-        <p>대시보드가 보고 있는 데이터를 그대로 컨텍스트로, Amazon Bedrock의 Claude에게 한국어로 질문하고 스트리밍 리포트를 받습니다. PDF 저장도 지원.</p>
+        <p>한국어로 질문하면 Amazon Bedrock의 Claude가 조직 지표·S3 아카이브·비용 리포트를 도구로 직접 조회해 스트리밍 리포트로 답합니다. Markdown·PDF 저장도 지원.</p>
       </article>
     </div>
   </div>
 </section>
 
 <!-- ===================== FEATURES ===================== -->
-<section class="sec" id="features" style="padding-top:0">
+<section class="sec" id="features" style="padding-top:0" tabindex="-1">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="kicker">기능</div>
       <h2>개요부터 감사까지, <em>빠짐없이</em>.</h2>
-      <p>Overview KPI, 사용자 분석, Claude Code 생산성, 라이브 비용, 표면별 사용량, 감사 로그, 아카이브, AI 분석 — 19개 화면이 하나의 대시보드 안에서 이어집니다.</p>
+      <p>Overview KPI, 사용자 분석, Claude Code 생산성, 비용, 표면별 사용량, 감사 로그, 아카이브, AI 분석 — 변경 이력까지 20개 화면이 하나의 대시보드 안에서 이어집니다.</p>
     </div>
     <div class="feat-grid">
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 13h3"/></svg></div>
         <h3>Overview & Executive</h3>
-        <p>활성 사용자·세션·생산성 KPI와 요약 차트를 첫 화면에서. 경영진용 Executive 뷰는 스펜드 요약과 인쇄(PDF 저장)까지 지원합니다.</p>
+        <p>활성 사용자·세션·생산성 KPI와 요약 차트를 첫 화면에서. 경영진용 Executive 뷰는 지출 요약과 인쇄(PDF 저장)까지 지원합니다.</p>
         <span class="tag">KPI · 요약 차트 · PDF</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.4"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.5a3.4 3.4 0 0 1 0 7M18.5 14.6c1.9.9 3.2 2.6 3.5 5.4"/></svg></div>
         <h3>사용자 분석 & 상세 패널</h3>
-        <p>사용자별 인게이지먼트 테이블과 상세 패널 — 제품·모델별 지출, 스킬, 캐시 효율(Cache Hit Rate)까지 한 사람 단위로 파고듭니다.</p>
-        <span class="tag">이메일 마스킹 · 캐시 효율</span>
+        <p>사용자별 참여도 테이블과 상세 패널 — 제품·모델별 지출, 스킬, 캐시 효율(캐시 적중률)까지 한 사람 단위로 파고듭니다. 필터·정렬한 그대로 CSV로 내보낼 수 있습니다.</p>
+        <span class="tag">이메일 마스킹 · CSV 내보내기</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14"/></svg></div>
         <h3>Claude Code 생산성</h3>
-        <p>추가·삭제 LOC, 커밋, PR, 툴 수용률과 세션 지표. 사용자별 Top 테이블과 활동 점수 랭킹으로 생산성을 비교합니다.</p>
+        <p>추가·삭제 LOC, 커밋, PR, 도구 수락률과 세션 지표. 사용자별 Top 테이블과 활동 점수 랭킹으로 생산성을 비교합니다.</p>
         <span class="tag">LOC · COMMITS · PRS · ACCEPT</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2v20M17 6.5c0-1.9-2.2-3-5-3s-5 1.1-5 3 1.6 2.6 5 3.2 5 1.5 5 3.3-2.2 3-5 3-5-1.1-5-3"/></svg></div>
-        <h3>라이브 비용</h3>
-        <p>cost/usage report 계열 API로 조직 스펜드와 사용자별 USD·토큰을 확인합니다(업스트림 약 4시간 주기 갱신). 모델·제품별 분해와 스펜드 리밋, CSV 리포트 대사(reconciliation)까지.</p>
-        <span class="tag">LIVE USD · 토큰 · 스펜드 리밋</span>
+        <h3>비용 & 실시간 지출</h3>
+        <p>Analytics 비용 리포트로 조직·그룹·사용자별 지출(USD)과 토큰을 모델·제품별로 분해합니다(약 4시간 주기 갱신). 비용 실시간 화면은 멤버별 월 누적 지출을 60초마다 새로 고치고, CSV 지출 리포트는 대조·폴백용으로 씁니다.</p>
+        <span class="tag">USD · 토큰 · 월 누적 · 지출 한도</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M6.5 6.5L10 10M17.5 6.5L14 10M6.5 17.5L10 14M17.5 17.5L14 14"/></svg></div>
         <h3>RBAC 그룹 스코프</h3>
-        <p>페이지별 그룹 탭으로 조직 지표를 그룹 단위로 전환. Compliance 멤버십 소스로 그룹 신설·인원 이동이 1시간 내 반영됩니다.</p>
+        <p>페이지별 그룹 탭으로 사용자별 표·차트를 그룹 단위로 좁히고, 비용 화면은 조직 합계까지 그룹 기준으로 다시 집계합니다. 그룹 구성은 Compliance API 멤버십에서 1시간 주기로 동기화됩니다.</p>
         <span class="tag">그룹 탭 · 멤버십 자동 동기화</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg></div>
-        <h3>도입 추이 (Trends)</h3>
-        <p>DAU·WAU·MAU와 활성률을 기간별로 추적합니다. 7일·14일·30일 프리셋과 자유 기간 선택을 지원합니다.</p>
-        <span class="tag">DAU · WAU · MAU</span>
+        <h3>도입 추이 & 스킬·커넥터</h3>
+        <p>DAU·WAU·MAU와 도입률에 더해 Claude Code·Chat·Cowork·Claude Design·Office Agents 등 제품별 활성 사용자를 최대 366일 기간으로 추적합니다. 도입 화면에서는 스킬별 호출·초과 지출 추정과 커넥터 읽기·쓰기 호출을 봅니다.</p>
+        <span class="tag">제품별 DAU · 스킬 지출 · 커넥터 호출</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></div>
@@ -511,8 +512,8 @@
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3>감사 로그 (Compliance)</h3>
-        <p>Compliance API의 활동 이벤트를 커서 페이지네이션으로 수집하고, 7·14·30일 창을 프리웜해 감사 조회에 즉시 응답합니다.</p>
-        <span class="tag">AUDIT TRAIL · 프리웜 캐시</span>
+        <p>Compliance API 활동 피드를 1,000건 단위로 조회하고, 기간 프리셋별 결과를 5분마다 미리 갱신해 두어 바로 열립니다. 역할·키 변경, 로그인 실패, Anthropic 직원 접근 같은 고위험 이벤트를 API 활동 타입 기준으로 분류하고, 11종 행위자를 구분합니다.</p>
+        <span class="tag">AUDIT TRAIL · 위험 분류 · 11종 행위자</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5" rx="8" ry="2.6"/><path d="M4 5v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6V5"/><path d="M4 12v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6v-7"/></svg></div>
@@ -525,64 +526,64 @@
 </section>
 
 <!-- ===================== SCREENSHOTS ===================== -->
-<section class="sec" id="screens" style="padding-top:0">
+<section class="sec" id="screens" style="padding-top:0" tabindex="-1">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="kicker">화면 둘러보기</div>
       <h2>대시보드 화면을 <em>미리 보세요</em>.</h2>
-      <p>아래 화면은 데모 조직 데이터 기준이며(일부 화면은 Mock 데이터), 초기 버전 캡처라 사이드바 구성은 현재 19개 화면보다 적게 보입니다. 모든 이메일은 마스킹되어 표시되며, 전체 화면은 라이브 데모에서 직접 확인할 수 있습니다.</p>
+      <p>아래 8개 화면은 모두 가상 조직(acme.com)의 합성 데이터로 캡처했습니다. 앱에 mock 모드가 없는 Cost·Audit 화면은 합성 API 응답을 넣어 렌더링했고, 이메일은 마스킹되어 보입니다.</p>
     </div>
     <div class="shot-grid">
       <figure class="shot-card wide reveal">
-        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, 세션, LOC, 커밋, PR, 툴 수용률을 보여주는 Users 화면 — 이메일은 마스킹됨" width="2400" height="663"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, Claude Code 세션, 추가 LOC, 커밋, PR, Cowork, Design, 도구 수락률 열을 정렬해 보여주는 Users 화면 — 합성 데이터, 이메일 마스킹" width="2400" height="1140"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Users</div>
-          <h3>사용자별 인게이지먼트를 한 테이블에</h3>
-          <p>메시지·세션·LOC·커밋·PR·툴 수용률을 사용자 단위로 정렬하고, 행을 클릭하면 제품별 지출과 캐시 효율까지 상세 패널로 이어집니다.</p>
+          <h3>사용자별 참여도를 한 테이블에</h3>
+          <p>메시지·세션·LOC·커밋·PR·도구 수락률을 사용자 단위로 정렬하고, 행을 클릭하면 제품별 지출과 캐시 효율까지 상세 패널로 이어집니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="조직 KPI와 요약 차트를 보여주는 Overview 화면" width="1600" height="691"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="일간·주간·월간 활성 사용자, 도입률, LOC, 세션, 커밋·PR, 도구 수락률 KPI와 DAU·WAU·MAU 추이, 도구별 수락·거절 차트를 보여주는 Overview 화면 — 합성 데이터" width="1600" height="1188"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Overview</div>
           <h3>조직 KPI를 첫 화면에서</h3>
-          <p>활성 사용자·세션·생산성 지표를 요약 차트와 함께 한눈에. 기간 프리셋(7·14·30일)으로 바로 전환합니다.</p>
+          <p>활성 사용자·세션·생산성 지표를 요약 차트와 함께 한눈에. 1·7·14·30일 프리셋과 자유 기간으로 바로 전환합니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="조직 스펜드, 토큰, 모델별 분해를 보여주는 Cost 화면" width="1600" height="828"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="총지출, 입력·출력 토큰, 요청 수, 개발자당 지출, 30일 예측, 7일 평균, 프롬프트 캐시 효율 KPI와 제품·모델별 지출 비중 차트를 보여주는 Cost 화면 — 합성 데이터" width="1600" height="1136"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Cost</div>
-          <h3>라이브 스펜드와 토큰</h3>
-          <p>조직·그룹·사용자 단위 USD와 토큰을 모델·제품별로 분해하고, 스펜드 리밋까지 같은 화면에서 봅니다. 라이브 리포트가 기본이고 CSV 스펜드 리포트(화면 예시)는 폴백·대사용입니다.</p>
+          <h3>지출과 토큰을 한 화면에</h3>
+          <p>조직·그룹·사용자 단위 지출(USD)과 토큰을 모델·제품별로 분해하고, 30일 예측·캐시 효율·지출 한도까지 같은 화면에서 봅니다. 비용 리포트 API가 기본이고 CSV 지출 리포트는 폴백·대조용입니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="LOC, 커밋, PR, 툴 수용률을 보여주는 Claude Code 생산성 화면" width="1600" height="667"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="활성 개발자, LOC, 커밋·PR, 도구 수락률 KPI와 도구별 수락·거절 막대 차트, 도구별 수락률 방사형 막대 차트를 보여주는 Claude Code 화면 — 합성 데이터" width="1600" height="782"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Claude Code</div>
           <h3>코드 생산성 지표</h3>
-          <p>추가·삭제 LOC, 커밋, PR, 툴 수용률을 조직 전체와 사용자별로. 도입 효과를 숫자로 증명합니다.</p>
+          <p>추가·삭제 LOC, 커밋, PR, 도구 수락률을 조직 전체와 사용자별로. 도입 효과를 숫자로 증명합니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="사용자별 활동 점수와 랭킹을 보여주는 User Productivity 화면" width="1600" height="764"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="활동 점수(0–100) 상위 10명 기여자 막대 차트를 보여주는 User Productivity 화면 — 합성 데이터, 이메일 마스킹" width="1600" height="651"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">User Productivity</div>
           <h3>활동 점수로 랭킹</h3>
-          <p>인게이지먼트와 코드 산출물을 결합한 활동 점수로 사용자를 랭킹하고, 파워 유저와 온보딩 대상자를 구분합니다. (화면은 Mock 데이터 예시)</p>
+          <p>LOC·도구 수락률·커밋·활동일·세션을 가중 합산한 활동 점수(0–100)로 사용자를 랭킹합니다. 파워 유저와 온보딩이 필요한 사용자를 가려내는 데 쓸 수 있습니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="5"><img src="img/trends.png" loading="lazy" alt="DAU, WAU, MAU 추이를 보여주는 Trends 화면" width="1600" height="518"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="5"><img src="img/trends.png" loading="lazy" alt="Claude Code, Chat, Cowork, Claude Design, Office Agents의 제품별 일일 활성 사용자를 선 그래프로 비교하는 Trends 화면 — DAU·WAU·MAU 전환 버튼 포함, 합성 데이터" width="1600" height="406"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Trends</div>
-          <h3>도입 곡선 추적</h3>
-          <p>DAU·WAU·MAU와 활성률 추이로 조직의 Claude Code 도입이 어디까지 왔는지 확인합니다.</p>
+          <h3>제품별 도입 곡선 추적</h3>
+          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="6"><img src="img/audit.png" loading="lazy" alt="이벤트 수·고위험 이벤트 KPI와 이벤트 유형·행위자 차트를 보여주는 Audit 화면" width="1600" height="505"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="6"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2400" height="620"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit</div>
           <h3>감사 로그 피드</h3>
@@ -590,11 +591,11 @@
         </div>
       </figure>
       <figure class="shot-card wide reveal">
-        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/ai-analyze.png" loading="lazy" alt="자연어 질문에 대해 AI가 생성한 분석 리포트를 보여주는 Analyze 화면" width="1800" height="1684"><span class="zoom-hint">크게 보기 ⤢</span></button>
+        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/ai-analyze.png" loading="lazy" alt="Claude Code 활성 기여자 Top 5를 묻는 질문에 Claude가 도구로 데이터를 조회해 순위 표와 순위별 근거를 답한 Analyze 화면 — 합성 데이터" width="1800" height="1182"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">AI Analyze</div>
           <h3>자연어로 묻고, 리포트로 받는다</h3>
-          <p>"이번 달 비용이 왜 늘었지?" 같은 질문을 그대로 입력하면, 대시보드 데이터를 컨텍스트로 Bedrock의 Claude가 스트리밍 리포트를 생성합니다. PDF 저장 지원.</p>
+          <p>"Claude Code 활성 기여자 Top 5는 누구이고 왜 그런가?" 같은 질문을 그대로 입력하면, Bedrock의 Claude가 필요한 데이터를 도구로 조회해 표와 근거로 답하고 이어서 물어볼 질문도 제안합니다. Markdown·PDF 저장 지원.</p>
         </div>
       </figure>
     </div>
@@ -602,64 +603,65 @@
 </section>
 
 <!-- ===================== HOW IT WORKS ===================== -->
-<section class="sec flow" id="architecture">
+<section class="sec flow" id="architecture" tabindex="-1">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="kicker">동작 원리</div>
       <h2>Anthropic API에서 <em>대시보드</em>까지.</h2>
-      <p>Express 프록시가 세 개의 Anthropic API를 캐시와 함께 서빙하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
+      <p>Express 프록시가 Anthropic API 응답을 캐시와 함께 서빙하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
     </div>
 
     <figure class="arch-figure reveal">
       <img src="img/ccd-arch.svg" width="1400" height="860" loading="lazy"
-        alt="아키텍처 다이어그램: 사용자 → CloudFront(Cognito 엣지 인증) → ALB(Regional WAF) → React SPA + Express API(ECS Fargate). Express가 Anthropic Analytics·Admin·Compliance API를 조회 전용으로 프록시하고 일상 질의는 S3 아카이브를 먼저 읽으며(라이브 API 폴백), Amazon Bedrock의 Claude가 자연어 질의에 SSE로 응답. EventBridge가 매일 Collector Lambda를 기동해 Analytics 스냅샷을 S3에 NDJSON·raw로 적재하고 Athena가 SQL로 질의. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입.">
+        alt="Claude Code Dashboard 아키텍처 다이어그램" aria-describedby="arch-desc">
     </figure>
+    <p id="arch-desc" hidden>사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 붙은 ALB를 거쳐 ECS Fargate의 React SPA와 Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API)를 조회 전용으로 프록시하고, 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지 날짜는 라이브 API). Amazon Bedrock의 Claude가 자연어 질의에 SSE로 응답합니다. EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 원본(raw)으로 적재하고, Athena가 이를 SQL로 질의합니다. 관리자가 올린 지출 CSV도 S3에 보관되어 비용 대조와 폴백에 쓰입니다. Secrets Manager는 Express와 Collector에 API 키를 런타임에 주입합니다.</p>
     <p class="arch-rot-hint">모바일에서는 다이어그램이 세로로 회전되어 표시됩니다.</p>
 
-    <div class="diagram">
-      <div class="lane">
+    <ol class="diagram" role="list">
+      <li class="lane">
         <div class="lane-title">수집</div>
         <div class="node edge reveal">
-          <div class="nt">Anthropic API ×3</div>
-          <div class="nd">Analytics(인게이지먼트·비용), Admin(워크스페이스 사용량), Compliance(감사·그룹 멤버십).</div>
+          <div class="nt">Anthropic API</div>
+          <div class="nd">Analytics(참여도·비용·지출 한도)와 Compliance(감사·그룹 멤버십). Admin API는 선택 사항입니다.</div>
           <div class="meta">ENGAGEMENT · COST · AUDIT</div>
         </div>
         <div class="node edge reveal">
           <div class="nt">Collector Lambda</div>
-          <div class="nd">매일 Analytics 스냅샷과 감사 이벤트를 S3에 NDJSON으로 적재 — API 조회 창 너머를 보존.</div>
+          <div class="nd">매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) S3에 NDJSON으로 적재 — API 조회 창 너머를 보존.</div>
           <div class="meta">DAILY · NDJSON + RAW</div>
         </div>
-      </div>
-      <div class="lane">
+      </li>
+      <li class="lane">
         <div class="lane-title">서빙</div>
         <div class="node compute reveal">
           <div class="nt">Express on ECS Fargate</div>
-          <div class="nd">API 프록시 + TTL 캐시(keep-warm 프리웜, stale-while-revalidate) + 응답 압축.</div>
-          <div class="meta">KEEP-WARM · SWR CACHE</div>
+          <div class="nd">API 프록시 + 응답 캐시(자주 여는 기간은 미리 갱신하고, 만료된 값은 먼저 보여준 뒤 뒤에서 갱신) + gzip 압축.</div>
+          <div class="meta">CACHE · SWR · GZIP</div>
         </div>
-      </div>
-      <div class="lane noarrow">
+      </li>
+      <li class="lane noarrow">
         <div class="lane-title">시각화</div>
         <div class="node reveal">
           <div class="nt">React SPA</div>
-          <div class="nd">CloudFront 로그인 게이트(Cognito 엣지 인증)와 ALB의 Regional WAF로 보호. 19개 화면, 한국어·영어 전환, 모바일 대응.</div>
-          <div class="meta">19 PAGES · KO/EN · MOBILE</div>
+          <div class="nd">CloudFront 로그인 게이트(Cognito 엣지 인증)와 ALB의 Regional WAF로 보호. 20개 화면, 한국어·영어 전환, 모바일 대응.</div>
+          <div class="meta">20 PAGES · KO/EN · MOBILE</div>
         </div>
-      </div>
-      <div class="lane">
+      </li>
+      <li class="lane">
         <div class="lane-title">AI & 아카이브</div>
         <div class="node ai reveal">
           <div class="nt">Bedrock Claude</div>
-          <div class="nd">화면 데이터를 컨텍스트로 자연어 질의에 스트리밍 응답(챗봇·Analyze 리포트).</div>
+          <div class="nd">도구 호출로 조직 데이터를 직접 조회해 자연어 질의에 스트리밍 응답(챗봇·Analyze 리포트).</div>
           <div class="meta">SSE STREAMING</div>
         </div>
         <div class="node data reveal">
           <div class="nt">S3 + Glue + Athena</div>
-          <div class="nd">일상 질의는 S3 파티션을 먼저 읽고(라이브 API 폴백), Athena SQL은 장기 추세·감사 이력 분석용(감사 이벤트도 일자별 적재).</div>
+          <div class="nd">기간 조회는 보관된 날짜를 S3 파티션에서 먼저 읽고(나머지는 라이브 API), Athena SQL로 장기 추세·감사 이력을 분석합니다(감사 이벤트도 일자별 적재). 업로드한 지출 CSV도 이곳에 보관합니다.</div>
           <div class="meta">date=YYYY-MM-DD 파티션</div>
         </div>
-      </div>
-    </div>
+      </li>
+    </ol>
 
     <div class="arch-note reveal">
       <span><b>흐름</b> Anthropic API·S3 아카이브 → Express 프록시(캐시) → React SPA / Collector Lambda → S3 → Athena / Bedrock → AI 리포트</span>
@@ -669,17 +671,17 @@
 </section>
 
 <!-- ===================== TRUST / STACK ===================== -->
-<section class="sec" id="trust">
+<section class="sec" id="trust" tabindex="-1">
   <div class="wrap split">
     <div>
       <div class="sec-head reveal" style="margin-bottom:28px">
         <div class="kicker">데이터 & 보안</div>
         <h2>읽기 전용, <em>마스킹 우선</em>.</h2>
-        <p>Claude Code Dashboard는 Anthropic API가 제공하는 조직 분석 데이터를 읽어 시각화하는 대시보드입니다. 개인 식별 정보는 마스킹하고, 자격 증명은 코드 밖에서 관리합니다.</p>
+        <p>Claude Code Dashboard는 Anthropic API가 제공하는 조직 분석 데이터를 읽어 시각화하는 대시보드입니다. 이메일은 기본적으로 마스킹하고, 자격 증명은 코드 밖에서 관리합니다.</p>
       </div>
       <ul class="checklist">
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>읽기 전용 관측</h3><p>Anthropic API 호출은 모두 조회 전용입니다. 대시보드는 Anthropic 조직 설정이나 사용자 권한을 변경하지 않습니다.</p></div></li>
-        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>이메일 마스킹</h3><p>모든 화면과 AI 응답에서 이메일은 마스킹되어 표시됩니다. LLM 프롬프트 레벨에서도 마스킹을 강제합니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>마스킹 우선 표시</h3><p>화면·내보내기·AI 응답의 이메일은 기본적으로 마스킹되고, LLM 프롬프트 레벨에서도 강제합니다. Cognito <span class="mono">unmasked</span> 그룹으로 검증된 관리자만 원문을 봅니다. 2026-09-24 이전에 보관된 감사 로그의 파일·아티팩트 이름도 관리자에게만 보입니다(이후로는 API가 이름을 제공하지 않습니다).</p></div></li>
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>시크릿 무노출</h3><p>API 키는 AWS Secrets Manager에서 런타임에 주입됩니다. 코드와 저장소에는 자격 증명이 존재하지 않습니다.</p></div></li>
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>로그인 게이트 & WAF</h3><p>배포본은 CloudFront 엣지에서 Cognito 로그인으로 보호됩니다 — 미인증 트래픽은 WAF·오리진에 닿기 전에 차단되며, 정적 자산 요청까지 인증을 검사합니다.</p></div></li>
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>90일 너머 보존</h3><p>일일 스냅샷을 S3에 NDJSON으로 적재하고 원본 사이드카를 병행 보존해, API 조회 창 너머의 추세 분석과 스키마 변경 복구를 지원합니다.</p></div></li>
@@ -700,7 +702,7 @@
         <span class="s"><b>IaC</b> AWS CDK</span>
       </div>
       <div style="margin-top:26px; padding-top:22px; border-top:1px solid var(--line); display:flex; gap:24px; flex-wrap:wrap">
-        <div><div class="metric"><div class="v num" style="font-size:26px">19</div><div class="l">대시보드 화면</div></div></div>
+        <div><div class="metric"><div class="v num" style="font-size:26px">20</div><div class="l">대시보드 화면</div></div></div>
         <div><div class="metric"><div class="v num" style="font-size:26px">4</div><div class="l">CDK 스택</div></div></div>
         <div><div class="metric"><div class="v num" style="font-size:26px">2</div><div class="l">언어 (ko · en)</div></div></div>
       </div>
@@ -712,10 +714,10 @@
 <section class="wrap cta" id="start">
   <div class="cta-box reveal">
     <h2>도입 효과를 <em>숫자로 보여드릴게요</em>.</h2>
-    <p>사용자별 생산성·라이브 비용·AI 분석 화면을 직접 확인할 수 있습니다. <span class="mono">(라이브 데모는 Cognito 로그인 필요)</span></p>
+    <p>초대받은 계정으로 로그인하면 사용자별 생산성·비용·AI 분석 화면을 직접 확인할 수 있습니다. <span class="mono">(라이브 데모는 초대 계정 전용)</span></p>
     <div class="hero-actions" style="justify-content:center">
-      <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기</a>
-      <a href="https://github.com/whchoi98/claude-code-dashboard" class="btn btn-ghost" target="_blank" rel="noopener">GitHub 저장소</a>
+      <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기<span class="sr-only">(새 창)</span></a>
+      <a href="https://github.com/whchoi98/claude-code-dashboard" class="btn btn-ghost" target="_blank" rel="noopener">GitHub 저장소<span class="sr-only">(새 창)</span></a>
       <a href="#screens" class="btn btn-ghost">화면 다시 보기</a>
     </div>
   </div>
@@ -732,8 +734,8 @@
       </svg>
       <span>Claude Code Dashboard — Claude Code 조직 분석 대시보드</span>
     </div>
-    <div class="mono">Anthropic Analytics · Admin · Compliance API — React · Express · ECS Fargate · Bedrock · Athena</div>
-    <div><a href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener">GitHub에서 소스 보기</a></div>
+    <div class="mono">Anthropic Analytics · Compliance API — React · Express · ECS Fargate · Bedrock · Athena</div>
+    <div><a href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener">GitHub에서 소스 보기<span class="sr-only">(새 창)</span></a></div>
     <div>본 대시보드는 독립적으로 개발된 분석 도구로, Anthropic의 공식 제품이 아닙니다. Anthropic, Claude는 Anthropic PBC의 상표이며, Amazon Web Services, AWS 관련 명칭은 Amazon.com, Inc. 또는 계열사의 상표입니다.</div>
   </div>
 </footer>
@@ -783,7 +785,7 @@
     const t = triggers[i];
     const img = t.querySelector('img');
     lightboxImg.src = img.currentSrc || img.src;
-    lightboxImg.alt = img.alt;
+    lightboxImg.alt = '';   // the figcaption below carries the description — avoid reading it twice
     lightboxCaption.textContent = img.alt;
     current = i;
   }
