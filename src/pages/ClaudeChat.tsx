@@ -6,6 +6,7 @@ import {
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
 import { RangeCoverageNote } from '../components/RangeCoverageNote'
+import { UnifiedNote } from '../components/UnifiedNote'
 import { badgeSource } from '../lib/format'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
@@ -18,6 +19,7 @@ import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtDate, maskEmail } from '../lib/format'
+import { chatOf, unifiedChatMessages } from '../lib/unified'
 import type { UserRecord } from '../types'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
@@ -30,7 +32,8 @@ type Tt = (k: any, p?: any) => string
 
 /** Claude Chat (claude.ai conversations) — period usage & activity metrics.
  *  Same fully-scoped surface-page shape as Cowork/Office/Design: users/range
- *  is the source, every per-user loop honors the group scope. */
+ *  is the source, every per-user loop honors the group scope. Counters fold
+ *  in Chat and Cowork unified's chat block (chatOf — lib/unified.ts). */
 export function ClaudeChat() {
   const t = useT()
   const { range } = useDateRange('7d')
@@ -45,7 +48,7 @@ export function ClaudeChat() {
       let messages = 0, convos = 0, artifacts = 0, projectsCreated = 0, projectsUsed = 0, web = 0
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
-        const m = r.chat_metrics
+        const m = chatOf(r)
         messages += m.message_count
         convos += m.distinct_conversation_count
         artifacts += m.distinct_artifacts_created_count ?? 0
@@ -59,10 +62,12 @@ export function ClaudeChat() {
     const activeEmails = new Set<string>()
     let messagesTotal = 0, thinkingTotal = 0, convosTotal = 0, artifactsTotal = 0
     let projectsCreatedTotal = 0, skillsTotal = 0, connectorsTotal = 0, webTotal = 0
+    let unifiedMessagesTotal = 0
     for (const d of days) {
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
-        const m = r.chat_metrics
+        const m = chatOf(r)
+        unifiedMessagesTotal += unifiedChatMessages(r)
         const email = r.user.email_address
         if (m.message_count > 0) activeEmails.add(email)
         messagesTotal += m.message_count
@@ -93,6 +98,7 @@ export function ClaudeChat() {
       activeUsers: activeEmails.size,
       messagesTotal, thinkingTotal, convosTotal, artifactsTotal,
       projectsCreatedTotal, skillsTotal, connectorsTotal, webTotal,
+      unifiedShare: messagesTotal > 0 ? unifiedMessagesTotal / messagesTotal : null,
     }
   }, [users.data, inGroup])
 
@@ -112,6 +118,7 @@ export function ClaudeChat() {
       />
       <GroupTabs />
       <RangeCoverageNote resp={users.data} />
+      <UnifiedNote share={agg.unifiedShare} kind="chat" />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('claude_chat.kpi.active_users')} value={fmtNum(agg.activeUsers)} hint={t('claude_chat.kpi.active_users.hint')} />

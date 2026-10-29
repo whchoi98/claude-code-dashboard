@@ -208,3 +208,52 @@ test('classifies audit events with real activity types and actor kinds', async (
   await expect(page.getByRole('dialog')).toContainText('no longer returns file, project-document or artifact names')
 })
 
+test('folds Chat and Cowork unified activity into the Chat and Cowork pages', async ({ page }) => {
+  // Every fixture user moved to the unified experience (org2's 2026-10
+  // shape): chat_metrics / cowork_metrics are zero, the unified block holds it.
+  await page.route('**/api/analytics/users/range**', async (route) => {
+    const body = apiFixture(new URL(route.request().url())) as { days: { data: Record<string, any>[] }[] }
+    for (const day of body.days) for (const r of day.data) {
+      r.chat_metrics = Object.fromEntries(Object.entries(r.chat_metrics).map(([k, v]) => [k, v === null ? null : 0]))
+      r.cowork_metrics = Object.fromEntries(Object.entries(r.cowork_metrics).map(([k, v]) => [k, v === null ? null : 0]))
+      r.chat_cowork_unified_metrics = {
+        chat: { message_count: 7, distinct_conversation_count: 2 },
+        sessions: { distinct_session_count: 1, action_count: 3, message_count: 2 },
+      }
+    }
+    await route.fulfill({ json: body })
+  })
+  await page.goto('/claude-chat?range=7d')
+  const main = page.getByRole('main')
+  await expect(main.getByRole('note')).toContainText('came through Chat and Cowork unified')
+  await expect(main.getByRole('note')).toContainText('100')
+  // 2 users × 7 days × 7 unified messages — not the zero chat_metrics hold.
+  await expect(main.getByText('Messages', { exact: true }).first().locator('..')).toContainText('98')
+
+  await page.goto('/cowork?range=7d')
+  await expect(main.getByRole('note')).toContainText('ran in Chat and Cowork unified')
+  await expect(main.getByText('Cowork Sessions', { exact: true }).first().locator('..')).toContainText('14')
+  await expect(main).not.toContainText('NaN')
+})
+
+test('shows group activity, the plugin catalog, artifacts and the member directory', async ({ page }) => {
+  const main = page.getByRole('main')
+  await page.goto('/user-productivity?range=7d')
+  await expect(main.getByRole('heading', { name: 'Activity by group' })).toBeVisible()
+  await expect(main.getByRole('cell', { name: 'Leadership', exact: true })).toBeVisible()
+
+  await page.goto('/adoption?range=7d')
+  await expect(main.getByRole('heading', { name: 'Plugin catalog' })).toBeVisible()
+  await expect(main.getByText('Update available').first()).toBeVisible()
+  await expect(main.getByRole('heading', { name: 'Artifacts created' })).toBeVisible()
+  await expect(main.getByText('text/markdown').first()).toBeVisible()
+
+  await page.goto('/compliance?range=7d')
+  await expect(main.getByRole('heading', { name: 'Members and custom instructions' })).toBeVisible()
+  await expect(main.getByText('Members', { exact: true }).locator('..')).toContainText('20')
+  await expect(main.getByRole('list', { name: 'Members by role' })).toContainText('Primary owner')
+  // A masked viewer gets counts only — never the saved instruction text.
+  await expect(main).toContainText('shown only to administrators in the unmasked group')
+  await expect(main).not.toContainText('Keep answers brief')
+  await expect(main).not.toContainText('NaN')
+})

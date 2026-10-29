@@ -76,6 +76,23 @@ const USER_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'cowork_distinct_plugins', type: 'bigint' },
   { name: 'cowork_artifacts_created', type: 'bigint' },
   { name: 'last_activity_date', type: 'string' },
+  // Chat and Cowork unified (2026-10, additive). NULL = the row carries no
+  // unified block (deployment without the product / archived before it).
+  { name: 'unified_chat_conversations', type: 'bigint' },
+  { name: 'unified_chat_messages', type: 'bigint' },
+  { name: 'unified_chat_thinking_messages', type: 'bigint' },
+  { name: 'unified_chat_files_uploaded', type: 'bigint' },
+  { name: 'unified_chat_artifacts', type: 'bigint' },
+  { name: 'unified_chat_skills', type: 'bigint' },
+  { name: 'unified_chat_connectors', type: 'bigint' },
+  { name: 'unified_sessions', type: 'bigint' },
+  { name: 'unified_session_messages', type: 'bigint' },
+  { name: 'unified_session_actions', type: 'bigint' },
+  { name: 'unified_session_dispatch_turns', type: 'bigint' },
+  { name: 'unified_session_file_edit_count', type: 'bigint' },
+  { name: 'unified_session_skills_used', type: 'bigint' },
+  { name: 'unified_session_plugins_used', type: 'bigint' },
+  { name: 'unified_session_artifacts_created', type: 'bigint' },
   { name: 'snapshot_date', type: 'string' },
 ]
 
@@ -89,6 +106,10 @@ const SUMMARY_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'cowork_daily_active_user_count', type: 'bigint' },
   { name: 'cowork_weekly_active_user_count', type: 'bigint' },
   { name: 'cowork_monthly_active_user_count', type: 'bigint' },
+  // Chat and Cowork unified (additive). Not summable with chat_*/cowork_*.
+  { name: 'chat_cowork_unified_daily_active_user_count', type: 'bigint' },
+  { name: 'chat_cowork_unified_weekly_active_user_count', type: 'bigint' },
+  { name: 'chat_cowork_unified_monthly_active_user_count', type: 'bigint' },
 ]
 
 const SKILL_COLUMNS: glue.CfnTable.ColumnProperty[] = [
@@ -97,6 +118,8 @@ const SKILL_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'chat_uses', type: 'bigint' },
   { name: 'claude_code_uses', type: 'bigint' },
   { name: 'cowork_uses', type: 'bigint' },
+  { name: 'unified_chat_uses', type: 'bigint' },
+  { name: 'unified_session_uses', type: 'bigint' },
   { name: 'snapshot_date', type: 'string' },
 ]
 
@@ -113,6 +136,19 @@ const PLUGIN_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'invocation_count', type: 'bigint' },
   { name: 'claude_code_uses', type: 'bigint' },
   { name: 'cowork_uses', type: 'bigint' },
+  { name: 'unified_session_uses', type: 'bigint' },
+  { name: 'snapshot_date', type: 'string' },
+]
+
+// Artifact creation (analytics/artifacts, 2026-10): one row per product ×
+// MIME type × is_shared per day (collector requests group_by[]=product).
+const ARTIFACT_COLUMNS: glue.CfnTable.ColumnProperty[] = [
+  { name: 'product', type: 'string' },
+  { name: 'artifact_type', type: 'string' },
+  { name: 'is_shared', type: 'boolean' },
+  { name: 'artifacts_created', type: 'bigint' },
+  { name: 'published_artifacts_created', type: 'bigint' },
+  { name: 'distinct_users', type: 'bigint' },
   { name: 'snapshot_date', type: 'string' },
 ]
 
@@ -212,6 +248,7 @@ export class StorageStack extends cdk.Stack {
     table('connectors_daily', CONNECTOR_COLUMNS, 'connectors')
     table('projects_daily', PROJECT_COLUMNS, 'projects')
     table('plugins_daily', PLUGIN_COLUMNS, 'plugins')
+    table('artifacts_daily', ARTIFACT_COLUMNS, 'artifacts')
     table('compliance_daily', COMPLIANCE_COLUMNS, 'compliance')
 
     // Org2 mirrors (multi-org contract 2026-07-21): identical column sets and
@@ -223,6 +260,7 @@ export class StorageStack extends cdk.Stack {
     table('connectors_daily_org2', CONNECTOR_COLUMNS, 'org2/connectors')
     table('projects_daily_org2', PROJECT_COLUMNS, 'org2/projects')
     table('plugins_daily_org2', PLUGIN_COLUMNS, 'org2/plugins')
+    table('artifacts_daily_org2', ARTIFACT_COLUMNS, 'org2/artifacts')
     table('compliance_daily_org2', COMPLIANCE_COLUMNS, 'org2/compliance')
 
     // Name-redacted views of the audit archive (ADR-0022). Partitions archived

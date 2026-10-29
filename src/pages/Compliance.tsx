@@ -16,6 +16,7 @@ import { useT } from '../lib/i18n'
 import { fmtNum, fmtDate, maskEmail, isUnmasked } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
+import { DirectoryCard } from '../components/DirectoryCard'
 import {
   RISK_TYPES, LOGIN_TYPES, MACHINE_ACTOR_TYPES, auditCategory, actorKey, actorLabel, isNameRedactedType,
   type AuditActor,
@@ -317,6 +318,8 @@ export function Compliance() {
             <AuditFeedTable events={filtered} onSelect={setSelected} />
           )}
         </ChartCard>
+
+        <DirectoryCard />
       </div>
       <EventDetailPanel event={selected} onClose={closePanel} />
     </div>

@@ -17,6 +17,7 @@ import { downloadCsv } from '../lib/csv'
 import { fmtNum, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import { useT } from '../lib/i18n'
 import type { UserRecord } from '../types'
+import { chatOf, coworkOf } from '../lib/unified'
 import clsx from 'clsx'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
@@ -118,16 +119,19 @@ export function Users() {
         // days). Every snapshot day repeats it — keep the newest value.
         const la = r.last_activity_date ?? null
         if (la && (!cur.lastActive || la > cur.lastActive)) cur.lastActive = la
-        cur.messages   += r.chat_metrics.message_count
-        cur.convos     += r.chat_metrics.distinct_conversation_count
+        // Chat / Cowork incl. Chat and Cowork unified (lib/unified.ts).
+        const chat = chatOf(r)
+        cur.messages   += chat.message_count
+        cur.convos     += chat.distinct_conversation_count
         cur.sessions   += cc.core_metrics.distinct_session_count
         cur.loc        += cc.core_metrics.lines_of_code.added_count
         cur.locRemoved += cc.core_metrics.lines_of_code.removed_count
         cur.commits    += cc.core_metrics.commit_count
         cur.prs        += cc.core_metrics.pull_request_count
         // Optional chaining: pre-2026-07 S3 archive rows predate these surfaces.
-        cur.cowork        += r.cowork_metrics?.distinct_session_count ?? 0
-        cur.coworkActions += r.cowork_metrics?.action_count ?? 0
+        const cw = r.cowork_metrics ? coworkOf(r) : null
+        cur.cowork        += cw?.distinct_session_count ?? 0
+        cur.coworkActions += cw?.action_count ?? 0
         cur.design        += r.design_metrics?.distinct_session_count ?? 0
         cur.accepted   += ta.edit_tool.accepted_count + ta.multi_edit_tool.accepted_count +
                           ta.write_tool.accepted_count + ta.notebook_edit_tool.accepted_count

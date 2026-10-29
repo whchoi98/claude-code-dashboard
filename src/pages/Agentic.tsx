@@ -20,6 +20,7 @@ import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtDate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
+import { coworkOf } from '../lib/unified'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
 type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
@@ -69,8 +70,10 @@ export function Agentic() {
       let prompts = 0, actions = 0
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
-        prompts += r.cowork_metrics.message_count
-        actions += r.cowork_metrics.action_count
+        // Cowork incl. Chat and Cowork unified sessions (lib/unified.ts).
+        const cw = coworkOf(r)
+        prompts += cw.message_count
+        actions += cw.action_count
       }
       return { date: fmtDate(d.date), prompts, actions, app: prompts > 0 ? actions / prompts : null }
     })
@@ -81,8 +84,9 @@ export function Agentic() {
       for (const r of d.data) {
         const email = r.user.email_address
         if (!inGroup(email)) continue
-        const prompts = r.cowork_metrics.message_count
-        const actions = r.cowork_metrics.action_count
+        const cw = coworkOf(r)
+        const prompts = cw.message_count
+        const actions = cw.action_count
         const ccSessions = r.claude_code_metrics.core_metrics.distinct_session_count
         const ccActions = ccActionTotal(r)
         promptsTotal += prompts; actionsTotal += actions

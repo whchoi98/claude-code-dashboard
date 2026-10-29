@@ -28,6 +28,9 @@ const PRODUCTS = [
   { key: 'claude_design', label: 'Claude Design',  color: '#4CA371' },
   { key: 'office_agent',  label: 'Office Agents',  color: '#5B7FA6' },
   { key: 'science',       label: 'Claude Science', color: '#9A6FB0' },
+  // Chat and Cowork unified: usage MOVES here from chat/cowork as users
+  // migrate — a separate line, never summed with them (shared users).
+  { key: 'chat_cowork_unified', label: 'Chat & Cowork unified', color: '#6B8E9B' },
 ] as const
 type Period = 'daily' | 'weekly' | 'monthly'
 const PERIODS: { key: Period; label: string }[] = [
@@ -66,8 +69,10 @@ export function Trends() {
     Seats: s.assigned_seat_count,
     Pending: s.pending_invite_count,
     CoworkDAU: s.cowork_daily_active_user_count,
+    UnifiedDAU: s.chat_cowork_unified_daily_active_user_count,
     AdoptionRate: s.daily_adoption_rate,
   }))
+  const hasUnified = (data?.data ?? []).some((s) => (s.chat_cowork_unified_daily_active_user_count ?? 0) > 0)
 
   return (
     <div>
@@ -92,6 +97,9 @@ export function Trends() {
               <Line type="monotone" dataKey="WAU" stroke="#8A8474" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="MAU" stroke="#1F1E1D" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="CoworkDAU" name={t('cowork.metric.dau')} stroke="#B75E40" strokeWidth={2} dot={false} />
+              {hasUnified && (
+                <Line type="monotone" dataKey="UnifiedDAU" name={t('unified.metric.dau')} stroke="#6B8E9B" strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>

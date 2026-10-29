@@ -8,6 +8,7 @@ import { GroupTabs } from '../components/GroupTabs'
 import { RangeCoverageNote } from '../components/RangeCoverageNote'
 import { badgeSource } from '../lib/format'
 import { GroupScopeNote } from '../components/GroupScopeNote'
+import { UnifiedNote } from '../components/UnifiedNote'
 import { KpiCard } from '../components/KpiCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
@@ -19,6 +20,7 @@ import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, fmtDate, maskEmail } from '../lib/format'
+import { coworkOf, unifiedSessions } from '../lib/unified'
 import type { Summary, UserRecord } from '../types'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
@@ -42,12 +44,16 @@ export function Cowork() {
 
   const agg = useMemo(() => {
     const sums = summaries.data?.data ?? []
+    // Chat and Cowork unified DAU is its own series: distinct users don't
+    // add (a user can be counted on both sides on a switch-over day).
     const trend = sums.map((s) => ({
       date: fmtDate(s.starting_at),
       DAU: s.cowork_daily_active_user_count,
       WAU: s.cowork_weekly_active_user_count,
       MAU: s.cowork_monthly_active_user_count,
+      UnifiedDAU: s.chat_cowork_unified_daily_active_user_count,
     }))
+    const trendHasUnified = sums.some((s) => (s.chat_cowork_unified_daily_active_user_count ?? 0) > 0)
     const last = sums[sums.length - 1]
     const adoption = last && last.assigned_seat_count
       ? last.cowork_daily_active_user_count / last.assigned_seat_count
@@ -58,7 +64,7 @@ export function Cowork() {
       let sessions = 0, messages = 0, actions = 0, dispatchTurns = 0
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
-        const c = r.cowork_metrics
+        const c = coworkOf(r)
         sessions += c.distinct_session_count
         messages += c.message_count
         actions += c.action_count
@@ -80,10 +86,12 @@ export function Cowork() {
     // gates on its own non-null sighting.
     let pluginUses = 0, artifactsCreated = 0
     let pluginsNonNull = false, artifactsNonNull = false
+    let unifiedSessionsTotal = 0
     for (const d of days) {
       for (const r of d.data) {
         if (!inGroup(r.user.email_address)) continue
-        const c = r.cowork_metrics
+        const c = coworkOf(r)
+        unifiedSessionsTotal += unifiedSessions(r)
         const email = r.user.email_address
         if (c.distinct_session_count > 0) activeEmails.add(email)
         sessionsTotal += c.distinct_session_count
@@ -107,7 +115,8 @@ export function Cowork() {
     }
     const feBars = FE_KEYS.map((k) => ({ key: k, value: fe[k] }))
     return {
-      trend, adoption, daily,
+      trend, trendHasUnified, adoption, daily,
+      unifiedShare: sessionsTotal > 0 ? unifiedSessionsTotal / sessionsTotal : null,
       users: Array.from(byEmail.values()),
       activeUsers: activeEmails.size,
       sessionsTotal, messagesTotal,
@@ -135,6 +144,7 @@ export function Cowork() {
       {/* Adoption KPI + DAU/WAU/MAU trend come from org summaries (no per-user
           dimension) and ignore the group — flag it like Cost does. */}
       <GroupScopeNote variant="partial" />
+      <UnifiedNote share={agg.unifiedShare} kind="cowork" />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
           <KpiCard accent label={t('cowork.kpi.active_users')} value={fmtNum(agg.activeUsers)} hint={t('cowork.kpi.active_users.hint')} />
@@ -168,6 +178,9 @@ export function Cowork() {
               <Line type="monotone" dataKey="DAU" name={t('cowork.metric.dau')} stroke="#B75E40" strokeWidth={2.5} dot={{ r: 2 }} />
               <Line type="monotone" dataKey="WAU" name={t('cowork.metric.wau')} stroke="#DF8663" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="MAU" name={t('cowork.metric.mau')} stroke="#8A8474" strokeWidth={2} dot={false} />
+              {agg.trendHasUnified && (
+                <Line type="monotone" dataKey="UnifiedDAU" name={t('unified.metric.dau')} stroke="#6B8E9B" strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>

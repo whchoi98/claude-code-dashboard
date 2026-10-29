@@ -9,6 +9,7 @@ import { orgParam } from '../lib/api'
 import { useOrg } from '../lib/OrgProvider'
 import { fmtNum, fmtPct, fmtCompact, fmtDate, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
+import { chatOf, coworkOf } from '../lib/unified'
 
 type DayEntry = { date: string; source: string; data: UserRecord[]; error?: unknown }
 type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
@@ -46,6 +47,10 @@ type SkillRow = {
   chat_metrics?: { distinct_conversation_skill_used_count?: number }
   claude_code_metrics?: { distinct_session_skill_used_count?: number }
   cowork_metrics?: { distinct_session_skill_used_count?: number }
+  chat_cowork_unified_metrics?: {
+    chat?: { distinct_conversation_skill_used_count?: number }
+    sessions?: { distinct_session_skill_used_count?: number }
+  } | null
 }
 type SkillsRangeResp = { days: { date: string; source: string; data: SkillRow[] }[] }
 
@@ -226,12 +231,12 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                             ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count : 0
       return {
         date: fmtDate(d.date),
-        messages: rec?.chat_metrics.message_count ?? 0,
+        messages: rec ? chatOf(rec).message_count : 0,
         sessions: cc?.distinct_session_count ?? 0,
         loc: cc?.lines_of_code.added_count ?? 0,
         commits: cc?.commit_count ?? 0,
         prs: cc?.pull_request_count ?? 0,
-        cowork: rec?.cowork_metrics.distinct_session_count ?? 0,
+        cowork: rec ? coworkOf(rec).distinct_session_count : 0,
         web: rec?.web_search_count ?? 0,
         accepted,
         rejected,
@@ -351,7 +356,9 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
         s.uses += invocations > 0 ? invocations
           : (r.chat_metrics?.distinct_conversation_skill_used_count ?? 0) +
             (r.claude_code_metrics?.distinct_session_skill_used_count ?? 0) +
-            (r.cowork_metrics?.distinct_session_skill_used_count ?? 0)
+            (r.cowork_metrics?.distinct_session_skill_used_count ?? 0) +
+            (r.chat_cowork_unified_metrics?.chat?.distinct_conversation_skill_used_count ?? 0) +
+            (r.chat_cowork_unified_metrics?.sessions?.distinct_session_skill_used_count ?? 0)
         const cents = parseFloat(String(r.attributed_list_price ?? ''))
         if (Number.isFinite(cents)) s.cost += cents / 100
         bySkill.set(r.skill_name, s)
@@ -369,7 +376,7 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
     for (const d of range.days) {
       const rec = d.data.find((u) => u.user.email_address === email) as any
       if (!rec) continue
-      cowork += rec.cowork_metrics?.skills_used_count ?? 0
+      cowork += (rec.cowork_metrics?.skills_used_count ?? 0) + (rec.chat_cowork_unified_metrics?.sessions?.skills_used_count ?? 0)
       for (const app of ['excel', 'powerpoint', 'word', 'outlook']) {
         office += rec.office_metrics?.[app]?.skills_used_count ?? 0
       }

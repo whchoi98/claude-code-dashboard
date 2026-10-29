@@ -71,10 +71,38 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   2026-07 (≈700+/day, mostly `claude_file_viewed`), so an uncached walk
   takes 30–85s and MUST never run unbounded in a user-facing request path
   (the 2026-07-15 Audit-page timeout regression).
+  **2026-10 additions (all in `index.js`)**: `fetchJson` takes an optional
+  `headers` (e.g. an `anthropic-beta` opt-in — part of the cache key) and
+  `fetchAllNextPage(path, params, key, opts, maxPages)` walks `next_page` /
+  `page` listings with the other params fixed. Routes:
+  `/api/analytics/users/groups` (users rollup mode + `group_by[]=rbac_group_id`,
+  horizon-clamped, exclusive end = end + 1), `/api/analytics/artifacts/range`
+  (`makeDailyRangeRoute` gained an `extraParams` arg — artifacts sends
+  `group_by[]=product`, the SAME query the collector archives),
+  `/api/compliance/directory` (organizations → users + `user_preferences`
+  beta; 1h `makeTtlCache` per org because every listing is an audited read;
+  `no-store`), `/api/plugins/catalog` (Plugins API with
+  `anthropic-beta: ce-plugins-2026-09-01`, Compliance key, 1h cache).
+  API version `2026-10-21` removes the deprecated summaries response key
+  `summaries` and the per-user report `actor.email`: `summaryRowsOf` reads
+  `data` first and `reportActorEmail` (aws.js) reads `email_address` first —
+  both replacements are already returned on `2023-06-01`.
   `COMPLIANCE_KEY` falls back to the Analytics key (its scopes include
   `read:compliance_activities`, verified live 2026-07-03) — the dedicated
   `ccd/compliance-key` secret is optional; `/api/health` reports which is
   active (`compliance` / `analytics-fallback` / `none`).
+- **`unified.js`** — server twin of `src/lib/unified.ts` for Chat and
+  Cowork unified (product `chat_cowork_unified`, 2026-10): `chatMessagesOf`
+  and `coworkTotalsOf` add `chat_cowork_unified_metrics.{chat,sessions}` to
+  `chat_metrics` / `cowork_metrics` (per-user counters are disjoint across the
+  blocks — usage MOVES there as users migrate; org2 had moved entirely by
+  2026-10). The `/cost/efficiency` productivity join reads through it.
+  Distinct-user counts never add. Unit-tested in `tests/server/test-unified.mjs`.
+- **`directory.js`** — pure shapers for `/api/compliance/directory`
+  (`summarizeOrgDirectory` — role counts + saved-instruction counts; the
+  instruction TEXT only when `unmask` is true, ADR-0020) and
+  `/api/plugins/catalog` (`toPluginCatalog` — owner ids / `created_by`
+  dropped). Unit-tested in `tests/server/test-directory.mjs`.
 - **`freshness.js`** — dynamic engagement-freshness tracker: records the
   newest served engagement day per API key (learned from the hourly
   `users?date=today−1` probe + any 400 naming a day) so
@@ -273,8 +301,9 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     Athena execution (`runAthena` polls for up to 60 s and throws an
     explicit timeout error rather than falling through to
     `GetQueryResultsCommand` on a still-RUNNING query; `POST /archive/query`
-    sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the seven
-    Glue tables incl. `compliance_daily` + `plugins_daily` (v2.2) — and **masks result rows
+    sanitizes via `sanitizeAthenaQuery` — `ATHENA_ALLOWED_TABLES` = the eight
+    Glue tables incl. `compliance_daily` + `plugins_daily` (v2.2) +
+    `artifacts_daily` (2026-10), each with its `_org2` twin — and **masks result rows
     server-side** with `maskEmailsDeep` before responding), S3 CSV reading.
   - `sanitizeAthenaQuery(sql, { revealAuditNames })`: unless the session is
     a VERIFIED `unmasked` identity (`req.identity.unmask`, ADR-0020 — never

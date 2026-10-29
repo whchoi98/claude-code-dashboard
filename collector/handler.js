@@ -16,7 +16,7 @@
  */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
-import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin, flattenActivity } from './flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin, flattenArtifact, flattenActivity } from './flatten.js'
 
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
@@ -230,8 +230,9 @@ export const handler = async (event = {}, context = {}) => {
         starting_date: summariesStart,
         ending_date:   summariesEnd,
       }, { org, signal: AbortSignal.timeout(20_000) })
-      // Summaries API returns {summaries: [...]} — normalize.
-      const summaryRows = summaries.summaries || summaries.data || []
+      // Rows arrive as `data`; `summaries` is the deprecated duplicate key that
+      // API version 2026-10-21 removes.
+      const summaryRows = summaries.data || summaries.summaries || []
       orgResults.summaries = await writePartition('summaries', date, toNdjson(summaryRows), s3Prefix)
       orgResults.summaries_raw = await writeRaw('summaries', date, summaryRows, s3Prefix)
 
@@ -257,6 +258,23 @@ export const handler = async (event = {}, context = {}) => {
       orgResults.plugins = await writePartition('plugins', date,
         toNdjson(plugins.map(flattenPlugin), { snapshot_date: date }), s3Prefix)
       orgResults.plugins_raw = await writeRaw('plugins', date, plugins, s3Prefix)
+
+      // Seventh endpoint (2026-10): artifact creation by product × MIME type
+      // × shared. Single-day only upstream (no range rollup), so it is
+      // archived like the others, grouped by product — the server's live
+      // fallback (/api/analytics/artifacts/range) sends the same group_by.
+      // Isolated: a failure on this newer endpoint must neither sink the
+      // snapshot above nor trigger the EventBridge retry of the whole run.
+      try {
+        const artifacts = await fetchAllPages('/v1/organizations/analytics/artifacts', { date, 'group_by[]': 'product' }, org)
+        orgResults.artifacts = await writePartition('artifacts', date,
+          toNdjson(artifacts.map(flattenArtifact), { snapshot_date: date }), s3Prefix)
+        orgResults.artifacts_raw = await writeRaw('artifacts', date, artifacts, s3Prefix)
+        orgCounts.artifacts = artifacts.length
+      } catch (err) {
+        orgResults.artifacts_error = String(err?.message || err)
+        console.error(`[collector] artifacts snapshot failed (org=${org}):`, orgResults.artifacts_error)
+      }
 
       orgCounts.users = users.length
       orgCounts.summaries = summaryRows.length

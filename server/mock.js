@@ -149,11 +149,32 @@ function mockUserRecord(user, date, rand, factor) {
   }
 }
 
+// Chat and Cowork unified: a deployment that offers it carries the block on
+// EVERY user row (zeros for users not on it). Every fourth mock user is on the
+// unified experience — their chat and Cowork activity MOVES into the block,
+// exactly as upstream reports it. Pure re-shaping: no extra rand() calls, so
+// every other mock value stays stable.
+const zeroed = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === null ? null : 0]))
+function withUnified(rec, onUnified) {
+  if (!onUnified) {
+    return { ...rec, chat_cowork_unified_metrics: { chat: { ...zeroed(rec.chat_metrics), distinct_connectors_used_count: 0 }, sessions: zeroed(rec.cowork_metrics) } }
+  }
+  return {
+    ...rec,
+    chat_metrics: zeroed(rec.chat_metrics),
+    cowork_metrics: zeroed(rec.cowork_metrics),
+    chat_cowork_unified_metrics: {
+      chat: { ...rec.chat_metrics, distinct_connectors_used_count: rec.chat_metrics.connectors_used_count > 0 ? 1 : 0 },
+      sessions: { ...rec.cowork_metrics },
+    },
+  }
+}
+
 export const generateMock = {
   users(date) {
     const rand = rng(hashSeed(date))
     const factor = dowFactor(date)
-    const data = USERS.map((u) => mockUserRecord(u, date, rand, factor))
+    const data = USERS.map((u, i) => withUnified(mockUserRecord(u, date, rand, factor), i % 4 === 3))
     return { data, has_more: false, next_page: null }
   },
 
@@ -182,6 +203,10 @@ export const generateMock = {
         // other mock value stable). science_* is deliberately OMITTED: an org
         // without that product reports no field at all (absent ≠ 0).
         ...perProductActive({ dau, wau, mau }),
+        // Derived like the per-product counts (no rand()); NOT additive with chat_/cowork_.
+        chat_cowork_unified_daily_active_user_count: Math.floor(dau * 0.2),
+        chat_cowork_unified_weekly_active_user_count: Math.floor(wau * 0.22),
+        chat_cowork_unified_monthly_active_user_count: Math.floor(mau * 0.25),
         assigned_seat_count: SEAT_COUNT,
         pending_invite_count: Math.max(0, Math.floor(2 + rand() * 3)),
         daily_adoption_rate:   Number(((dau / SEAT_COUNT) * 100).toFixed(2)),
@@ -214,6 +239,11 @@ export const generateMock = {
           word: { distinct_session_skill_used_count: 0 },
         },
         cowork_metrics: { distinct_session_skill_used_count: Math.floor(rand() * 3) },
+        // Derived (no rand()): unified chat / sessions skill uses.
+        chat_cowork_unified_metrics: {
+          chat: { distinct_conversation_skill_used_count: Math.floor(distinctUsers / 2) },
+          sessions: { distinct_session_skill_used_count: i % 3 === 0 ? 1 : 0 },
+        },
       }
     })
     return { data, has_more: false, next_page: null }
@@ -231,6 +261,8 @@ export const generateMock = {
         invocation_count: Math.floor(distinctUsers * (2 + rand() * 6)),
         claude_code_metrics: { distinct_session_plugin_used_count: Math.floor(distinctUsers * (1 + rand() * 2)) },
         cowork_metrics: { distinct_session_plugin_used_count: Math.floor(rand() * 3) },
+        // Flat on plugin rows, like upstream. Derived (no rand()).
+        chat_cowork_unified_metrics: { distinct_session_plugin_used_count: i % 2 },
       }
     })
     // Upstream aggregate bucket for plugin activity reported without a name
@@ -266,6 +298,10 @@ export const generateMock = {
           word: { distinct_session_connector_used_count: 0 },
         },
         cowork_metrics: { distinct_session_connector_used_count: Math.floor(rand() * 2) },
+        chat_cowork_unified_metrics: {
+          chat: { distinct_conversation_connector_used_count: Math.floor(distinctUsers / 3) },
+          sessions: { distinct_session_connector_used_count: i % 4 === 0 ? 1 : 0 },
+        },
       }
     })
     return { data, has_more: false, next_page: null }
@@ -288,4 +324,105 @@ export const generateMock = {
     })
     return { data, has_more: false, next_page: null }
   },
+
+  // users endpoint, rollup mode + group_by[]=rbac_group_id: one row per
+  // group, metric objects summed over the window. Any-membership like
+  // upstream — Leadership overlaps Engineering, so rows sum above the org.
+  userGroups(startingDate, endingDate) {
+    const dayRecs = []
+    for (let t = Date.parse(`${startingDate}T00:00:00Z`); t <= Date.parse(`${endingDate}T00:00:00Z`); t += 86400000) {
+      dayRecs.push(generateMock.users(new Date(t).toISOString().slice(0, 10)).data)
+    }
+    const data = MOCK_GROUPS.map((g) => {
+      const ids = new Set(g.members.map((m) => m.id))
+      const recs = dayRecs.flatMap((d) => d.filter((r) => ids.has(r.user.id)))
+      const active = new Set(recs.filter((r) => r.chat_metrics.message_count + r.claude_code_metrics.core_metrics.distinct_session_count
+        + r.chat_cowork_unified_metrics.chat.message_count > 0).map((r) => r.user.id))
+      const totals = {}
+      for (const { user: _u, last_activity_date: _l, ...rest } of recs) mergeSum(totals, rest)
+      return { rbac_group_id: g.id, rbac_group_name: g.name, distinct_user_count: active.size, user: null, ...totals }
+    })
+    return { data, next_page: null }
+  },
+
+  // Raw Compliance directory walk (organizations → users + user_preferences),
+  // the shape fetchDirectoryRaw returns. Instruction texts are synthetic.
+  directory() {
+    const roles = ['admin', 'developer', 'claude_code_user', 'claude_code_user', 'user', 'user', 'user']
+    const users = USERS.map((u, i) => ({ id: u.id, email: u.email, organization_role: i === 0 ? 'primary_owner' : roles[i % roles.length] }))
+    const prefs = USERS.map((u, i) => ({
+      user: { id: u.id, email_address: u.email },
+      conversation_preferences: i % 3 === 0 ? 'Keep answers brief and cite sources.' : null,
+      cowork_global_instructions: i % 5 === 0 ? 'Work in the shared team folder; never delete files.' : null,
+    }))
+    return {
+      orgs: [{ org: { uuid: '00000000-0000-4000-8000-000000000001', name: 'Acme' }, users: { ok: true, data: users }, prefs: { ok: true, data: prefs } }],
+      truncated: false,
+    }
+  },
+
+  // Plugins API listings → [plugins, marketplaces] for toPluginCatalog.
+  pluginCatalog() {
+    const marketplaces = [
+      { id: 'marketplace_mock_internal', name: 'acme-internal', source: 'github' },
+      { id: 'marketplace_mock_manual', name: 'Uploaded', source: 'manual' },
+    ]
+    const prefs = ['required', 'auto_install', 'available', 'not_available']
+    const plugins = PLUGINS.slice(0, 4).map((name, i) => ({
+      type: 'plugin', id: `plugin_mock_${i + 1}`, name, display_name: name.replace(/-/g, ' '),
+      served_version_id: `pluginver_mock_${i}a`, served_version_pinned: i === 1,
+      latest_version_id: i === 1 ? `pluginver_mock_${i}b` : `pluginver_mock_${i}a`,
+      owner: i === 3 ? { type: 'user', user_id: USERS[3].id } : { type: 'organization' },
+      marketplace_id: marketplaces[i % 2].id,
+      organization_installation_preference: prefs[i], organization_installation_preference_inherited: i !== 0,
+      content_scan: { status: i === 2 ? 'flagged' : 'passed' }, reach: i % 2 ? 'local' : 'remote',
+      created_at: '2026-09-01T00:00:00Z', updated_at: '2026-10-15T00:00:00Z',
+    }))
+    return [plugins, marketplaces]
+  },
+
+  // analytics/artifacts with group_by[]=product: product × MIME type × shared.
+  artifacts(date) {
+    const rand = rng(hashSeed(date) ^ 0xA27)
+    const cells = [
+      ['chat', 'text/markdown'], ['chat', 'application/vnd.ant.react'], ['chat', 'image/svg+xml'],
+      ['claude_code', 'text/html'], ['cowork', 'text/html'], ['chat_cowork_unified', 'text/markdown'],
+    ]
+    const data = []
+    for (const [product, type] of cells) {
+      for (const shared of [false, true]) {
+        const created = Math.floor(rand() * (shared ? 3 : 9))
+        if (created === 0) continue
+        data.push({
+          product, artifact_type: type, is_shared: shared,
+          artifacts_created_count: created,
+          published_artifacts_created_count: shared ? Math.floor(created / 2) : 0,
+          distinct_user_count: Math.max(1, Math.floor(created / 2)),
+        })
+      }
+    }
+    return { data, next_page: null }
+  },
+}
+
+const MOCK_GROUPS = [
+  { id: 'rbac_group_mock_eng', name: 'Engineering', members: USERS.slice(0, 10) },
+  { id: 'rbac_group_mock_sales', name: 'Sales', members: USERS.slice(10, 15) },
+  { id: 'rbac_group_mock_design', name: 'Design', members: USERS.slice(15, 20) },
+  { id: 'rbac_group_mock_lead', name: 'Leadership', members: USERS.slice(0, 3) },
+]
+
+// Sum every numeric leaf of `o` into `acc` (nested objects merge); non-numeric
+// leaves keep the first value seen. null counters stay null until a number arrives.
+function mergeSum(acc, o) {
+  for (const [k, v] of Object.entries(o ?? {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if (!acc[k] || typeof acc[k] !== 'object') acc[k] = {}
+      mergeSum(acc[k], v)
+    } else if (typeof v === 'number') {
+      acc[k] = (typeof acc[k] === 'number' ? acc[k] : 0) + v
+    } else if (!(k in acc)) {
+      acc[k] = v
+    }
+  }
 }

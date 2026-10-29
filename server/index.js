@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { generateMock } from './mock.js'
-import { registerAwsRoutes, makeTtlCache } from './aws.js'
+import { registerAwsRoutes, makeTtlCache, utcNextDay } from './aws.js'
+import { summarizeOrgDirectory, toPluginCatalog } from './directory.js'
 import { inflateUser, withUserShape } from './inflate.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import { makeIdentityResolver } from './identity.js'
@@ -144,13 +145,15 @@ setInterval(() => {
 // handler is an unhandledRejection that EXITS the Node 20 process (observed:
 // one dead upstream socket killed the whole task). A default 30s timeout
 // bounds hung sockets when the caller doesn't pass its own signal.
-async function fetchJson(path, params, key, { signal, learnFreshness = true } = {}) {
+async function fetchJson(path, params, key, { signal, learnFreshness = true, headers: extraHeaders } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
     if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, String(vv)))
     else if (v !== undefined && v !== null) url.searchParams.set(k, String(v))
   }
-  const cacheKey = `${key?.slice(-8)}:${url.toString()}`
+  // Extra headers (e.g. an anthropic-beta opt-in) change the response, so
+  // they are part of the cache identity.
+  const cacheKey = `${key?.slice(-8)}:${extraHeaders ? `${JSON.stringify(extraHeaders)}:` : ''}${url.toString()}`
   const hit = cache.get(cacheKey)
   if (hit && Date.now() - hit.t < TTL_MS) return { ...hit.data, _cached: true }
 
@@ -161,6 +164,7 @@ async function fetchJson(path, params, key, { signal, learnFreshness = true } = 
         'x-api-key': key,
         'anthropic-version': API_VERSION,
         'User-Agent': UA,
+        ...extraHeaders,
       },
     })
     const text = await res.text()
@@ -179,6 +183,24 @@ async function fetchJson(path, params, key, { signal, learnFreshness = true } = 
   } catch (err) {
     return { ok: false, status: 0, body: { error: { type: 'network_error', message: String(err?.message || err) } } }
   }
+}
+
+// Walk a `next_page`-cursor listing (the `page` query parameter) to the end
+// or `maxPages`. Returns fetchJson's ok/status/body of the LAST page plus the
+// merged `data`. The other query parameters stay fixed — these cursors are
+// bound to the query that issued them. A failed page fails the whole walk.
+async function fetchAllNextPage(path, params, key, opts = {}, maxPages = 10) {
+  const data = []
+  let page
+  let last = { ok: false, status: 0, body: {} }
+  for (let i = 0; i < maxPages; i++) {
+    last = await fetchJson(path, { ...params, ...(page ? { page } : {}) }, key, { learnFreshness: false, ...opts })
+    if (!last.ok) return { ...last, data: [] }
+    if (Array.isArray(last.body?.data)) data.push(...last.body.data)
+    page = last.body?.next_page
+    if (!page) break
+  }
+  return { ...last, data }
 }
 
 function todayUtc(offsetDays = 0) {
@@ -365,6 +387,10 @@ app.get('/api/orgs', (_req, res) => {
 // prewarm tick against the shared 60 rpm budget.
 const summariesExplicitFailedAt = new Map()
 
+// API version 2026-10-21 drops the deprecated `summaries` response key; `data`
+// already carries the same rows on 2023-06-01, so read it first.
+const summaryRowsOf = (body) => body?.data ?? body?.summaries ?? []
+
 async function fetchSummaries(analyticsKey, rawStart, rawEnd) {
   const { params, firstDay, lastDay, endInclusive } = summariesUpstreamParams(
     rawStart, rawEnd, engagementMaxDay(analyticsKey, todayUtc(0)),
@@ -383,7 +409,7 @@ async function fetchSummaries(analyticsKey, rawStart, rawEnd) {
     // Horizon form came back 2+ days short of the requested end: the
     // upstream default did not behave as documented — ask explicitly once,
     // keeping the first answer if that fails.
-    const explicit = summariesShortfallParams(params, upstream.body?.summaries, endInclusive)
+    const explicit = summariesShortfallParams(params, summaryRowsOf(upstream.body), endInclusive)
     const failKey = explicit && `${analyticsKey?.slice(-8)}|${explicit.starting_date}|${explicit.ending_date}`
     if (explicit && Date.now() - (summariesExplicitFailedAt.get(failKey) || 0) >= TTL_MS) {
       const again = await get(explicit)
@@ -394,7 +420,7 @@ async function fetchSummaries(analyticsKey, rawStart, rawEnd) {
       }
     }
   }
-  const rows = (upstream.ok ? upstream.body?.summaries || [] : []).filter((r) => {
+  const rows = (upstream.ok ? summaryRowsOf(upstream.body) : []).filter((r) => {
     const day = String(r?.starting_at || '').slice(0, 10)
     return day >= firstDay && (!lastDay || day <= lastDay)
   })
@@ -425,7 +451,7 @@ app.get('/api/analytics/summaries', async (req, res) => {
         data: [],
       })
     }
-    // Upstream returns `{summaries: [...]}`; normalize to `{data: [...]}` to match the dashboard contract.
+    // Upstream rows arrive as `data` (deprecated duplicate: `summaries`); fetchSummaries normalizes both.
     res.json({ source: 'live', data: upstream.rows })
   } catch (err) {
     console.error('[summaries] unexpected failure:', err?.message || err)
@@ -576,7 +602,7 @@ app.get('/api/analytics/users/range', async (req, res) => {
 // unflattened upstream records, so no field loss; the columnar partitions
 // drop invocation_count / nested *_metrics these consumers need), with the
 // live API as the bounded fallback per the Range fan-out policy above.
-function makeDailyRangeRoute(upstreamPath, mockKey, rawTable) {
+function makeDailyRangeRoute(upstreamPath, mockKey, rawTable, extraParams = {}) {
   return async (req, res) => {
     const org = orgFromReq(req)
     const analyticsKey = analyticsKeyFor(org)
@@ -590,7 +616,9 @@ function makeDailyRangeRoute(upstreamPath, mockKey, rawTable) {
         if (!analyticsKey) {
           return { date, source: 'mock', data: generateMock[mockKey](date).data, error: null }
         }
-        const upstream = await fetchJson(upstreamPath, { date, limit: 500 }, analyticsKey, { signal: AbortSignal.timeout(20_000) })
+        // extraParams must match what the collector archives for rawTable,
+        // or live-served days and archived days would differ in shape.
+        const upstream = await fetchJson(upstreamPath, { date, limit: 500, ...extraParams }, analyticsKey, { signal: AbortSignal.timeout(20_000) })
         return {
           date,
           source: upstream.ok ? 'live' : 'upstream_error',
@@ -615,6 +643,46 @@ app.get('/api/analytics/projects/range',   makeDailyRangeRoute('/v1/organization
 // collector run after this ships — earlier days serve via the bounded live
 // fallback, older ones as 'unarchived' (RangeCoverageNote explains them).
 app.get('/api/analytics/plugins/range',    makeDailyRangeRoute('/v1/organizations/analytics/plugins',            'plugins',    'plugins'))
+// Artifact creation (2026-10): rows per product × MIME type × is_shared. The
+// endpoint takes a single `date` only (no range rollup), so it rides the same
+// daily fan-out; grouped by product exactly like the collector archives it.
+app.get('/api/analytics/artifacts/range',  makeDailyRangeRoute('/v1/organizations/analytics/artifacts',          'artifacts',  'artifacts', { 'group_by[]': ['product'] }))
+
+// Per-RBAC-group activity rollup: the users endpoint in date-range rollup
+// mode with group_by[]=rbac_group_id — one row per group, metric objects
+// summed over the window. Attribution is any-membership (a multi-group user
+// counts fully in each group, so rows can sum above the org) and
+// distinct_user_count is an HLL estimate (~2%). ending_date is EXCLUSIVE
+// upstream and both bounds follow the engagement horizon clamp. Raw grouped
+// rows pass through; the page aggregates them (lib/unified.ts).
+app.get('/api/analytics/users/groups', async (req, res) => {
+  try {
+    const org = orgFromReq(req)
+    const analyticsKey = analyticsKeyFor(org)
+    const endingDate = clampAnalyticsEnd(req.query.ending_date, analyticsKey)
+    const requestedStart = clampAnalyticsEnd(req.query.starting_date || todayUtc(-16), analyticsKey)
+    const startingDate = rangeDates(requestedStart <= endingDate ? requestedStart : endingDate, endingDate).slice(-MAX_RANGE_DAYS)[0] ?? endingDate
+    const range = { starting_date: startingDate, ending_date: endingDate }
+    if (!analyticsKey) return res.json({ source: 'mock', range, data: generateMock.userGroups(startingDate, endingDate).data })
+    const upstream = await fetchAllNextPage('/v1/organizations/analytics/users', {
+      starting_date: startingDate,
+      ending_date: utcNextDay(endingDate),
+      'group_by[]': ['rbac_group_id'],
+      limit: 1000,
+    }, analyticsKey, { signal: AbortSignal.timeout(30_000) }, 5)
+    if (!upstream.ok) {
+      return res.json({
+        source: 'upstream_error', range,
+        reason: `upstream ${upstream.status}: ${JSON.stringify(upstream.body).slice(0, 240)}`,
+        data: [],
+      })
+    }
+    res.json({ source: 'live', range, data: upstream.data })
+  } catch (err) {
+    console.error('[users/groups] unexpected failure:', err?.message || err)
+    res.status(500).json({ source: 'upstream_error', reason: 'internal_error', data: [] })
+  }
+})
 
 // ─── Admin API (optional — requires sk-ant-admin key) ───────────────────────
 
@@ -867,6 +935,88 @@ app.get('/api/compliance/activities', async (req, res) => {
   }
 })
 
+// ── Compliance directory: members by built-in role + saved instructions ──
+// Per linked organization under the key's parent: List organization users
+// (`organization_role`) and List user preferences (beta, 2026-10-15) — the
+// text members saved as "Instructions for Claude" (claude.ai) and "Global
+// instructions" (Cowork). Both need read:compliance_user_data. Each listing
+// is itself an audited Compliance read, so the raw walk is cached for an hour
+// per org (stale-while-revalidate) and never prewarmed. Preference TEXT is
+// user content: summarizeOrgDirectory copies it only for a VERIFIED unmasked
+// identity (ADR-0020) — other sessions get counts.
+const DIRECTORY_MAX_ORGS = 10
+const directoryCache = makeTtlCache({ ttlMs: 3_600_000, cap: 8 })
+async function fetchDirectoryRaw(key) {
+  const orgs = await fetchAllNextPage('/v1/compliance/organizations', { limit: 100 }, key)
+  if (!orgs.ok) {
+    const e = new Error(`compliance organizations ${orgs.status}`)
+    e.status = orgs.status
+    throw e
+  }
+  const out = []
+  for (const org of orgs.data.slice(0, DIRECTORY_MAX_ORGS)) {
+    const base = `/v1/compliance/organizations/${encodeURIComponent(org.uuid)}`
+    // A beta or unprovisioned sub-resource degrades that part only: each walk
+    // returns { ok:false, status } instead of throwing.
+    const [users, prefs] = await Promise.all([
+      fetchAllNextPage(`${base}/users`, { limit: 100 }, key, {}, 30),
+      fetchAllNextPage(`${base}/user_preferences`, { include_unset: 'true', limit: 100 }, key, {}, 30),
+    ])
+    out.push({ org, users, prefs })
+  }
+  return { orgs: out, truncated: orgs.data.length > DIRECTORY_MAX_ORGS }
+}
+
+app.get('/api/compliance/directory', async (req, res) => {
+  const org = orgFromReq(req)
+  const key = complianceKeyFor(org)
+  const unmask = req.identity?.unmask === true
+  // Varies by the caller's identity — never cacheable downstream.
+  res.set('Cache-Control', 'no-store')
+  try {
+    const raw = key ? await directoryCache(`${org}:directory`, () => fetchDirectoryRaw(key)) : generateMock.directory()
+    res.json({
+      source: key ? 'live' : 'mock',
+      unmasked: unmask,
+      truncated: raw.truncated === true,
+      orgs: raw.orgs.map((o) => summarizeOrgDirectory(o, { unmask })),
+    })
+  } catch (err) {
+    res.json({ source: 'upstream_error', reason: `upstream ${err?.status ?? 0}`, unmasked: unmask, orgs: [] })
+  }
+})
+
+// ── Org plugin catalog (Plugins API, beta ce-plugins-2026-09-01) ──────────
+// The Compliance key's read:compliance_org_data covers every Plugins API GET
+// (the Analytics key carries that scope too — complianceKeyFor falls back).
+// These calls count against the Admin API rate limits and record no audit
+// event (only member-owned version downloads do). 1h cache per org.
+const PLUGINS_BETA = { 'anthropic-beta': 'ce-plugins-2026-09-01' }
+const pluginCatalogCache = makeTtlCache({ ttlMs: 3_600_000, cap: 8 })
+app.get('/api/plugins/catalog', async (req, res) => {
+  const org = orgFromReq(req)
+  const key = complianceKeyFor(org)
+  if (!key) return res.json({ source: 'mock', ...toPluginCatalog(...generateMock.pluginCatalog()) })
+  try {
+    const raw = await pluginCatalogCache(`${org}:plugin_catalog`, async () => {
+      const [plugins, marketplaces] = await Promise.all([
+        fetchAllNextPage('/v1/organizations/plugins', { limit: 100 }, key, { headers: PLUGINS_BETA }),
+        fetchAllNextPage('/v1/organizations/plugin_marketplaces', { limit: 100 }, key, { headers: PLUGINS_BETA }),
+      ])
+      if (!plugins.ok) {
+        const e = new Error(`plugins ${plugins.status}`)
+        e.status = plugins.status
+        throw e
+      }
+      // Marketplace names are decoration — a failed listing keeps the ids.
+      return { plugins: plugins.data, marketplaces: marketplaces.ok ? marketplaces.data : [] }
+    })
+    res.json({ source: 'live', ...toPluginCatalog(raw.plugins, raw.marketplaces) })
+  } catch (err) {
+    res.json({ source: 'upstream_error', reason: `upstream ${err?.status ?? 0}`, plugins: [], marketplaces: [] })
+  }
+})
+
 const auditCompletionAt = new Map() // cacheKey → last background-completion attempt ms
 function scheduleAuditCompletion(cacheKey, walkParams) {
   const last = auditCompletionAt.get(cacheKey) || 0
@@ -940,7 +1090,8 @@ async function fetchAnalyticsSnapshot(org = 'primary') {
 
   return {
     ...snap,
-    // Upstream shape: summaries API returns `{summaries: [...]}`; users/skills/connectors return `{data: [...]}`.
+    // `summaries` here is the trimmed fetchSummaries rows set above (the mock
+    // may use either key); users/skills/connectors return `{data: [...]}`.
     summaries:   summaries.summaries ?? summaries.data ?? [],
     users_today: users.data ?? [],
     skills:      skills.data ?? [],

@@ -1,6 +1,6 @@
 // Round-trip test for the collector flatten ↔ server inflate contract.
 // node tests/server/test-flatten-inflate.mjs — exit 0 on success, 1 on failure.
-import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin } from '../../collector/flatten.js'
+import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin, flattenArtifact } from '../../collector/flatten.js'
 import { inflateUser, withUserShape } from '../../server/inflate.js'
 
 let n = 0, failed = 0
@@ -143,8 +143,8 @@ ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES
   const sparse = flattenPlugin({ plugin_name: 'co-agent' })
   ok('flattenPlugin sparse → null id, 0 counts', sparse.plugin_id === null && sparse.distinct_users === 0
     && sparse.install_count === 0 && sparse.invocation_count === 0 && sparse.claude_code_uses === 0 && sparse.cowork_uses === 0)
-  const PLUGIN_COLUMN_NAMES = ['plugin_name', 'plugin_id', 'distinct_users', 'install_count', 'invocation_count', 'claude_code_uses', 'cowork_uses']
-  ok('flattenPlugin emits exactly its 7 documented columns', PLUGIN_COLUMN_NAMES.every((c) => c in p) && Object.keys(p).length === 7)
+  const PLUGIN_COLUMN_NAMES = ['plugin_name', 'plugin_id', 'distinct_users', 'install_count', 'invocation_count', 'claude_code_uses', 'cowork_uses', 'unified_session_uses']
+  ok('flattenPlugin emits exactly its 8 documented columns', PLUGIN_COLUMN_NAMES.every((c) => c in p) && Object.keys(p).length === 8)
 }
 
 // ── withUserShape: raw sidecar rows keep the full nested shape ──────────────
@@ -165,6 +165,64 @@ ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES
   ok('a null nested object keeps the skeleton shape', typeof u.office_metrics.excel === 'object')
   ok('identity + unknown extra fields preserved', u.user.email_address === 'a@x.com' && u.extra_field === 'kept')
   ok('raw input is not mutated', sparseRaw.office_metrics === null && !('claude_code_metrics' in sparseRaw))
+}
+
+// Chat and Cowork unified (2026-10) — shapes copied from raw/users, raw/skills,
+// raw/connectors, raw/plugins (org2, 2026-10-25).
+{
+  const unifiedRecord = {
+    ...record,
+    chat_metrics: { ...record.chat_metrics, message_count: 0 },
+    chat_cowork_unified_metrics: {
+      chat: { distinct_conversation_count: 2, message_count: 20, thinking_message_count: 3, distinct_files_uploaded_count: 1, distinct_artifacts_created_count: 1, distinct_skills_used_count: 2, connectors_used_count: 4, distinct_shared_artifacts_viewed_count: null },
+      sessions: { distinct_session_count: 1, message_count: 6, action_count: 9, dispatch_turn_count: 2, file_edit_count: 3, skills_used_count: 1, plugins_used_count: 0, artifacts_created_count: 1 },
+    },
+  }
+  const flat = flattenUser(unifiedRecord)
+  ok('unified: chat counters flatten to unified_chat_*', flat.unified_chat_messages === 20 && flat.unified_chat_conversations === 2 && flat.unified_chat_connectors === 4)
+  ok('unified: session counters flatten to unified_session*', flat.unified_sessions === 1 && flat.unified_session_actions === 9 && flat.unified_session_file_edit_count === 3)
+  const back = inflateUser(flat)
+  ok('unified: roundtrip rebuilds both blocks', back.chat_cowork_unified_metrics?.chat?.message_count === 20
+    && back.chat_cowork_unified_metrics?.sessions?.distinct_session_count === 1
+    && back.chat_cowork_unified_metrics?.sessions?.artifacts_created_count === 1)
+  ok('unified: a reported 0 stays 0 (plugins_used_count)', back.chat_cowork_unified_metrics.sessions.plugins_used_count === 0)
+
+  const plainFlat = flattenUser(record)
+  ok('unified: absent block flattens to NULL, never 0', plainFlat.unified_chat_messages === null && plainFlat.unified_sessions === null)
+  ok('unified: absent block is omitted on inflate (upstream shape)', !('chat_cowork_unified_metrics' in inflateUser(plainFlat)))
+  ok('unified: pre-column partitions (keys missing) inflate without the block', !('chat_cowork_unified_metrics' in inflateUser({ user_id: 'u', user_email: 'e' })))
+
+  const skill = flattenSkill({ skill_name: 's', distinct_user_count: 1, chat_metrics: { distinct_conversation_skill_used_count: 0 }, claude_code_metrics: {}, cowork_metrics: {}, chat_cowork_unified_metrics: { chat: { distinct_conversation_skill_used_count: 3 }, sessions: { distinct_session_skill_used_count: 2 } } })
+  ok('unified: skill row → unified_chat_uses / unified_session_uses', skill.unified_chat_uses === 3 && skill.unified_session_uses === 2)
+  ok('unified: skill row without the block → NULL', flattenSkill({ skill_name: 's' }).unified_chat_uses === null)
+  const conn = flattenConnector({ connector_name: 'c', chat_cowork_unified_metrics: { chat: { distinct_conversation_connector_used_count: 5 }, sessions: { distinct_session_connector_used_count: 1 } } })
+  ok('unified: connector row → unified_*_uses', conn.unified_chat_uses === 5 && conn.unified_session_uses === 1)
+  const plug = flattenPlugin({ plugin_name: 'p', chat_cowork_unified_metrics: { distinct_session_plugin_used_count: 4 } })
+  ok('unified: plugin row reads the FLAT unified block', plug.unified_session_uses === 4)
+
+  // Glue drift guard against the REAL table definitions: every column a
+  // flatten helper writes must exist in its storage-stack.ts column list, or
+  // Athena silently never sees it.
+  const { readFileSync } = await import('node:fs')
+  const stack = readFileSync(new URL('../../infra/lib/storage-stack.ts', import.meta.url), 'utf8')
+  const colsOf = (name) => {
+    const m = stack.match(new RegExp(`const ${name}[^=]*= \\[([\\s\\S]*?)\\n\\]`))
+    return new Set([...(m?.[1] ?? '').matchAll(/name: '([a-z0-9_]+)'/g)].map((x) => x[1]))
+  }
+  const missingIn = (keys, cols) => keys.filter((k) => !cols.has(k))
+  ok('Glue USER_COLUMNS holds every flattenUser column', missingIn(Object.keys(flat), colsOf('USER_COLUMNS')).length === 0)
+  ok('Glue SKILL_COLUMNS holds every flattenSkill column', missingIn(Object.keys(skill), colsOf('SKILL_COLUMNS')).length === 0)
+  ok('Glue PLUGIN_COLUMNS holds every flattenPlugin column', missingIn(Object.keys(plug), colsOf('PLUGIN_COLUMNS')).length === 0)
+
+  // analytics/artifacts rows (group_by[]=product), per the 2026-10 reference.
+  const art = flattenArtifact({ product: 'chat_cowork_unified', artifact_type: 'text/markdown', is_shared: true, artifacts_created_count: 4, published_artifacts_created_count: 1, distinct_user_count: 3 })
+  ok('flattenArtifact maps every field', art.product === 'chat_cowork_unified' && art.artifact_type === 'text/markdown' && art.is_shared === true
+    && art.artifacts_created === 4 && art.published_artifacts_created === 1 && art.distinct_users === 3)
+  const artSparse = flattenArtifact({})
+  ok('flattenArtifact sparse → null dims, 0 counts', artSparse.product === null && artSparse.is_shared === null && artSparse.artifacts_created === 0)
+  ok('Glue ARTIFACT_COLUMNS holds every flattenArtifact column', missingIn(Object.keys(art), colsOf('ARTIFACT_COLUMNS')).length === 0)
+  ok('artifacts_daily (+ org2 twin) is a Glue table', /table\('artifacts_daily', ARTIFACT_COLUMNS, 'artifacts'\)/.test(stack)
+    && /table\('artifacts_daily_org2', ARTIFACT_COLUMNS, 'org2\/artifacts'\)/.test(stack))
 }
 
 console.log(`\n1..${n}`)

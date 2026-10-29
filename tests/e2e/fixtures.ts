@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { generateMock } from '../../server/mock.js'
+import { summarizeOrgDirectory, toPluginCatalog } from '../../server/directory.js'
 
 export const today = new Date().toISOString().slice(0, 10)
 const nextDate = (date: string, offset: number) =>
@@ -39,7 +40,7 @@ export function apiFixture(url: URL): unknown {
   }
   if (path === '/api/analytics/summaries') return { source: 'live', ...generateMock.summaries(period.starting_date, period.ending_date) }
   if (path === '/api/analytics/users') return { source: 'live', date: params.get('date'), data: usersFor(params.get('date') || today), has_more: false, next_page: null }
-  const rangeKind = path.match(/^\/api\/analytics\/(users|skills|connectors|projects|plugins)\/range$/)?.[1]
+  const rangeKind = path.match(/^\/api\/analytics\/(users|skills|connectors|projects|plugins|artifacts)\/range$/)?.[1]
   if (rangeKind) {
     const days = []
     for (let date = period.starting_date; date <= period.ending_date; date = nextDate(date, 1)) {
@@ -50,6 +51,13 @@ export function apiFixture(url: URL): unknown {
     }
     return { range: period, days }
   }
+  if (path === '/api/analytics/users/groups') return { source: 'live', range: period, data: generateMock.userGroups(period.starting_date, period.ending_date).data }
+  // Shaped by the server's own pure helpers, as a masked viewer sees it.
+  if (path === '/api/compliance/directory') return {
+    source: 'live', unmasked: false, truncated: false,
+    orgs: generateMock.directory().orgs.map((o) => summarizeOrgDirectory(o, { unmask: false })),
+  }
+  if (path === '/api/plugins/catalog') return { source: 'live', ...toPluginCatalog(...generateMock.pluginCatalog()) }
   if (path === '/api/compliance/activities') return {
     source: 'live', has_more: false, stop_reason: 'has_more=false', partial: false, total_fetched: 4, in_window: 4,
     // Real activity-enum types and actor shapes (Compliance API reference).

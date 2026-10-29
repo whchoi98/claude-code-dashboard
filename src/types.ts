@@ -72,6 +72,15 @@ export type DesignMetrics = {
   message_count: number
 }
 
+// Chat and Cowork unified (product `chat_cowork_unified`, 2026-10): users on
+// the unified experience report most chat activity under `chat` and Cowork
+// sessions under `sessions` here INSTEAD of chat_metrics / cowork_metrics.
+// Omitted on deployments that don't offer it. Read through lib/unified.ts.
+export type ChatCoworkUnifiedMetrics = {
+  chat?: Partial<ChatMetrics> & { distinct_connectors_used_count?: number }
+  sessions?: Partial<CoworkMetrics>
+}
+
 export type UserRecord = {
   user: Actor
   chat_metrics: ChatMetrics
@@ -84,6 +93,7 @@ export type UserRecord = {
   }
   cowork_metrics: CoworkMetrics
   design_metrics: DesignMetrics
+  chat_cowork_unified_metrics?: ChatCoworkUnifiedMetrics | null
   web_search_count: number
   // Absolute last-active day (YYYY-MM-DD, independent of the query window).
   // Shipped 2026-08 — absent on older archive days → treat as unknown.
@@ -117,6 +127,11 @@ export type Summary = {
   science_weekly_active_user_count?: number
   science_monthly_active_user_count?: number
   science_entitled_user_count?: number | null
+  // Chat and Cowork unified. NOT additive with chat_* / cowork_*: a user can
+  // be counted in both on a switch-over day — chart it as its own series.
+  chat_cowork_unified_daily_active_user_count?: number
+  chat_cowork_unified_weekly_active_user_count?: number
+  chat_cowork_unified_monthly_active_user_count?: number
   assigned_seat_count: number
   pending_invite_count: number
   daily_adoption_rate: number
@@ -144,6 +159,10 @@ export type Skill = {
     word?: { distinct_session_skill_used_count: number }
   }
   cowork_metrics: { distinct_session_skill_used_count: number }
+  chat_cowork_unified_metrics?: {
+    chat?: { distinct_conversation_skill_used_count?: number }
+    sessions?: { distinct_session_skill_used_count?: number }
+  } | null
 }
 
 export type Connector = {
@@ -165,6 +184,10 @@ export type Connector = {
     word?: { distinct_session_connector_used_count: number }
   }
   cowork_metrics: { distinct_session_connector_used_count: number }
+  chat_cowork_unified_metrics?: {
+    chat?: { distinct_conversation_connector_used_count?: number }
+    sessions?: { distinct_session_connector_used_count?: number }
+  } | null
 }
 
 export type Plugin = {
@@ -175,6 +198,8 @@ export type Plugin = {
   invocation_count: number
   claude_code_metrics: { distinct_session_plugin_used_count: number }
   cowork_metrics?: { distinct_session_plugin_used_count: number }
+  // Flat on plugin rows (no chat/sessions split — plugins run in sessions).
+  chat_cowork_unified_metrics?: { distinct_session_plugin_used_count?: number } | null
 }
 
 export type ChatProject = {

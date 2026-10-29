@@ -13,7 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- Chat and Cowork unified: the dashboard now reads the new `chat_cowork_unified` product. People on the unified experience report most of their chat and Cowork activity there instead of under chat and Cowork, so the Chat and Cowork pages had been dropping toward zero as people moved. The second organization had moved entirely by October.
+  - Chat, Cowork, Users, User Productivity, User Search, Agentic, Adoption and the user detail panel count unified activity together with chat and Cowork. A note says how much of the window came through unified.
+  - Trends and Cowork chart unified active users as a separate line. One person can be counted on both sides, so the two are not added.
+  - Cost labels the `chat_cowork_unified` product.
+  - The collector archives the unified fields in new columns, and the chatbot's SQL tool knows about them.
+- User Productivity: an "Activity by group" table compares RBAC groups over the selected range.
+- Audit: a "Members and custom instructions" card shows members by built-in role and how many saved Instructions for Claude or Cowork global instructions. Only administrators in the unmasked group see the text itself.
+- Adoption:
+  - a plugin catalog from the Plugins API (beta) with install policy, available updates and scan status
+  - an artifacts card: artifacts created per product and type, and how many were shared or published. The collector archives artifacts daily in a new `artifacts_daily` table.
+
+### Changed
+
+- Per-user cost and usage reports now read `actor.email_address`, and activity summaries read `data`. API version 2026-10-21 removes the older `actor.email` and `summaries` fields; the API already returns both replacements.
 
 ## [2.6.0] - 2026-10-29
 
@@ -899,7 +914,22 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_미출시 변경 사항 없음._
+### 추가
+
+- Chat·Cowork 통합(Chat and Cowork unified): 새 제품 값 `chat_cowork_unified`를 읽습니다. 통합 환경으로 옮긴 사람은 채팅과 Cowork 활동 대부분이 기존 chat·Cowork가 아닌 이 제품으로 집계돼, 전환이 진행될수록 Chat·Cowork 페이지 수치가 0에 가까워지고 있었습니다. 두 번째 조직은 10월에 완전히 전환됐습니다.
+  - Chat, Cowork, 사용자, 사용자 생산성, 사용자 검색, Agentic, 도입 페이지와 사용자 상세 패널이 통합 활동을 chat·Cowork와 함께 집계합니다. 기간 중 통합에서 나온 비중을 안내 문구로 보여 줍니다.
+  - 추세와 Cowork 페이지는 통합 활성 사용자를 별도 선으로 그립니다. 한 사람이 양쪽에 함께 집계될 수 있어 둘을 더하지 않습니다.
+  - 비용 페이지에 `chat_cowork_unified` 제품 라벨을 추가했습니다.
+  - 컬렉터가 통합 필드를 새 컬럼으로 보관하고, 챗봇의 SQL 도구도 이 컬럼을 압니다.
+- 사용자 생산성: 선택한 기간의 RBAC 그룹별 활동을 비교하는 "그룹별 활동" 표를 추가했습니다.
+- 감사: 기본 역할별 멤버 수와 "Claude에 대한 지침"·Cowork 전역 지침을 저장한 멤버 수를 보여 주는 "멤버와 사용자 지정 지침" 카드를 추가했습니다. 지침 원문은 unmasked 그룹의 관리자에게만 보입니다.
+- 도입:
+  - Plugins API(beta)의 플러그인 카탈로그: 설치 정책, 업데이트 여부, 검사 상태
+  - 아티팩트 카드: 제품·유형별로 생성된 아티팩트와 그중 공유·게시된 수. 컬렉터가 아티팩트를 매일 새 `artifacts_daily` 테이블로 보관합니다.
+
+### 변경
+
+- 사용자별 비용·사용량 리포트는 `actor.email_address`를, 활동 요약은 `data`를 읽습니다. API 버전 2026-10-21에서 기존 `actor.email`·`summaries` 필드가 빠지며, 대체 필드는 이미 API가 함께 돌려주고 있습니다.
 
 ## [2.6.0] - 2026-10-29
 

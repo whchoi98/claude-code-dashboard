@@ -17,6 +17,14 @@ export function flattenUser(r) {
   const office = r.office_metrics || {}
   const design = r.design_metrics || {}
   const science = r.science_metrics || {}
+  // Chat and Cowork unified (2026-10): an absent block (deployment doesn't
+  // offer it, or archived before it shipped) flattens to NULL, never 0 —
+  // 0 would claim real inactivity. ub = plain counter, ubn = feature-flag
+  // counter that stays null even inside a present block.
+  const uChat = r.chat_cowork_unified_metrics?.chat
+  const uSess = r.chat_cowork_unified_metrics?.sessions
+  const ub = (blk, k) => (blk ? blk[k] ?? 0 : null)
+  const ubn = (blk, k) => (blk ? blk[k] ?? null : null)
   return {
     user_id:                r.user?.id,
     user_email:             r.user?.email_address,
@@ -89,6 +97,21 @@ export function flattenUser(r) {
     design_projects_used:    design.distinct_projects_used_count ?? 0,
     design_projects_created: design.distinct_projects_created_count ?? 0,
     design_messages:         design.message_count ?? 0,
+    unified_chat_conversations:        ub(uChat, 'distinct_conversation_count'),
+    unified_chat_messages:             ub(uChat, 'message_count'),
+    unified_chat_thinking_messages:    ub(uChat, 'thinking_message_count'),
+    unified_chat_files_uploaded:       ub(uChat, 'distinct_files_uploaded_count'),
+    unified_chat_artifacts:            ub(uChat, 'distinct_artifacts_created_count'),
+    unified_chat_skills:               ub(uChat, 'distinct_skills_used_count'),
+    unified_chat_connectors:           ub(uChat, 'connectors_used_count'),
+    unified_sessions:                  ub(uSess, 'distinct_session_count'),
+    unified_session_messages:          ub(uSess, 'message_count'),
+    unified_session_actions:           ub(uSess, 'action_count'),
+    unified_session_dispatch_turns:    ub(uSess, 'dispatch_turn_count'),
+    unified_session_file_edit_count:   ubn(uSess, 'file_edit_count'),
+    unified_session_skills_used:       ub(uSess, 'skills_used_count'),
+    unified_session_plugins_used:      ubn(uSess, 'plugins_used_count'),
+    unified_session_artifacts_created: ubn(uSess, 'artifacts_created_count'),
   }
 }
 
@@ -99,6 +122,9 @@ export function flattenSkill(s) {
     chat_uses: s.chat_metrics?.distinct_conversation_skill_used_count ?? 0,
     claude_code_uses: s.claude_code_metrics?.distinct_session_skill_used_count ?? 0,
     cowork_uses: s.cowork_metrics?.distinct_session_skill_used_count ?? 0,
+    // Unified chat / sessions; NULL when the row carries no unified block.
+    unified_chat_uses: s.chat_cowork_unified_metrics?.chat?.distinct_conversation_skill_used_count ?? null,
+    unified_session_uses: s.chat_cowork_unified_metrics?.sessions?.distinct_session_skill_used_count ?? null,
   }
 }
 
@@ -109,6 +135,8 @@ export function flattenConnector(c) {
     chat_uses: c.chat_metrics?.distinct_conversation_connector_used_count ?? 0,
     claude_code_uses: c.claude_code_metrics?.distinct_session_connector_used_count ?? 0,
     cowork_uses: c.cowork_metrics?.distinct_session_connector_used_count ?? 0,
+    unified_chat_uses: c.chat_cowork_unified_metrics?.chat?.distinct_conversation_connector_used_count ?? null,
+    unified_session_uses: c.chat_cowork_unified_metrics?.sessions?.distinct_session_connector_used_count ?? null,
   }
 }
 
@@ -125,6 +153,23 @@ export function flattenPlugin(p) {
     invocation_count: p.invocation_count ?? 0,
     claude_code_uses: p.claude_code_metrics?.distinct_session_plugin_used_count ?? 0,
     cowork_uses: p.cowork_metrics?.distinct_session_plugin_used_count ?? 0,
+    // Flat on plugin rows (no chat/sessions split — probed in raw/plugins 2026-10-25).
+    unified_session_uses: p.chat_cowork_unified_metrics?.distinct_session_plugin_used_count ?? null,
+  }
+}
+
+// Artifact creation row (analytics/artifacts, 2026-10) — one per product ×
+// MIME type × is_shared when grouped by product. `product` is null only if
+// the request was ungrouped. Counts are flows (SUM across days);
+// distinct_users is per row and day (MAX, never SUM).
+export function flattenArtifact(a) {
+  return {
+    product:                     a.product ?? null,
+    artifact_type:               a.artifact_type ?? null,
+    is_shared:                   typeof a.is_shared === 'boolean' ? a.is_shared : null,
+    artifacts_created:           a.artifacts_created_count ?? 0,
+    published_artifacts_created: a.published_artifacts_created_count ?? 0,
+    distinct_users:              a.distinct_user_count ?? 0,
   }
 }
 

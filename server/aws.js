@@ -7,6 +7,7 @@ import {
   blocksToBedrockContent,
 } from './chat-tools.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
+import { chatMessagesOf, coworkTotalsOf } from './unified.js'
 import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
 } from '@aws-sdk/client-athena'
@@ -307,6 +308,12 @@ export function aggregateGroupCost(costBody, nameById = {}) {
   return { groups, ungrouped, daily }
 }
 
+// Per-user report actor email. API version 2026-10-21 removes the deprecated
+// `actor.email` from user_cost_report / user_usage_report; `email_address`
+// already carries the same value on 2023-06-01, so read it first and keep
+// `email` only as the older-version fallback.
+export const reportActorEmail = (a) => a?.email_address || a?.email || ''
+
 // Derive an email→groups mapping from a user_cost_report body grouped by
 // rbac_group_id (one row per actor × group). Upstream attribution is
 // any-membership, so map values are ARRAYS of every group the user appears
@@ -322,7 +329,7 @@ export function deriveGroupMap(data, nameById = {}) {
   const rows = Array.isArray(data) ? data : []
   const perEmail = new Map()   // email → Map(group_id → spend)
   for (const r of rows) {
-    const email = String(r?.actor?.email || '').trim().toLowerCase()
+    const email = String(reportActorEmail(r?.actor)).trim().toLowerCase()
     const g = r?.rbac_group_id
     if (!email || !g) continue
     const usd = parseFloat(r?.amount)
@@ -383,7 +390,7 @@ export function userUsageToUsers(data) {
   const rows = Array.isArray(data) ? data : []
   const byEmail = new Map()
   for (const r of rows) {
-    const email = r?.actor?.email || ''
+    const email = reportActorEmail(r?.actor)
     if (!email) continue
     const cc = r?.cache_creation || {}
     const input = (r?.uncached_input_tokens ?? 0) +
@@ -479,7 +486,7 @@ export function userCostToUsers(data, { byModel = false, by = null } = {}) {
       .map((r) => {
         const a = r.actor || {}
         return {
-          email: a.email || '',
+          email: reportActorEmail(a),
           user_id: a.user_id || null,
           name: a.name || null,
           deleted: !!a.deleted,
@@ -496,7 +503,7 @@ export function userCostToUsers(data, { byModel = false, by = null } = {}) {
   const byEmail = new Map()
   for (const r of rows) {
     const a = r.actor || {}
-    const email = a.email || ''
+    const email = reportActorEmail(a)
     if (!email) continue
     const u = byEmail.get(email) ?? { email, user_id: a.user_id || null, name: a.name || null, net_spend_usd: 0, requests: 0, _m: new Map() }
     const spend = usd(r.amount)
@@ -535,7 +542,7 @@ export function mergeUserReportRows(rows, report = 'user_cost_report') {
   for (const r of rows || []) {
     const a = r?.actor || {}
     const dim = r?.model ?? r?.product ?? r?.rbac_group_id ?? ''
-    const key = `${a.user_id || a.email || ''}|${dim}`
+    const key = `${a.user_id || reportActorEmail(a)}|${dim}`
     const cur = merged.get(key)
     if (!cur) { merged.set(key, { ...r, cache_creation: r?.cache_creation ? { ...r.cache_creation } : r?.cache_creation }); continue }
     cur.requests = Number(cur.requests || 0) + Number(r?.requests || 0)
@@ -975,6 +982,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'connectors_daily',
   'projects_daily',
   'plugins_daily',
+  'artifacts_daily',
   'compliance_daily',
   // org2 twins — identical columns/projection, locations under org2/ (multi-org contract).
   'claude_code_analytics_org2',
@@ -983,6 +991,7 @@ const ATHENA_ALLOWED_TABLES = new Set([
   'connectors_daily_org2',
   'projects_daily_org2',
   'plugins_daily_org2',
+  'artifacts_daily_org2',
   'compliance_daily_org2',
   // name-redacted views (see redactAuditTableRefs)
   'compliance_daily_redacted',
@@ -1086,15 +1095,32 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
   cowork_file_edit_count, cowork_edit_tool_count, cowork_multi_edit_tool_count,
   cowork_write_tool_count, cowork_notebook_edit_tool_count, cowork_sessions_with_file_edits_count
     (cowork tool-edit counts are NULL until the org enables cowork file-editing),
-  design_sessions, design_projects_used, design_projects_created, design_messages
+  design_sessions, design_projects_used, design_projects_created, design_messages,
+  unified_chat_conversations, unified_chat_messages, unified_chat_thinking_messages,
+  unified_chat_files_uploaded, unified_chat_artifacts, unified_chat_skills, unified_chat_connectors,
+  unified_sessions, unified_session_messages, unified_session_actions, unified_session_dispatch_turns,
+  unified_session_file_edit_count, unified_session_skills_used, unified_session_plugins_used,
+  unified_session_artifacts_created
+    (Chat and Cowork unified, since 2026-10: users on the unified experience report
+    most chat activity in unified_chat_* and Cowork sessions in unified_session*
+    INSTEAD of chat_* / cowork_* — add both families with COALESCE(unified_…, 0)
+    for totals; all NULL = the row had no unified block, not zero activity)
 
 • summaries_daily (one row per day, org-wide):
   date, daily_active_user_count, weekly_active_user_count, monthly_active_user_count,
   assigned_seat_count, pending_invite_count,
-  cowork_daily_active_user_count, cowork_weekly_active_user_count, cowork_monthly_active_user_count
+  cowork_daily_active_user_count, cowork_weekly_active_user_count, cowork_monthly_active_user_count,
+  chat_cowork_unified_daily_active_user_count, chat_cowork_unified_weekly_active_user_count,
+  chat_cowork_unified_monthly_active_user_count
+    (NOT additive with cowork_* — a user can be counted on both sides)
 
-• skills_daily:   skill_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
-• connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses, cowork_uses
+• skills_daily:   skill_name, distinct_users, chat_uses, claude_code_uses, cowork_uses, unified_chat_uses, unified_session_uses
+• connectors_daily: connector_name, distinct_users, chat_uses, claude_code_uses, cowork_uses, unified_chat_uses, unified_session_uses
+
+• artifacts_daily (one row per product × artifact_type × is_shared per day, data starts 2026-10):
+  product (chat | claude_code | cowork | chat_cowork_unified), artifact_type (MIME type or 'other'),
+  is_shared (boolean), artifacts_created, published_artifacts_created, distinct_users
+    (counts SUM across days; distinct_users does NOT — use MAX per row)
 
 • projects_daily (one row per chat project per day):
   project_id, project_name, distinct_user_count, distinct_conversation_count,
@@ -2528,13 +2554,16 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           cowork_actions: 0, cowork_file_edits: 0, cowork_sessions: 0,
           design_projects_created: 0, design_messages: 0, design_sessions: 0,
         }
-        if (cc.distinct_session_count > 0 || rec.chat_metrics?.message_count > 0) u.active_days += 1
+        // Chat messages include Chat and Cowork unified (server/unified.js) —
+        // a unified-only user must still count as active and productive.
+        const messages = chatMessagesOf(rec)
+        if (cc.distinct_session_count > 0 || messages > 0) u.active_days += 1
         u.sessions   += cc.distinct_session_count ?? 0
         u.loc_added  += cc.lines_of_code?.added_count ?? 0
         u.loc_removed+= cc.lines_of_code?.removed_count ?? 0
         u.commits    += cc.commit_count ?? 0
         u.prs        += cc.pull_request_count ?? 0
-        u.messages   += rec.chat_metrics?.message_count ?? 0
+        u.messages   += messages
         u.accepted   += (ta?.edit_tool?.accepted_count ?? 0) + (ta?.multi_edit_tool?.accepted_count ?? 0) +
                         (ta?.write_tool?.accepted_count ?? 0) + (ta?.notebook_edit_tool?.accepted_count ?? 0)
         u.rejected   += (ta?.edit_tool?.rejected_count ?? 0) + (ta?.multi_edit_tool?.rejected_count ?? 0) +
@@ -2544,12 +2573,10 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           u.office_messages += off[k]?.message_count ?? 0
           u.office_sessions += off[k]?.distinct_session_count ?? 0
         }
-        const cw = rec.cowork_metrics
-        if (cw) {
-          u.cowork_actions    += cw.action_count ?? 0
-          u.cowork_file_edits += cw.file_edit_count ?? 0
-          u.cowork_sessions   += cw.distinct_session_count ?? 0
-        }
+        const cw = coworkTotalsOf(rec)
+        u.cowork_actions    += cw.actions
+        u.cowork_file_edits += cw.file_edits
+        u.cowork_sessions   += cw.sessions
         const dz = rec.design_metrics
         if (dz) {
           u.design_projects_created += dz.distinct_projects_created_count ?? 0

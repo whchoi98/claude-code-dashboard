@@ -14,6 +14,7 @@ import { useGroupScope } from '../lib/useGroupScope'
 import { useI18n, useT } from '../lib/i18n'
 import { fmtCompact, fmtNum, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
+import { chatOf } from '../lib/unified'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 type CsvRow = {
@@ -162,11 +163,15 @@ export function UserSearch() {
   const userHasCsv = hasCsv && userCsvRows.length > 0
   const userDays = (range.data?.days ?? [])
     .filter((d) => d.source !== 'mock')
-    .map((d) => ({
-      date: d.date,
-      sessions: d.data.find((r) => r.user?.email_address === activeEmail)?.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0,
-      messages: d.data.find((r) => r.user?.email_address === activeEmail)?.chat_metrics?.message_count ?? 0,
-    }))
+    .map((d) => {
+      const rec = d.data.find((r) => r.user?.email_address === activeEmail)
+      return {
+        date: d.date,
+        sessions: rec?.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0,
+        // incl. Chat and Cowork unified chat (lib/unified.ts)
+        messages: rec?.chat_metrics ? chatOf(rec).message_count : 0,
+      }
+    })
 
   const inWindow = userDays.filter((d) => d.date >= effectiveRange.start && d.date <= effectiveRange.end)
   const csvSessionsTotal = userDays.filter((d) => d.date >= (csv.data?.period?.starting_date ?? RANGE_START))

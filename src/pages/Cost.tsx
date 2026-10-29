@@ -91,6 +91,9 @@ const PRODUCT_COLORS: Record<string, string> = {
   research:         '#6A8EAE',
   office_agent:     '#5B7FA6',
   'claude-tag':     '#7F8C5A',   // hyphenated upstream id (Claude in Slack)
+  // Chat and Cowork unified (2026-10): spend moves here from chat/cowork as
+  // users migrate; org totals are unchanged.
+  chat_cowork_unified: '#6B8E9B',
   other:            '#D7D3C7',
 }
 const PRODUCT_LABELS: Record<string, string> = {
@@ -103,6 +106,7 @@ const PRODUCT_LABELS: Record<string, string> = {
   research: 'Research',
   office_agent: 'Office Agents',
   'claude-tag': 'Claude in Slack',
+  chat_cowork_unified: 'Chat & Cowork unified',
   other: 'Other',
 }
 // snake_case product id → display label; Title-Cases any unknown/new id.

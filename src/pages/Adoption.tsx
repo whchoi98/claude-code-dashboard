@@ -7,6 +7,9 @@ import { GroupTabs } from '../components/GroupTabs'
 import { RangeCoverageNote } from '../components/RangeCoverageNote'
 import { badgeSource } from '../lib/format'
 import { GroupScopeNote } from '../components/GroupScopeNote'
+import { UnifiedNote } from '../components/UnifiedNote'
+import { PluginCatalogCard } from '../components/PluginCatalogCard'
+import { ArtifactsCard } from '../components/ArtifactsCard'
 import { ChartCard } from '../components/ChartCard'
 import { DateRangeControl } from '../components/DateRangeControl'
 import { LoadingState, ErrorState } from '../components/LoadingState'
@@ -16,6 +19,7 @@ import { useT } from '../lib/i18n'
 import { fmtNum, fmtCents, maskEmail } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
+import { skillUses, connectorUses, pluginCoworkUses } from '../lib/unified'
 import type { Skill, Connector, ChatProject, Plugin } from '../types'
 
 type DayEntry<T> = { date: string; source: string; data: T[] }
@@ -68,15 +72,17 @@ export function Adoption() {
   // approximation. Usage counts (Chat/Code/Cowork) SUM naturally.
   // Days are iterated oldest→newest so the label/share status of the LATEST
   // day wins (display names resolve at request time and can change).
+  // Chat / Cowork columns fold in Chat and Cowork unified (lib/unified.ts).
   const skillRows = useMemo<SkillRow[]>(() => {
     const by = new Map<string, SkillRow>()
     const days = [...(skills.data?.days ?? [])].sort((a, b) => a.date.localeCompare(b.date))
     for (const day of days) {
       for (const s of day.data) {
+        const su = skillUses(s)
         const used = s.distinct_user_count > 0
-          || s.chat_metrics.distinct_conversation_skill_used_count > 0
+          || su.chat > 0
           || s.claude_code_metrics.distinct_session_skill_used_count > 0
-          || s.cowork_metrics.distinct_session_skill_used_count > 0
+          || su.cowork > 0
         const cur = by.get(s.skill_name) ?? {
           name: s.skill_name, label: s.skill_name, Users: 0, Chat: 0, Code: 0, Cowork: 0, lastSeen: '', staleInWindow: false,
           Invocations: null, share: null, overageCents: null, listCents: null,
@@ -84,9 +90,9 @@ export function Adoption() {
         if (s.skill_display_name) cur.label = s.skill_display_name
         if (s.share_status) cur.share = s.share_status
         cur.Users  = Math.max(cur.Users, s.distinct_user_count)
-        cur.Chat  += s.chat_metrics.distinct_conversation_skill_used_count
+        cur.Chat  += su.chat
         cur.Code  += s.claude_code_metrics.distinct_session_skill_used_count
-        cur.Cowork += s.cowork_metrics.distinct_session_skill_used_count
+        cur.Cowork += su.cowork
         cur.Invocations  = addNullable(cur.Invocations, s.invocation_count)
         cur.overageCents = addNullable(cur.overageCents, centsOf(s.estimated_overage_spend))
         cur.listCents    = addNullable(cur.listCents, centsOf(s.attributed_list_price))
@@ -102,19 +108,20 @@ export function Adoption() {
     const days = [...(connectors.data?.days ?? [])].sort((a, b) => a.date.localeCompare(b.date))
     for (const day of days) {
       for (const c of day.data) {
+        const cu = connectorUses(c)
         const used = c.distinct_user_count > 0
-          || c.chat_metrics.distinct_conversation_connector_used_count > 0
+          || cu.chat > 0
           || c.claude_code_metrics.distinct_session_connector_used_count > 0
-          || c.cowork_metrics.distinct_session_connector_used_count > 0
+          || cu.cowork > 0
         const cur = by.get(c.connector_name) ?? {
           name: c.connector_name, label: c.connector_name, Users: 0, Chat: 0, Code: 0, Cowork: 0, lastSeen: '', staleInWindow: false,
           read: null, write: null, unclassified: null, managedAuthUsers: null,
         }
         if (c.connector_display_name) cur.label = c.connector_display_name
         cur.Users  = Math.max(cur.Users, c.distinct_user_count)
-        cur.Chat  += c.chat_metrics.distinct_conversation_connector_used_count
+        cur.Chat  += cu.chat
         cur.Code  += c.claude_code_metrics.distinct_session_connector_used_count
-        cur.Cowork += c.cowork_metrics.distinct_session_connector_used_count
+        cur.Cowork += cu.cowork
         cur.read         = addNullable(cur.read, c.read_call_count)
         cur.write        = addNullable(cur.write, c.write_call_count)
         cur.unclassified = addNullable(cur.unclassified, c.unclassified_call_count)
@@ -126,6 +133,22 @@ export function Adoption() {
     }
     return flagStale(Array.from(by.values()).sort((a, b) => b.Users - a.Users), days)
   }, [connectors.data])
+  // Unified share of the Chat + Cowork uses above (skills + connectors) —
+  // drives the note explaining that those columns include it.
+  const unifiedShare = useMemo(() => {
+    let unified = 0, total = 0
+    for (const day of skills.data?.days ?? []) for (const s of day.data) {
+      const u = s.chat_cowork_unified_metrics
+      unified += (u?.chat?.distinct_conversation_skill_used_count ?? 0) + (u?.sessions?.distinct_session_skill_used_count ?? 0)
+      const su = skillUses(s); total += su.chat + su.cowork
+    }
+    for (const day of connectors.data?.days ?? []) for (const c of day.data) {
+      const u = c.chat_cowork_unified_metrics
+      unified += (u?.chat?.distinct_conversation_connector_used_count ?? 0) + (u?.sessions?.distinct_session_connector_used_count ?? 0)
+      const cu = connectorUses(c); total += cu.chat + cu.cowork
+    }
+    return total > 0 ? unified / total : null
+  }, [skills.data, connectors.data])
   const skillSpendReported = useMemo(() => skillRows.some((r) => r.overageCents != null || r.listCents != null || r.Invocations != null), [skillRows])
   const connectorCallsReported = useMemo(() => connectorRows.some((r) => r.read != null || r.write != null || r.unclassified != null || r.managedAuthUsers != null), [connectorRows])
 
@@ -143,7 +166,7 @@ export function Adoption() {
         const inst   = p.install_count ?? 0
         const invoc  = p.invocation_count ?? 0
         const code   = p.claude_code_metrics?.distinct_session_plugin_used_count ?? 0
-        const cowork = p.cowork_metrics?.distinct_session_plugin_used_count ?? 0
+        const cowork = pluginCoworkUses(p)
         const used = users > 0 || invoc > 0 || code > 0 || cowork > 0
         const aggregate = p.plugin_name === PLUGIN_AGGREGATE
         const cur = by.get(p.plugin_name) ?? { name: p.plugin_name, label: aggregate ? t('adopt.plugins.third_party') : p.plugin_name, Users: 0, Installs: 0, Invocations: 0, Code: 0, lastSeen: '', staleInWindow: false, aggregate }
@@ -162,6 +185,11 @@ export function Adoption() {
   const staleSkills = useMemo(() => skillRows.filter((r) => r.staleInWindow), [skillRows])
   const staleConnectors = useMemo(() => connectorRows.filter((r) => r.staleInWindow), [connectorRows])
   const stalePlugins = useMemo(() => pluginRows.filter((r) => r.staleInWindow), [pluginRows])
+  // Window invocations by lower-cased plugin name — joins the org catalog card.
+  const invocationsByName = useMemo(
+    () => new Map(pluginRows.filter((r) => !r.aggregate).map((r) => [r.name.toLowerCase(), r.Invocations])),
+    [pluginRows],
+  )
 
   // Same uniqueness caveat as skills/connectors. project_name and created_by
   // are taken from the latest day to handle mid-window renames.
@@ -208,6 +236,7 @@ export function Adoption() {
       <GroupTabs />
       <RangeCoverageNote resp={[skills.data, connectors.data, projects.data, plugins.data]} />
       <GroupScopeNote />
+      <UnifiedNote share={unifiedShare} kind="adoption" />
       <div className="p-4 lg:p-8 print:p-8 space-y-6">
         <ChartCard title={t('adopt.skills')} subtitle={t('adopt.skills.sub')}>
           <ResponsiveContainer width="100%" height={Math.max(220, skillRows.length * 32)}>
@@ -283,6 +312,10 @@ export function Adoption() {
             </>
           )}
         </ChartCard>
+
+        <PluginCatalogCard invocationsByName={invocationsByName} />
+
+        <ArtifactsCard startingDate={range.startingDate} endingDate={range.endingDate} />
 
         <ChartCard title={t('adopt.projects')} subtitle={t('adopt.projects.sub')}>
           <ProjectTable rows={projectRows} t={t} />

@@ -11,7 +11,7 @@ infra/
 ├── bin/app.ts              # Entry; reads context (existingVpcId, cloudfrontPrefixListId, …)
 ├── lib/
 │   ├── network-stack.ts    # VPC (new or lookup by id)
-│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 14 tables (7 primary incl. compliance_daily + plugins_daily + 7 *_org2 mirrors over org2/<prefix>/) + 2 name-redacted Presto views (compliance_daily_redacted, compliance_daily_org2_redacted — ADR-0022) + Athena workgroup
+│   ├── storage-stack.ts    # S3 archive bucket + Glue DB + 16 tables (8 primary incl. compliance_daily + plugins_daily + artifacts_daily + 8 *_org2 mirrors over org2/<prefix>/; 2026-10 also appended the additive Chat and Cowork unified columns) + 2 name-redacted Presto views (compliance_daily_redacted, compliance_daily_org2_redacted — ADR-0022) + Athena workgroup
 │   ├── compute-stack.ts    # ECS service, ALB, CloudFront, WAF, Secrets Manager
 │   └── collector-stack.ts  # Lambda (15-min timeout) + 2 EventBridge rules (14:00 analytics / 00:30 compliance)
 ├── cdk.json                # `cdk` app command

@@ -14,6 +14,8 @@ const cases = [
   ['table alias',                     "SELECT a.user_email FROM claude_code_analytics a JOIN summaries_daily s ON a.date=s.date", 'pass'],
   ['org2 twin table allowed',         "SELECT 1 FROM claude_code_analytics_org2 WHERE date='2026-07-01'", 'pass'],
   ['org2 compliance twin allowed',    "SELECT type FROM compliance_daily_org2 WHERE date='2026-07-01'", 'pass'],
+  ['artifacts table allowed',         "SELECT product, SUM(artifacts_created) FROM artifacts_daily WHERE date='2026-10-20' GROUP BY 1", 'pass'],
+  ['org2 artifacts twin allowed',     "SELECT 1 FROM artifacts_daily_org2 WHERE date='2026-10-20'", 'pass'],
   ['org3 twin does not exist',        "SELECT 1 FROM claude_code_analytics_org3", 'Table not allowed'],
 
   // Injection attempts

@@ -10,6 +10,7 @@ import { badgeSource } from '../lib/format'
 import { ChartCard } from '../components/ChartCard'
 import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState'
 import { UserDetailPanel } from '../components/UserDetailPanel'
+import { GroupActivityCard } from '../components/GroupActivityCard'
 import { DateRangeControl } from '../components/DateRangeControl'
 import { SortableTh } from '../components/SortableTh'
 import { useFetch } from '../lib/api'
@@ -19,6 +20,7 @@ import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
 import { fmtNum, fmtCompact, fmtPct, acceptRate, maskEmail } from '../lib/format'
 import type { UserRecord } from '../types'
+import { chatOf, coworkOf } from '../lib/unified'
 
 type DayEntry = { date: string; source: string; data: UserRecord[] }
 type RangeResp = { range: { starting_date: string; ending_date: string }; days: DayEntry[] }
@@ -75,18 +77,20 @@ export function UserProductivity() {
           cur = { email, activeDays: 0, loc: 0, locRem: 0, sessions: 0, commits: 0, prs: 0, messages: 0, accepted: 0, rejected: 0, cowork: 0 }
           byEmail.set(key, cur)
         }
-        if (sessions > 0 || r.chat_metrics.message_count > 0) cur.activeDays += 1
+        // Chat / Cowork incl. Chat and Cowork unified (lib/unified.ts).
+        const messages = chatOf(r).message_count
+        if (sessions > 0 || messages > 0) cur.activeDays += 1
         cur.loc      += cc.lines_of_code.added_count
         cur.locRem   += cc.lines_of_code.removed_count
         cur.sessions += sessions
         cur.commits  += cc.commit_count
         cur.prs      += cc.pull_request_count
-        cur.messages += r.chat_metrics.message_count
+        cur.messages += messages
         cur.accepted += ta.edit_tool.accepted_count + ta.multi_edit_tool.accepted_count +
                        ta.write_tool.accepted_count + ta.notebook_edit_tool.accepted_count
         cur.rejected += ta.edit_tool.rejected_count + ta.multi_edit_tool.rejected_count +
                        ta.write_tool.rejected_count + ta.notebook_edit_tool.rejected_count
-        cur.cowork   += r.cowork_metrics.distinct_session_count
+        cur.cowork   += coworkOf(r).distinct_session_count
       }
     }
 
@@ -233,6 +237,8 @@ export function UserProductivity() {
             </table>
           </div>
         )}
+
+        <GroupActivityCard startingDate={range.startingDate} endingDate={range.endingDate} />
 
         <div className="rounded-xl border border-ink-100 bg-paper-muted/40 px-5 py-3 text-[11px] text-ink-500 leading-relaxed">
           <b className="text-ink-700">{t('user_prod.score_formula')}</b>

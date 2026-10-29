@@ -76,6 +76,21 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 | cowork_distinct_plugins             | bigint  |
 | cowork_artifacts_created            | bigint  |
 | last_activity_date                  | string  |
+| unified_chat_conversations          | bigint  |
+| unified_chat_messages               | bigint  |
+| unified_chat_thinking_messages      | bigint  |
+| unified_chat_files_uploaded         | bigint  |
+| unified_chat_artifacts              | bigint  |
+| unified_chat_skills                 | bigint  |
+| unified_chat_connectors             | bigint  |
+| unified_sessions                    | bigint  |
+| unified_session_messages            | bigint  |
+| unified_session_actions             | bigint  |
+| unified_session_dispatch_turns      | bigint  |
+| unified_session_file_edit_count     | bigint  |
+| unified_session_skills_used         | bigint  |
+| unified_session_plugins_used        | bigint  |
+| unified_session_artifacts_created   | bigint  |
 | snapshot_date                | string  |
 
 Partition: `date` (string, YYYY-MM-DD)
@@ -86,6 +101,15 @@ partitions written before the raw-sidecar re-flatten backfill
 collected / feature not enabled", never zero activity. `last_activity_date`
 is the user's ABSOLUTE last active day (YYYY-MM-DD), independent of the
 snapshot window — the dormant-seat signal.
+
+The `unified_*` columns (2026-10) flatten `chat_cowork_unified_metrics` —
+Chat and Cowork unified, where users on the unified experience report most
+chat activity (`unified_chat_*`) and Cowork sessions (`unified_session*`)
+INSTEAD of `chat_*` / `cowork_*`. Per-user counts add across the two
+families (each activity is reported in one place). All NULL = the row had no
+unified block (deployment without the product, or archived before the column
+existed — the raw sidecar `raw/users/` holds the block for every day since
+2026-07-12, so history can be re-flattened).
 
 ## `projects_daily` (daily per chat project)
 
@@ -114,6 +138,7 @@ Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenProject` in `flatte
 | invocation_count  | bigint |
 | claude_code_uses  | bigint |
 | cowork_uses       | bigint |
+| unified_session_uses | bigint |
 | snapshot_date     | string |
 
 Partition: `date` (string, YYYY-MM-DD). Flattened by `flattenPlugin` in
@@ -137,10 +162,18 @@ was never snapshotted earlier and has no raw sidecar to backfill from.
 | cowork_daily_active_user_count      | bigint |
 | cowork_weekly_active_user_count     | bigint |
 | cowork_monthly_active_user_count    | bigint |
+| chat_cowork_unified_daily_active_user_count   | bigint |
+| chat_cowork_unified_weekly_active_user_count  | bigint |
+| chat_cowork_unified_monthly_active_user_count | bigint |
+
+The unified active-user counts are NOT additive with `chat_*` / `cowork_*`
+(a user can be counted on both sides on a switch-over day).
 
 ## `skills_daily`, `connectors_daily`
 
-See `flattenSkill` and `flattenConnector` in `flatten.js`.
+See `flattenSkill` and `flattenConnector` in `flatten.js`. Both carry
+`unified_chat_uses` / `unified_session_uses` (NULL when the row has no
+Chat and Cowork unified block).
 
 ## `compliance_daily`
 

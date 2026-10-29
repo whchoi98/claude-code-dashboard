@@ -103,5 +103,22 @@ ok('empty / non-array → []', spendLimitsToMembers(null).length === 0)
   ok('a member whose only row has another period is kept, not dropped', weeklyOnly.length === 2)
 }
 
+// ── API version 2026-10-21: actor.email is removed, email_address remains ──
+{
+  const v2026 = userUsageToUsers([
+    { actor: { type: 'user_actor', user_id: 'u9', email_address: 'new@x.com' }, uncached_input_tokens: 5, output_tokens: 1, requests: 1 },
+  ])
+  ok('userUsageToUsers reads actor.email_address (2026-10-21 shape)', v2026.length === 1 && v2026[0].email === 'new@x.com')
+  const { userCostToUsers, deriveGroupMap, mergeUserReportRows, reportActorEmail } = await import('../../server/aws.js')
+  ok('reportActorEmail prefers email_address over the deprecated email',
+    reportActorEmail({ email_address: 'a@x.com', email: 'old@x.com' }) === 'a@x.com' && reportActorEmail({ email: 'b@x.com' }) === 'b@x.com' && reportActorEmail(null) === '')
+  const costRows = [{ actor: { user_id: 'u9', email_address: 'new@x.com' }, amount: '250', requests: 2, rbac_group_id: 'rbac_group_1' }]
+  ok('userCostToUsers (ungrouped) keeps email_address-only rows', userCostToUsers(costRows)[0]?.email === 'new@x.com')
+  ok('userCostToUsers (grouped) keeps email_address-only rows', userCostToUsers(costRows, { by: 'model' })[0]?.email === 'new@x.com')
+  ok('deriveGroupMap keys email_address-only rows', 'new@x.com' in deriveGroupMap(costRows).map)
+  ok('mergeUserReportRows merges email_address-only rows across chunks',
+    mergeUserReportRows([{ actor: { email_address: 'z@x.com' }, amount: '1', requests: 1 }, { actor: { email_address: 'z@x.com' }, amount: '2', requests: 1 }]).length === 1)
+}
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

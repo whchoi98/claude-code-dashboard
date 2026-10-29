@@ -15,7 +15,37 @@ function officeSurface(f, s) {
   }
 }
 
+// Chat and Cowork unified block from the unified_* columns. All-null columns
+// (deployment without the product, or a row archived before it shipped) mean
+// "no block" — the record then omits chat_cowork_unified_metrics entirely,
+// exactly like the upstream record does.
+function unifiedBlock(f) {
+  if (f.unified_chat_messages == null && f.unified_sessions == null) return null
+  return {
+    chat: {
+      distinct_conversation_count:      f.unified_chat_conversations ?? 0,
+      message_count:                    f.unified_chat_messages ?? 0,
+      thinking_message_count:           f.unified_chat_thinking_messages ?? 0,
+      distinct_files_uploaded_count:    f.unified_chat_files_uploaded ?? 0,
+      distinct_artifacts_created_count: f.unified_chat_artifacts ?? 0,
+      distinct_skills_used_count:       f.unified_chat_skills ?? 0,
+      connectors_used_count:            f.unified_chat_connectors ?? 0,
+    },
+    sessions: {
+      distinct_session_count:  f.unified_sessions ?? 0,
+      message_count:           f.unified_session_messages ?? 0,
+      action_count:            f.unified_session_actions ?? 0,
+      dispatch_turn_count:     f.unified_session_dispatch_turns ?? 0,
+      file_edit_count:         f.unified_session_file_edit_count ?? null,
+      skills_used_count:       f.unified_session_skills_used ?? 0,
+      plugins_used_count:      f.unified_session_plugins_used ?? null,
+      artifacts_created_count: f.unified_session_artifacts_created ?? null,
+    },
+  }
+}
+
 export function inflateUser(f) {
+  const unified = unifiedBlock(f)
   return {
     user: { id: f.user_id, email_address: f.user_email },
     chat_metrics: {
@@ -80,6 +110,7 @@ export function inflateUser(f) {
       message_count:                   f.design_messages ?? 0,
     },
     science_metrics: { skills_used_count: f.science_skills_used ?? 0 },
+    ...(unified && { chat_cowork_unified_metrics: unified }),
     web_search_count: f.web_search_count ?? 0,
     // Staged rollout: rows archived before the field appeared (or from an
     // un-enabled org) carry null — never fabricate a date.
