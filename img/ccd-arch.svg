@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="Claude Code Dashboard 아키텍처: 사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 부착된 ALB를 거쳐 ECS Fargate의 React SPA + Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API)를 응답 캐시와 함께 조회 전용으로 프록시하고, 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지는 라이브 API). Amazon Bedrock의 Claude가 자연어 분석에 응답하고, EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 raw 사이드카로 적재하며(관리자가 올린 지출 CSV도 S3에 보관), Athena가 이를 SQL로 질의합니다. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입합니다.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="Claude Code Dashboard 아키텍처: 사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 부착된 ALB를 거쳐 ECS Fargate의 React SPA + Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API, Compliance 키로 Plugins API 카탈로그 포함)를 응답 캐시와 함께 조회 전용으로 프록시하고, 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지는 라이브 API). Amazon Bedrock의 Claude가 자연어 분석에 응답하고, EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 raw 사이드카로 적재하며(관리자가 올린 지출 CSV도 S3에 보관), Athena가 이를 SQL로 질의합니다. Secrets Manager가 Express와 Collector에 API 키를 런타임에 주입합니다.">
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#5F5A4D"/>
@@ -90,7 +90,7 @@
   <!-- Anthropic API boxes (external) -->
   <rect x="1100" y="118" width="248" height="96" rx="12" class="cardX"/>
   <text class="t name" x="1124" y="156">Analytics API</text>
-  <text class="t sub" x="1124" y="182">참여도 · 비용 · 지출 한도</text>
+  <text class="t sub" x="1124" y="182">참여도 · 비용 · 한도 · 아티팩트</text>
 
   <rect x="1100" y="240" width="248" height="96" rx="12" class="cardO"/>
   <text class="t name" x="1124" y="278">Admin API</text>
@@ -98,7 +98,7 @@
 
   <rect x="1100" y="362" width="248" height="96" rx="12" class="cardX"/>
   <text class="t name" x="1124" y="400">Compliance API</text>
-  <text class="t sub" x="1124" y="426">감사 · 그룹 멤버십</text>
+  <text class="t sub" x="1124" y="426">감사 · 멤버십 (+Plugins API)</text>
 
   <!-- flows: user path -->
   <path class="flow" marker-end="url(#ar)" d="M248 238 L296 238 L296 166 L330 166"/>

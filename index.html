@@ -444,7 +444,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         </div>
         <h3>비용 & 그룹 스코프</h3>
-        <p>조직·RBAC 그룹·사용자 단위 지출(USD)과 토큰, 모델·제품별 분해, 캐시 효율, 멤버별 월 누적 지출까지. 비용 화면에서는 그룹 탭 하나로 조직 합계까지 그룹 기준으로 바뀝니다.</p>
+        <p>조직·RBAC 그룹·사용자 단위 지출(USD)과 토큰, 모델·제품별 분해, 캐시 효율, 멤버별 월 누적 지출까지. 비용 화면에서는 그룹 탭만 누르면 조직 합계까지 해당 그룹 기준으로 다시 집계됩니다.</p>
       </article>
       <article class="pillar reveal">
         <div class="pn">03</div>
@@ -452,7 +452,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2L12 16.8 5.7 21l2.3-7.2-6-4.4h7.6z"/></svg>
         </div>
         <h3>AI 자연어 분석</h3>
-        <p>한국어로 질문하면 Amazon Bedrock의 Claude가 조직 지표·S3 아카이브·비용 리포트를 도구로 직접 조회해 스트리밍 리포트로 답합니다. Markdown·PDF 저장도 지원.</p>
+        <p>한국어로 질문하면 Amazon Bedrock의 Claude가 조직 지표·S3 아카이브·비용 리포트를 도구로 직접 조회해 스트리밍 리포트로 답합니다. 답변은 Markdown·PDF로 저장할 수 있습니다.</p>
       </article>
     </div>
   </div>
@@ -494,31 +494,31 @@
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M6.5 6.5L10 10M17.5 6.5L14 10M6.5 17.5L10 14M17.5 17.5L14 14"/></svg></div>
         <h3>RBAC 그룹 스코프</h3>
-        <p>페이지별 그룹 탭으로 사용자별 표·차트를 그룹 단위로 좁히고, 비용 화면은 조직 합계까지 그룹 기준으로 다시 집계합니다. 그룹 구성은 Compliance API 멤버십에서 1시간 주기로 동기화됩니다.</p>
+        <p>페이지별 그룹 탭으로 사용자별 표·차트를 그룹 단위로 좁히고, 비용 화면은 조직 합계까지 그룹 기준으로 다시 집계합니다. 사용자 생산성 화면의 그룹별 활동 표는 그룹끼리 메시지·세션·LOC·커밋을 나란히 비교합니다. 그룹 구성은 Compliance API 멤버십에서 1시간 주기로 동기화됩니다.</p>
         <span class="tag">그룹 탭 · 멤버십 자동 동기화</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg></div>
         <h3>도입 추이 & 스킬·커넥터</h3>
-        <p>DAU·WAU·MAU와 도입률에 더해 Claude Code·Chat·Cowork·Claude Design·Office Agents 등 제품별 활성 사용자를 최대 366일 기간으로 추적합니다. 도입 화면에서는 스킬별 호출·초과 지출 추정과 커넥터 읽기·쓰기 호출을 봅니다.</p>
-        <span class="tag">제품별 DAU · 스킬 지출 · 커넥터 호출</span>
+        <p>DAU·WAU·MAU와 도입률에 더해 Claude Code·Chat·Cowork·Claude Design·Office Agents 등 제품별 활성 사용자를 최대 366일 범위에서 추적합니다. 도입 화면에서는 스킬별 호출·초과 지출 추정, 커넥터 읽기·쓰기 호출, 조직 플러그인 카탈로그(설치 정책·업데이트·검사 상태), 제품별 아티팩트 생성 현황을 봅니다.</p>
+        <span class="tag">제품별 DAU · 스킬 지출 · 커넥터 호출 · 플러그인 · 아티팩트</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></div>
         <h3>표면별 사용량</h3>
-        <p>Claude Code 외에도 Claude Chat·Cowork·Office·Design·Agentic 화면에서 표면별 활동 지표와 Top 사용자를 봅니다.</p>
-        <span class="tag">CHAT · COWORK · AGENTIC</span>
+        <p>Claude Code 외에도 Claude Chat·Cowork·Office·Design·Agentic 화면에서 표면별 활동 지표와 Top 사용자를 봅니다. Chat·Cowork 통합(Chat and Cowork unified)으로 옮겨 간 사용자의 활동도 함께 집계해, 전환 중에도 수치가 끊기지 않습니다.</p>
+        <span class="tag">CHAT · COWORK · UNIFIED</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3>감사 로그 (Compliance)</h3>
-        <p>Compliance API 활동 피드를 1,000건 단위로 조회하고, 기간 프리셋별 결과를 5분마다 미리 갱신해 두어 바로 열립니다. 역할·키 변경, 로그인 실패, Anthropic 직원 접근 같은 고위험 이벤트를 API 활동 타입 기준으로 분류하고, 11종 행위자를 구분합니다.</p>
+        <p>Compliance API 활동 피드를 1,000건 단위로 조회하고, 기간 프리셋별 결과를 5분마다 미리 갱신해 두므로 화면이 바로 열립니다. 역할·키 변경, 로그인 실패, Anthropic 직원 접근 같은 고위험 이벤트를 API 활동 타입 기준으로 분류하고, 11종 행위자를 구분합니다. 멤버의 역할 분포와 사용자 지정 지침 저장 현황도 함께 보며, 지침 원문은 unmasked 그룹으로 검증된 관리자에게만 보입니다.</p>
         <span class="tag">AUDIT TRAIL · 위험 분류 · 11종 행위자</span>
       </div>
       <div class="feat reveal">
         <div class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5" rx="8" ry="2.6"/><path d="M4 5v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6V5"/><path d="M4 12v7c0 1.4 3.6 2.6 8 2.6s8-1.2 8-2.6v-7"/></svg></div>
         <h3>아카이브 & AI 분석</h3>
-        <p>일일 수집 Lambda가 S3에 NDJSON으로 적재해 API 90일 창 너머를 Athena로 조회. Analyze 화면과 챗봇이 Bedrock의 Claude로 자연어 리포트를 만듭니다.</p>
+        <p>일일 수집 Lambda가 S3에 NDJSON으로 적재하므로, API가 제공하는 90일 범위 밖의 데이터도 Athena로 조회합니다. Analyze 화면과 챗봇이 Bedrock의 Claude로 자연어 리포트를 만듭니다.</p>
         <span class="tag">S3 · ATHENA · BEDROCK</span>
       </div>
     </div>
@@ -531,7 +531,7 @@
     <div class="sec-head reveal">
       <div class="kicker">화면 둘러보기</div>
       <h2>대시보드 화면을 <em>미리 보세요</em>.</h2>
-      <p>아래 8개 화면은 모두 가상 조직(acme.com)의 합성 데이터로 캡처했습니다. 앱에 mock 모드가 없는 Cost·Audit 화면은 합성 API 응답을 넣어 렌더링했고, 이메일은 마스킹되어 보입니다.</p>
+      <p>아래 11장의 캡처는 모두 가상 조직(acme.com)의 합성 데이터입니다. 앱에 mock 모드가 없는 Cost·Audit 화면은 합성 API 응답을 넣어 렌더링했기 때문에 일부 화면에는 Mock 배지가 보입니다. 이메일은 마스킹되어 있습니다.</p>
     </div>
     <div class="shot-grid">
       <figure class="shot-card wide reveal">
@@ -571,31 +571,55 @@
         <div class="shot-body">
           <div class="shot-kicker">User Productivity</div>
           <h3>활동 점수로 랭킹</h3>
-          <p>LOC·도구 수락률·커밋·활동일·세션을 가중 합산한 활동 점수(0–100)로 사용자를 랭킹합니다. 파워 유저와 온보딩이 필요한 사용자를 가려내는 데 쓸 수 있습니다.</p>
+          <p>LOC·도구 수락률·커밋·활동일·세션을 가중 합산한 활동 점수(0–100)로 사용자 순위를 매깁니다. 파워 유저와 온보딩이 필요한 사용자를 가려내는 데 쓸 수 있습니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="5"><img src="img/trends.png" loading="lazy" alt="Claude Code, Chat, Cowork, Claude Design, Office Agents의 제품별 일일 활성 사용자를 선 그래프로 비교하는 Trends 화면 — DAU·WAU·MAU 전환 버튼 포함, 합성 데이터" width="1600" height="406"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="5"><img src="img/group-activity.png" loading="lazy" alt="Engineering·Design·Sales·Leadership 그룹의 활성 멤버, 채팅 메시지, Claude Code 세션, 추가 라인, 멤버당 라인, 커밋, PR, Cowork 세션을 비교하는 그룹별 활동 표 — 합성 데이터" width="2608" height="582"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">User Productivity · Group Activity</div>
+          <h3>그룹끼리 나란히 비교</h3>
+          <p>RBAC 그룹별 활성 멤버, 채팅 메시지, Claude Code 세션, 추가 LOC와 멤버당 LOC, 커밋·PR, Cowork 세션을 한 표에서 봅니다. 두 그룹에 속한 사람은 양쪽에 모두 집계됩니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="6"><img src="img/trends.png" loading="lazy" alt="Claude Code, Chat, Cowork, Claude Design, Office Agents, Chat &amp; Cowork unified의 제품별 일일 활성 사용자를 선 그래프로 비교하는 Trends 화면 — DAU·WAU·MAU 전환 버튼 포함, 합성 데이터" width="2608" height="768"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Trends</div>
           <h3>제품별 도입 곡선 추적</h3>
-          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다.</p>
+          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다. Chat·Cowork 통합은 별도 선으로 그려 사용량이 어디로 옮겨 가는지 보여 줍니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="6"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2400" height="620"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2400" height="620"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit</div>
           <h3>감사 로그 피드</h3>
           <p>Compliance API의 활동 이벤트를 집계해 유형·행위자별로 시각화하고 고위험 이벤트를 분류합니다. 보안·컴플라이언스 팀의 질문에 바로 답합니다.</p>
         </div>
       </figure>
+      <figure class="shot-card reveal">
+        <button type="button" class="shot-img" data-lightbox-index="8"><img src="img/directory.png" loading="lazy" alt="멤버 20명, Claude에 대한 지침 35%, Cowork 전역 지침 20%, 지침을 저장한 멤버 9명 KPI와 역할별 멤버 칩을 보여주는 멤버와 사용자 지정 지침 카드 — 합성 데이터, 지침 원문은 표시되지 않음" width="2608" height="652"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Audit · Members</div>
+          <h3>역할과 사용자 지정 지침 현황</h3>
+          <p>기본 역할별 멤버 수와 "Claude에 대한 지침"·Cowork 전역 지침을 저장한 비율을 봅니다. 지침 원문은 unmasked 그룹의 관리자에게만 보입니다.</p>
+        </div>
+      </figure>
       <figure class="shot-card wide reveal">
-        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/ai-analyze.png" loading="lazy" alt="Claude Code 활성 기여자 Top 5를 묻는 질문에 Claude가 도구로 데이터를 조회해 순위 표와 순위별 근거를 답한 Analyze 화면 — 합성 데이터" width="1800" height="1182"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="9"><img src="img/adoption-catalog.png" loading="lazy" alt="플러그인별 소유·마켓플레이스·설치 정책·버전 상태·검사 결과·호출 수를 보여주는 플러그인 카탈로그 표와, 생성 100개·공유 24%·게시 9개 KPI 및 제품별 아티팩트 막대 차트 — 합성 데이터" width="2608" height="1576"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <div class="shot-body">
+          <div class="shot-kicker">Adoption</div>
+          <h3>플러그인 카탈로그와 아티팩트</h3>
+          <p>조직이 관리하는 플러그인의 설치 정책·업데이트 여부·검사 상태를 사용 통계와 함께 보고, 제품·유형별로 생성·공유·게시된 아티팩트를 집계합니다. Chat·Cowork 통합에서 만든 아티팩트도 따로 셉니다.</p>
+        </div>
+      </figure>
+      <figure class="shot-card wide reveal">
+        <button type="button" class="shot-img" data-lightbox-index="10"><img src="img/ai-analyze.png" loading="lazy" alt="Claude Code 활성 기여자 Top 3를 묻는 질문에 Claude Sonnet 5.5가 도구로 데이터를 조회해 순위 표, 순위별 근거, 이어서 할 질문을 답한 Analyze 화면 — 합성 데이터, 이메일 마스킹" width="2016" height="1548"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">AI Analyze</div>
           <h3>자연어로 묻고, 리포트로 받는다</h3>
-          <p>"Claude Code 활성 기여자 Top 5는 누구이고 왜 그런가?" 같은 질문을 그대로 입력하면, Bedrock의 Claude가 필요한 데이터를 도구로 조회해 표와 근거로 답하고 이어서 물어볼 질문도 제안합니다. Markdown·PDF 저장 지원.</p>
+          <p>"Claude Code 활성 기여자 Top 3는 누구이고 왜 그런가?" 같은 질문을 그대로 입력하면, Bedrock의 Claude가 필요한 데이터를 도구로 조회해 표와 근거로 답하고 이어서 물어볼 질문도 제안합니다. 답변은 Markdown·PDF로 저장할 수 있습니다.</p>
         </div>
       </figure>
     </div>
@@ -608,14 +632,14 @@
     <div class="sec-head reveal">
       <div class="kicker">동작 원리</div>
       <h2>Anthropic API에서 <em>대시보드</em>까지.</h2>
-      <p>Express 프록시가 Anthropic API 응답을 캐시와 함께 서빙하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
+      <p>Express 프록시가 Anthropic API 응답을 캐시해 제공하고, 일일 수집 Lambda가 S3에 히스토리를 쌓습니다. React SPA는 CloudFront와 로그인 게이트 뒤에서 제공되며, AI 계층이 자연어 분석을 더합니다.</p>
     </div>
 
     <figure class="arch-figure reveal">
       <img src="img/ccd-arch.svg" width="1400" height="860" loading="lazy"
         alt="Claude Code Dashboard 아키텍처 다이어그램" aria-describedby="arch-desc">
     </figure>
-    <p id="arch-desc" hidden>사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 붙은 ALB를 거쳐 ECS Fargate의 React SPA와 Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API)를 조회 전용으로 프록시하고, 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지 날짜는 라이브 API). Amazon Bedrock의 Claude가 자연어 질의에 SSE로 응답합니다. EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 원본(raw)으로 적재하고, Athena가 이를 SQL로 질의합니다. 관리자가 올린 지출 CSV도 S3에 보관되어 비용 대조와 폴백에 쓰입니다. Secrets Manager는 Express와 Collector에 API 키를 런타임에 주입합니다.</p>
+    <p id="arch-desc" hidden>사용자는 CloudFront(Cognito 엣지 인증)와 Regional WAF가 붙은 ALB를 거쳐 ECS Fargate의 React SPA와 Express API에 접속합니다. Express는 Anthropic Analytics·Compliance API(선택: Admin API)를 조회 전용으로 프록시하고(Compliance 키로 Plugins API 카탈로그도 조회), 기간 조회는 보관된 날짜를 S3 아카이브에서 먼저 읽습니다(나머지 날짜는 라이브 API). Amazon Bedrock의 Claude가 자연어 질의에 SSE로 응답합니다. EventBridge가 매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) Collector Lambda를 기동해 Compliance·Analytics API 데이터를 S3에 NDJSON과 원본(raw)으로 적재하고, Athena가 이를 SQL로 질의합니다. 관리자가 올린 지출 CSV도 S3에 보관되어 비용 대조와 폴백에 쓰입니다. Secrets Manager는 Express와 Collector에 API 키를 런타임에 주입합니다.</p>
     <p class="arch-rot-hint">모바일에서는 다이어그램이 세로로 회전되어 표시됩니다.</p>
 
     <ol class="diagram" role="list">
@@ -623,12 +647,12 @@
         <div class="lane-title">수집</div>
         <div class="node edge reveal">
           <div class="nt">Anthropic API</div>
-          <div class="nd">Analytics(참여도·비용·지출 한도)와 Compliance(감사·그룹 멤버십). Admin API는 선택 사항입니다.</div>
+          <div class="nd">Analytics(참여도·비용·지출 한도·아티팩트)와 Compliance(감사·그룹 멤버십·멤버 디렉터리 — 같은 키로 Plugins API 카탈로그도 조회). Admin API는 선택 사항입니다.</div>
           <div class="meta">ENGAGEMENT · COST · AUDIT</div>
         </div>
         <div class="node edge reveal">
           <div class="nt">Collector Lambda</div>
-          <div class="nd">매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) S3에 NDJSON으로 적재 — API 조회 창 너머를 보존.</div>
+          <div class="nd">매일 두 번(00:30 UTC 감사 이벤트, 14:00 UTC Analytics) S3에 NDJSON으로 적재 — API 조회 기간 밖의 데이터를 보존합니다.</div>
           <div class="meta">DAILY · NDJSON + RAW</div>
         </div>
       </li>
@@ -636,7 +660,7 @@
         <div class="lane-title">서빙</div>
         <div class="node compute reveal">
           <div class="nt">Express on ECS Fargate</div>
-          <div class="nd">API 프록시 + 응답 캐시(자주 여는 기간은 미리 갱신하고, 만료된 값은 먼저 보여준 뒤 뒤에서 갱신) + gzip 압축.</div>
+          <div class="nd">API 프록시 + 응답 캐시(자주 여는 기간은 미리 갱신하고, 만료된 값은 먼저 보여준 뒤 백그라운드에서 갱신) + gzip 압축.</div>
           <div class="meta">CACHE · SWR · GZIP</div>
         </div>
       </li>
@@ -680,11 +704,11 @@
         <p>Claude Code Dashboard는 Anthropic API가 제공하는 조직 분석 데이터를 읽어 시각화하는 대시보드입니다. 이메일은 기본적으로 마스킹하고, 자격 증명은 코드 밖에서 관리합니다.</p>
       </div>
       <ul class="checklist">
-        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>읽기 전용 관측</h3><p>Anthropic API 호출은 모두 조회 전용입니다. 대시보드는 Anthropic 조직 설정이나 사용자 권한을 변경하지 않습니다.</p></div></li>
-        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>마스킹 우선 표시</h3><p>화면·내보내기·AI 응답의 이메일은 기본적으로 마스킹되고, LLM 프롬프트 레벨에서도 강제합니다. Cognito <span class="mono">unmasked</span> 그룹으로 검증된 관리자만 원문을 봅니다. 2026-09-24 이전에 보관된 감사 로그의 파일·아티팩트 이름도 관리자에게만 보입니다(이후로는 API가 이름을 제공하지 않습니다).</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>읽기 전용 조회</h3><p>Anthropic API 호출은 모두 조회 전용입니다. 대시보드는 Anthropic 조직 설정이나 사용자 권한을 변경하지 않습니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>마스킹 우선 표시</h3><p>화면·내보내기·AI 응답의 이메일은 기본적으로 마스킹되며, LLM 프롬프트에서도 마스킹을 강제합니다. Cognito <span class="mono">unmasked</span> 그룹으로 검증된 관리자만 원문을 봅니다. 2026-09-24 이전에 보관된 감사 로그의 파일·아티팩트 이름도 관리자에게만 보입니다(이후로는 API가 이름을 제공하지 않습니다).</p></div></li>
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>시크릿 무노출</h3><p>API 키는 AWS Secrets Manager에서 런타임에 주입됩니다. 코드와 저장소에는 자격 증명이 존재하지 않습니다.</p></div></li>
         <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>로그인 게이트 & WAF</h3><p>배포본은 CloudFront 엣지에서 Cognito 로그인으로 보호됩니다 — 미인증 트래픽은 WAF·오리진에 닿기 전에 차단되며, 정적 자산 요청까지 인증을 검사합니다.</p></div></li>
-        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>90일 너머 보존</h3><p>일일 스냅샷을 S3에 NDJSON으로 적재하고 원본 사이드카를 병행 보존해, API 조회 창 너머의 추세 분석과 스키마 변경 복구를 지원합니다.</p></div></li>
+        <li class="reveal"><span class="ci"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5"/></svg></span><div><h3>90일 너머 보존</h3><p>일일 스냅샷을 S3에 NDJSON으로 적재하고 원본 사이드카를 병행 보존해, API 조회 기간 밖의 추세 분석과 스키마 변경 복구를 지원합니다.</p></div></li>
       </ul>
     </div>
 
@@ -698,7 +722,7 @@
         <span class="s"><b>런타임</b> ECS Fargate (ARM64)</span>
         <span class="s"><b>엣지</b> CloudFront · Cognito · WAF(ALB)</span>
         <span class="s"><b>데이터</b> S3 · Glue · Athena</span>
-        <span class="s"><b>AI</b> Amazon Bedrock (Claude)</span>
+        <span class="s"><b>AI</b> Amazon Bedrock (Claude Sonnet 5.5)</span>
         <span class="s"><b>IaC</b> AWS CDK</span>
       </div>
       <div style="margin-top:26px; padding-top:22px; border-top:1px solid var(--line); display:flex; gap:24px; flex-wrap:wrap">
@@ -714,7 +738,7 @@
 <section class="wrap cta" id="start">
   <div class="cta-box reveal">
     <h2>도입 효과를 <em>숫자로 보여드릴게요</em>.</h2>
-    <p>초대받은 계정으로 로그인하면 사용자별 생산성·비용·AI 분석 화면을 직접 확인할 수 있습니다. <span class="mono">(라이브 데모는 초대 계정 전용)</span></p>
+    <p>초대받은 계정으로 로그인하면 사용자별 생산성·비용·AI 분석 화면을 직접 확인할 수 있습니다.</p>
     <div class="hero-actions" style="justify-content:center">
       <a href="https://c4e.whchoi.net" class="btn btn-primary" target="_blank" rel="noopener">라이브 데모 열기<span class="sr-only">(새 창)</span></a>
       <a href="https://github.com/whchoi98/claude-code-dashboard" class="btn btn-ghost" target="_blank" rel="noopener">GitHub 저장소<span class="sr-only">(새 창)</span></a>
