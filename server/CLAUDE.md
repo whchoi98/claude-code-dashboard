@@ -83,6 +83,15 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   beta; 1h `makeTtlCache` per org because every listing is an audited read;
   `no-store`), `/api/plugins/catalog` (Plugins API with
   `anthropic-beta: ce-plugins-2026-09-01`, Compliance key, 1h cache).
+  Both 1h-cached reads go through `withFailureCooldown` (a failing org
+  re-calls upstream at most every 5 min — directory listings are audited
+  reads); the directory walk shares one 45 s abort budget and THROWS on
+  transient sub-listing failures (0/429/5xx) so the cache keeps the last
+  good walk — only 403/404 are cached as "part unavailable". A page-capped
+  listing (`fetchAllNextPage` → `truncated`) surfaces as `partial: true`.
+  `makeDailyRangeRoute(path, mockKey, rawTable, { params, liveMaxDays })` —
+  artifacts caps its live fallback at the newest 7 days (young archive;
+  shared 60 rpm budget), older misses serve as `unarchived`.
   API version `2026-10-21` removes the deprecated summaries response key
   `summaries` and the per-user report `actor.email`: `summaryRowsOf` reads
   `data` first and `reportActorEmail` (aws.js) reads `email_address` first —

@@ -187,8 +187,10 @@ async function fetchJson(path, params, key, { signal, learnFreshness = true, hea
 
 // Walk a `next_page`-cursor listing (the `page` query parameter) to the end
 // or `maxPages`. Returns fetchJson's ok/status/body of the LAST page plus the
-// merged `data`. The other query parameters stay fixed — these cursors are
-// bound to the query that issued them. A failed page fails the whole walk.
+// merged `data`, and `truncated: true` when the page cap stopped the walk
+// with a cursor still pending. The other query parameters stay fixed — these
+// cursors are bound to the query that issued them. A failed page fails the
+// whole walk.
 async function fetchAllNextPage(path, params, key, opts = {}, maxPages = 10) {
   const data = []
   let page
@@ -200,7 +202,7 @@ async function fetchAllNextPage(path, params, key, opts = {}, maxPages = 10) {
     page = last.body?.next_page
     if (!page) break
   }
-  return { ...last, data }
+  return { ...last, data, truncated: Boolean(page) }
 }
 
 function todayUtc(offsetDays = 0) {
@@ -272,7 +274,7 @@ const LIVE_LOOKBACK_DAYS = 90
 
 // Serve one date-range fan-out. readS3(date) → rows|null; fetchLive(date) →
 // { source, data, error } day object. Returns { days, coverage }.
-async function serveArchiveRange(dates, { readS3, fetchLive }) {
+async function serveArchiveRange(dates, { readS3, fetchLive, liveMaxDays = LIVE_FALLBACK_MAX_DAYS }) {
   // Phase 1: the whole window from the archive. Only a missing partition
   // (readS3 → null) is a miss; a REAL S3 failure (AccessDenied, throttle,
   // truncated body) must not masquerade as "before the archive began" —
@@ -298,7 +300,7 @@ async function serveArchiveRange(dates, { readS3, fetchLive }) {
   // fetch here must never escape (an unhandled rejection exits the process).
   const liveFloor = todayUtc(-LIVE_LOOKBACK_DAYS)
   const missing = dates.filter((_, i) => !s3Days[i])
-  const liveDates = new Set(missing.filter((d) => d >= liveFloor).slice(-LIVE_FALLBACK_MAX_DAYS))
+  const liveDates = new Set(missing.filter((d) => d >= liveFloor).slice(-liveMaxDays))
   const liveResults = new Map()
   await mapPool([...liveDates], LIVE_POOL, async (date) => {
     const attempt = async () => {
@@ -602,7 +604,9 @@ app.get('/api/analytics/users/range', async (req, res) => {
 // unflattened upstream records, so no field loss; the columnar partitions
 // drop invocation_count / nested *_metrics these consumers need), with the
 // live API as the bounded fallback per the Range fan-out policy above.
-function makeDailyRangeRoute(upstreamPath, mockKey, rawTable, extraParams = {}) {
+// options.params: extra upstream query params; options.liveMaxDays: a tighter
+// live-fallback budget for a table whose archive is still young.
+function makeDailyRangeRoute(upstreamPath, mockKey, rawTable, { params: extraParams = {}, liveMaxDays } = {}) {
   return async (req, res) => {
     const org = orgFromReq(req)
     const analyticsKey = analyticsKeyFor(org)
@@ -611,6 +615,7 @@ function makeDailyRangeRoute(upstreamPath, mockKey, rawTable, extraParams = {}) 
     const dates = rangeDates(startingDate, endingDate).slice(-MAX_RANGE_DAYS)
 
     const { days, coverage } = await serveArchiveRange(dates, {
+      liveMaxDays,
       readS3: (date) => readRawFromS3(rawTable, date, org),
       fetchLive: async (date) => {
         if (!analyticsKey) {
@@ -646,7 +651,10 @@ app.get('/api/analytics/plugins/range',    makeDailyRangeRoute('/v1/organization
 // Artifact creation (2026-10): rows per product × MIME type × is_shared. The
 // endpoint takes a single `date` only (no range rollup), so it rides the same
 // daily fan-out; grouped by product exactly like the collector archives it.
-app.get('/api/analytics/artifacts/range',  makeDailyRangeRoute('/v1/organizations/analytics/artifacts',          'artifacts',  'artifacts', { 'group_by[]': ['product'] }))
+// The archive starts at this route's deploy, so a 30-day window would spend
+// up to 30 live calls of the org's shared 60 rpm budget per task — cap the
+// live fallback at the newest 7 days; older days report as unarchived.
+app.get('/api/analytics/artifacts/range',  makeDailyRangeRoute('/v1/organizations/analytics/artifacts',          'artifacts',  'artifacts', { params: { 'group_by[]': ['product'] }, liveMaxDays: 7 }))
 
 // Per-RBAC-group activity rollup: the users endpoint in date-range rollup
 // mode with group_by[]=rbac_group_id — one row per group, metric objects
@@ -945,26 +953,54 @@ app.get('/api/compliance/activities', async (req, res) => {
 // user content: summarizeOrgDirectory copies it only for a VERIFIED unmasked
 // identity (ADR-0020) — other sessions get counts.
 const DIRECTORY_MAX_ORGS = 10
+const DIRECTORY_BUDGET_MS = 45_000   // whole walk, under the CloudFront 60 s origin timeout
 const directoryCache = makeTtlCache({ ttlMs: 3_600_000, cap: 8 })
+// 0 = network/abort. A transient failure must THROW so makeTtlCache keeps the
+// last good walk; only a definitive answer (403/404 — scope or beta missing)
+// is cached as "that part unavailable".
+const isTransientStatus = (status) => status === 0 || status === 429 || status >= 500
 async function fetchDirectoryRaw(key) {
-  const orgs = await fetchAllNextPage('/v1/compliance/organizations', { limit: 100 }, key)
-  if (!orgs.ok) {
-    const e = new Error(`compliance organizations ${orgs.status}`)
-    e.status = orgs.status
-    throw e
-  }
+  const opts = { signal: AbortSignal.timeout(DIRECTORY_BUDGET_MS) }
+  const fail = (what, status) => { const e = new Error(`compliance ${what} ${status}`); e.status = status; return e }
+  const orgs = await fetchAllNextPage('/v1/compliance/organizations', { limit: 100 }, key, opts)
+  if (!orgs.ok) throw fail('organizations', orgs.status)
   const out = []
   for (const org of orgs.data.slice(0, DIRECTORY_MAX_ORGS)) {
     const base = `/v1/compliance/organizations/${encodeURIComponent(org.uuid)}`
-    // A beta or unprovisioned sub-resource degrades that part only: each walk
-    // returns { ok:false, status } instead of throwing.
     const [users, prefs] = await Promise.all([
-      fetchAllNextPage(`${base}/users`, { limit: 100 }, key, {}, 30),
-      fetchAllNextPage(`${base}/user_preferences`, { include_unset: 'true', limit: 100 }, key, {}, 30),
+      fetchAllNextPage(`${base}/users`, { limit: 100 }, key, opts, 50),
+      fetchAllNextPage(`${base}/user_preferences`, { include_unset: 'true', limit: 100 }, key, opts, 50),
     ])
+    if (!users.ok && isTransientStatus(users.status)) throw fail('users', users.status)
+    if (!prefs.ok && isTransientStatus(prefs.status)) throw fail('user_preferences', prefs.status)
     out.push({ org, users, prefs })
   }
   return { orgs: out, truncated: orgs.data.length > DIRECTORY_MAX_ORGS }
+}
+
+// Failure cooldown for the 1h-cached Compliance / Plugins reads: without it a
+// failing org re-runs the upstream walk on every page view (and every
+// directory listing is an audited read — self-noise). While cooling down the
+// call throws the remembered status without touching upstream; a cached
+// last-good entry keeps serving (stale) meanwhile.
+const FAILURE_COOLDOWN_MS = 5 * 60_000
+const readFailedAt = new Map()   // cache key → { at, status }
+async function withFailureCooldown(key, fn) {
+  const f = readFailedAt.get(key)
+  if (f && Date.now() - f.at < FAILURE_COOLDOWN_MS) {
+    const e = new Error(`cooling down after upstream ${f.status}`)
+    e.status = f.status
+    throw e
+  }
+  try {
+    const out = await fn()
+    readFailedAt.delete(key)
+    return out
+  } catch (err) {
+    readFailedAt.set(key, { at: Date.now(), status: err?.status ?? 0 })
+    if (readFailedAt.size > 32) readFailedAt.delete(readFailedAt.keys().next().value)
+    throw err
+  }
 }
 
 app.get('/api/compliance/directory', async (req, res) => {
@@ -974,7 +1010,10 @@ app.get('/api/compliance/directory', async (req, res) => {
   // Varies by the caller's identity — never cacheable downstream.
   res.set('Cache-Control', 'no-store')
   try {
-    const raw = key ? await directoryCache(`${org}:directory`, () => fetchDirectoryRaw(key)) : generateMock.directory()
+    const cacheKey = `${org}:directory`
+    const raw = key
+      ? await directoryCache(cacheKey, () => withFailureCooldown(cacheKey, () => fetchDirectoryRaw(key)))
+      : generateMock.directory()
     res.json({
       source: key ? 'live' : 'mock',
       unmasked: unmask,
@@ -998,7 +1037,8 @@ app.get('/api/plugins/catalog', async (req, res) => {
   const key = complianceKeyFor(org)
   if (!key) return res.json({ source: 'mock', ...toPluginCatalog(...generateMock.pluginCatalog()) })
   try {
-    const raw = await pluginCatalogCache(`${org}:plugin_catalog`, async () => {
+    const cacheKey = `${org}:plugin_catalog`
+    const raw = await pluginCatalogCache(cacheKey, () => withFailureCooldown(cacheKey, async () => {
       const [plugins, marketplaces] = await Promise.all([
         fetchAllNextPage('/v1/organizations/plugins', { limit: 100 }, key, { headers: PLUGINS_BETA }),
         fetchAllNextPage('/v1/organizations/plugin_marketplaces', { limit: 100 }, key, { headers: PLUGINS_BETA }),
@@ -1010,7 +1050,7 @@ app.get('/api/plugins/catalog', async (req, res) => {
       }
       // Marketplace names are decoration — a failed listing keeps the ids.
       return { plugins: plugins.data, marketplaces: marketplaces.ok ? marketplaces.data : [] }
-    })
+    }))
     res.json({ source: 'live', ...toPluginCatalog(raw.plugins, raw.marketplaces) })
   } catch (err) {
     res.json({ source: 'upstream_error', reason: `upstream ${err?.status ?? 0}`, plugins: [], marketplaces: [] })

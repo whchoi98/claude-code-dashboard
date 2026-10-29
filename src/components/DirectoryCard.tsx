@@ -16,6 +16,7 @@ type OrgDirectory = {
   members: number | null
   roles: Record<string, number> | null
   preferences: { listed: number; conversation_set: number; cowork_set: number; any_set: number; members?: PrefMember[] } | null
+  partial?: boolean
   errors: { users?: number; preferences?: number }
 }
 type DirectoryResp = { source: string; reason?: string; unmasked: boolean; truncated?: boolean; orgs: OrgDirectory[] }
@@ -58,6 +59,9 @@ function OrgDirectorySection({ org, unmasked, showName }: { org: OrgDirectory; u
   return (
     <section aria-label={org.name ?? undefined}>
       {showName && <h3 className="mb-2 text-sm font-semibold text-ink-700">{org.name}</h3>}
+      {org.partial && (
+        <p role="note" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">{t('directory.partial')}</p>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
         <KpiCard label={t('directory.kpi.members')} value={org.members == null ? '—' : fmtNum(org.members)}
           hint={org.errors.users ? t('directory.part_unavailable', { status: org.errors.users }) : t('directory.kpi.members.hint')} />

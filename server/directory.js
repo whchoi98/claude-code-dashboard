@@ -26,6 +26,8 @@ export function summarizeOrgDirectory({ org, users, prefs }, { unmask = false } 
     members: null,
     roles: null,
     preferences: null,
+    // The page cap stopped a listing early: counts cover the first pages only.
+    partial: Boolean(users?.truncated || prefs?.truncated),
     errors: {},
   }
   if (users?.ok) {

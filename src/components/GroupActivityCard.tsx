@@ -48,12 +48,13 @@ export function GroupActivityCard({ startingDate, endingDate }: { startingDate: 
         id: String(g.rbac_group_id),
         name: g.rbac_group_name || `grp-${String(g.rbac_group_id).slice(-6)}`,
         members,
-        messages: g.chat_metrics ? chatOf(rec).message_count : 0,
+        // chatOf/coworkOf read the unified block even when the legacy one is absent.
+        messages: chatOf(rec)?.message_count ?? 0,
         ccSessions: core?.distinct_session_count ?? 0,
         loc,
         commits: core?.commit_count ?? 0,
         prs: core?.pull_request_count ?? 0,
-        cowork: g.cowork_metrics ? coworkOf(rec).distinct_session_count : 0,
+        cowork: coworkOf(rec)?.distinct_session_count ?? 0,
         locPerMember: members ? loc / members : null,
       }
     }), [resp.data])

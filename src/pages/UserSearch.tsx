@@ -169,7 +169,7 @@ export function UserSearch() {
         date: d.date,
         sessions: rec?.claude_code_metrics?.core_metrics?.distinct_session_count ?? 0,
         // incl. Chat and Cowork unified chat (lib/unified.ts)
-        messages: rec?.chat_metrics ? chatOf(rec).message_count : 0,
+        messages: rec ? (chatOf(rec)?.message_count ?? 0) : 0,
       }
     })
 

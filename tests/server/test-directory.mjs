@@ -40,6 +40,8 @@ const degraded = summarizeOrgDirectory({ org: raw.org, users: raw.users, prefs: 
 ok('a failed beta preferences walk degrades only that part', degraded.members === 4 && degraded.preferences === null && degraded.errors.preferences === 404)
 const noUsers = summarizeOrgDirectory({ org: raw.org, users: { ok: false, status: 403, data: [] }, prefs: raw.prefs })
 ok('a 403 on users keeps the preference counts', noUsers.members === null && noUsers.errors.users === 403 && noUsers.preferences.any_set === 2)
+ok('a full listing is not partial', masked.partial === false)
+ok('a page-capped listing is flagged partial', summarizeOrgDirectory({ org: raw.org, users: { ...raw.users, truncated: true }, prefs: raw.prefs }).partial === true)
 ok('documented role list covers the 9 built-in levels', ORGANIZATION_ROLES.length === 9 && ORGANIZATION_ROLES.includes('claude_code_user'))
 
 // Plugins API (GET /v1/organizations/plugins + /plugin_marketplaces).
