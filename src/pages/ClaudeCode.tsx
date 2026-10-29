@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  RadialBarChart, RadialBar, PolarAngleAxis,
+  RadialBarChart, RadialBar, PolarAngleAxis, Cell,
 } from 'recharts'
 import { PageHeader } from '../components/PageHeader'
 import { GroupTabs } from '../components/GroupTabs'
@@ -26,6 +26,9 @@ type CCRow = { email: string; sessions: number; loc: number; commits: number; pr
 type Tt = (k: any, p?: any) => string
 
 const TOOLS = ['edit_tool', 'multi_edit_tool', 'write_tool', 'notebook_edit_tool'] as const
+// One color per acceptance ring (innermost = first tool); the HTML legend under
+// the chart names each ring — an in-ring label overflows a short arc unseen.
+const RING_COLORS = ['#D97757', '#B75E40', '#8A8474', '#1F1E1D']
 
 export function ClaudeCode() {
   const t = useT()
@@ -85,6 +88,7 @@ export function ClaudeCode() {
         Accepted: accepted,
         Rejected: rejected,
         rate: rate == null ? 0 : rate * 100,
+        rateLabel: rate == null ? '—' : `${(rate * 100).toFixed(1)}%`,
       }
     })
 
@@ -135,27 +139,34 @@ export function ClaudeCode() {
                 <YAxis />
                 <Tooltip />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Accepted" stackId="a" fill="#D97757" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Rejected" stackId="a" fill="#EDEBE4" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Accepted" name={t('chart.accepted')} stackId="a" fill="#D97757" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Rejected" name={t('chart.rejected')} stackId="a" fill="#EDEBE4" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
 
           <ChartCard title={t('cc.accept_rates')} subtitle={t('cc.accept_rates.sub')}>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={240}>
               <RadialBarChart
                 data={agg.tools} startAngle={90} endAngle={-270}
                 innerRadius="30%" outerRadius="95%"
               >
                 <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                <RadialBar
-                  background={{ fill: '#F3F1EB' }}
-                  dataKey="rate" cornerRadius={6} fill="#D97757"
-                  label={{ position: 'insideStart', fill: '#FAF9F5', fontSize: 10, formatter: (v: number) => `${Number(v).toFixed(1)}%` }}
-                />
+                <RadialBar background={{ fill: '#F3F1EB' }} dataKey="rate" cornerRadius={6}>
+                  {agg.tools.map((tl, i) => <Cell key={tl.tool} fill={RING_COLORS[i]} />)}
+                </RadialBar>
                 <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
               </RadialBarChart>
             </ResponsiveContainer>
+            <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              {agg.tools.map((tl, i) => (
+                <li key={tl.tool} className="flex items-center gap-2 text-ink-600">
+                  <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: RING_COLORS[i] }} />
+                  <span className="truncate">{tl.tool}</span>
+                  <span className="ml-auto tabular-nums font-medium text-ink-700">{tl.rateLabel}</span>
+                </li>
+              ))}
+            </ul>
           </ChartCard>
         </div>
 

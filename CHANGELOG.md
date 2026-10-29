@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model names keep their version dots: `claude-opus-4-7` reads "opus 4.7" instead of "opus 4 7" on Cost, Agentic, User Search and the user detail panel, and Executive's top model no longer shows the raw id. One shared helper replaces the four copies.
 - Audit: the event-type and top-actor charts label every bar. Every other label had been hidden.
 - Korean UI: the Analyze page subtitle used the wrong particle after "Sonnet 5.5".
+- Overview: the lines-of-code hint and the tool acceptance chart named the day they show instead of saying "today". Both are one day: the end of the selected range, or the latest finished day when the range ends later.
+- Chart legends keep their text readable: legends had colored each label like its series, so pale series such as Rejected looked switched off. The color now stays on the legend dot.
+- Accepted and Rejected are translated in the Korean UI (Overview, Claude Code, user detail panel).
+- Claude Code: the acceptance-rate rings get one color each and a legend that names every tool with its rate. All rings had been the same color with only a percentage, so the rates could not be told apart.
+- Cost: the subtitle names the cost reports API when the page shows live data. It had always said "Spend Report", the label from when the page read only the CSV export.
 
 ## [2.7.0] - 2026-10-29
 
@@ -930,6 +935,11 @@ the three architectural decisions captured in this release.
 - 모델명의 버전 점을 살립니다. 비용, 에이전틱, 사용자 검색, 사용자 상세 패널에서 `claude-opus-4-7`이 "opus 4 7" 대신 "opus 4.7"로 보이고, 경영 요약의 최상위 모델도 원본 ID 대신 같은 이름으로 보입니다. 네 곳에 복제돼 있던 함수를 공용 함수 하나로 합쳤습니다.
 - 감사: 이벤트 유형·상위 행위자 차트가 모든 막대에 라벨을 붙입니다. 그동안 라벨이 한 칸씩 건너뛰어 숨겨졌습니다.
 - 한국어 UI: 분석 페이지 부제에서 "Sonnet 5.5" 뒤 조사를 바로잡았습니다.
+- 개요: 코드 라인 KPI 보조 문구와 도구 수락 차트가 "오늘" 대신 실제로 보여 주는 날짜를 표시합니다. 둘 다 하루치 값으로, 선택한 기간의 마지막 날(그날이 아직 확정되지 않았으면 가장 최근 확정일)입니다.
+- 차트 범례 글자를 읽기 쉽게 했습니다. 범례가 글자를 계열 색으로 칠해 '거절'처럼 연한 계열이 꺼진 토글처럼 보였습니다. 이제 색은 범례 점에만 남습니다.
+- 한국어 UI에서 Accepted·Rejected를 '수락'·'거절'로 번역합니다(개요, Claude Code, 사용자 상세 패널).
+- Claude Code: 도구별 수락률 링에 각각 다른 색을 주고, 도구 이름과 수락률을 담은 범례를 붙였습니다. 링이 모두 같은 색에 수치만 있어 어느 값이 어느 도구인지 알 수 없었습니다.
+- 비용: 라이브 데이터일 때 부제에 비용 리포트 API를 밝힙니다. CSV만 읽던 시절의 "Spend Report" 라벨이 늘 붙어 있었습니다.
 
 ## [2.7.0] - 2026-10-29
 

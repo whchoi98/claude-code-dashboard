@@ -38,6 +38,12 @@ body {
 .recharts-cartesian-grid line {
   stroke: #EDEBE4;
 }
+/* Legend labels in ink: Recharts colors each like its series, so pale ones
+   (Rejected #EDEBE4, haiku #F5DCCF) read as switched-off toggles. The icon
+   keeps the series color. */
+.recharts-legend-item-text {
+  color: #5F5A4D !important;
+}
 
 /* Subtle paper grain */
 .grain {

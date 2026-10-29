@@ -545,8 +545,8 @@ export function UserDetailPanel({ email, onClose, range: pageRange }: Props) {
                       <YAxis fontSize={11} />
                       <Tooltip />
                       <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                      <Bar dataKey="Accepted" stackId="a" fill="#D97757" radius={[3, 3, 0, 0]} />
-                      <Bar dataKey="Rejected" stackId="a" fill="#EDEBE4" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="Accepted" name={t('chart.accepted')} stackId="a" fill="#D97757" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="Rejected" name={t('chart.rejected')} stackId="a" fill="#EDEBE4" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

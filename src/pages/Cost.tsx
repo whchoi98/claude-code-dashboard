@@ -693,7 +693,7 @@ export function Cost() {
       <PageHeader
         title={t('cost.title')}
         subtitle={data.period
-          ? t('cost.subtitle.csv', { start: data.period.starting_date, end: data.period.ending_date })
+          ? t(dataSource === 'live' ? 'cost.subtitle.live' : 'cost.subtitle.csv', { start: data.period.starting_date, end: data.period.ending_date })
           : t('cost.subtitle')}
         source={dataSource}
         reason={

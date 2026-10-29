@@ -74,6 +74,10 @@ export function Overview() {
     MAU: s.monthly_active_user_count,
   }))
 
+  // The per-user metrics are ONE day: the range's end, clamped server-side to the
+  // latest finalized day — label that day rather than "today".
+  const usersDate = users.data?.date ?? range.endingDate
+
   const toolData = (() => {
     const recs = users.data?.data ?? []
     const tools = ['edit_tool', 'multi_edit_tool', 'write_tool', 'notebook_edit_tool'] as const
@@ -102,7 +106,7 @@ export function Overview() {
           <KpiCard label={t('kpi.adoption')} value={fmtPct(kpis.adoption)} hint={t('kpi.monthly_api')} />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4">
-          <KpiCard label={t('kpi.loc')}         value={fmtCompact(kpis.loc)}      hint={t('kpi.added_today')} />
+          <KpiCard label={t('kpi.loc')}         value={fmtCompact(kpis.loc)}      hint={t('kpi.added_on', { date: usersDate })} />
           <KpiCard label={t('kpi.cc_sessions')} value={fmtNum(kpis.ccSessions)}   hint={t('kpi.distinct_sess')} />
           <KpiCard label={t('kpi.commits_prs')} value={`${fmtNum(kpis.commits)} / ${fmtNum(kpis.prs)}`} hint={t('kpi.by_cc')} />
           <KpiCard label={t('kpi.tool_accept')} value={fmtPct(kpis.accept)}        hint={t('kpi.all_cc_tools')} />
@@ -129,7 +133,7 @@ export function Overview() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title={t('chart.tool_acceptance')} subtitle={t('chart.tool_acceptance.sub')}>
+        <ChartCard title={t('chart.tool_acceptance')} subtitle={t('chart.tool_acceptance.sub', { date: usersDate })}>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={toolData} margin={{ top: 8, right: 16, left: -12, bottom: 8 }}>
               <CartesianGrid strokeDasharray="2 4" />
@@ -137,8 +141,8 @@ export function Overview() {
               <YAxis />
               <Tooltip />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Accepted" stackId="a" fill="#D97757" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Rejected" stackId="a" fill="#EDEBE4" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Accepted" name={t('chart.accepted')} stackId="a" fill="#D97757" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Rejected" name={t('chart.rejected')} stackId="a" fill="#EDEBE4" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>

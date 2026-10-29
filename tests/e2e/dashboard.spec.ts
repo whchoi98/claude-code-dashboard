@@ -257,3 +257,32 @@ test('shows group activity, the plugin catalog, artifacts and the member directo
   await expect(main).not.toContainText('Keep answers brief')
   await expect(main).not.toContainText('NaN')
 })
+
+test('labels single-day metrics, live cost and acceptance charts by what they show', async ({ page }) => {
+  // The server clamps the requested day to the latest finalized one; the labels
+  // must follow the day it served, not the range end the page asked for.
+  const served = new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10)
+  await page.route('**/api/analytics/users?date=*', (route) =>
+    route.fulfill({ json: { source: 'live', date: served, data: [], has_more: false, next_page: null } }))
+  await page.goto('/?range=7d')
+  const main = page.getByRole('main')
+  await expect(main).toContainText(`added on ${served}`)
+  await expect(main).toContainText(`Accepted vs rejected proposals by tool on ${served}`)
+  await expect(main).not.toContainText('(today)')
+  // Legend labels stay ink even for the pale Rejected series.
+  const rejected = main.locator('.recharts-legend-item-text', { hasText: 'Rejected' }).first()
+  await expect(rejected).toHaveCSS('color', 'rgb(95, 90, 77)')
+
+  await page.goto('/cost?range=7d')
+  await expect(main).toContainText('Cost reports API ·')
+  await expect(main).not.toContainText('Spend Report CSV ·')
+
+  await page.addInitScript(() => window.localStorage.setItem('ccd.locale', 'ko'))
+  await page.goto('/claude-code?range=7d')
+  await expect(main.locator('.recharts-legend-item-text', { hasText: '수락' }).first()).toBeVisible()
+  await expect(main.locator('.recharts-legend-item-text', { hasText: '거절' }).first()).toBeVisible()
+  // Each acceptance ring is named in a legend that stays readable at any rate.
+  const ring = main.getByRole('listitem').filter({ hasText: 'multi edit' })
+  await expect(ring).toBeVisible()
+  await expect(ring).toContainText(/\d+\.\d%/)
+})
