@@ -12,7 +12,7 @@ import { LoadingState, ErrorState, EmptyState } from '../components/LoadingState
 import { useFetch } from '../lib/api'
 import { useGroupScope } from '../lib/useGroupScope'
 import { useI18n, useT } from '../lib/i18n'
-import { fmtCompact, fmtNum, maskEmail } from '../lib/format'
+import { fmtCompact, fmtNum, maskEmail, shortModel } from '../lib/format'
 import type { UserRecord } from '../types'
 import { chatOf } from '../lib/unified'
 
@@ -42,8 +42,6 @@ type RangePreset = 'all' | '30d' | '14d' | '7d'
 type Tab = 'overview' | 'model'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-const shortModel = (m: string) =>
-  m.replace(/^claude[-_]/i, '').replace(/_v\d+:\d+$/, '').replace(/[-_]\d{8}$/, '').replace(/[-_]/g, ' ')
 
 const FALLBACK = ['#D97757', '#1F1E1D', '#8A8474', '#B75E40', '#D7D3C7', '#E69F7F', '#4CA371', '#CC7722']
 

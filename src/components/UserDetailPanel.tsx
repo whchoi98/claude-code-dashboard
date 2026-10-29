@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import { useT } from '../lib/i18n'
 import { orgParam } from '../lib/api'
 import { useOrg } from '../lib/OrgProvider'
-import { fmtNum, fmtPct, fmtCompact, fmtDate, acceptRate, maskEmail } from '../lib/format'
+import { fmtNum, fmtPct, fmtCompact, fmtDate, acceptRate, maskEmail, shortModel } from '../lib/format'
 import type { UserRecord } from '../types'
 import { chatOf, coworkOf } from '../lib/unified'
 
@@ -62,8 +62,6 @@ interface Props {
   range?: { startingDate: string; endingDate: string; days: number }
 }
 
-const shortModel = (m: string) =>
-  m.replace(/^claude[-_]/i, '').replace(/_v\d+:\d+$/, '').replace(/[-_]\d{8}$/, '').replace(/[-_]/g, ' ')
 const addDaysIso = (iso: string, n: number) => {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)

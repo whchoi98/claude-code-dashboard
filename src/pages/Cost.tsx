@@ -15,7 +15,7 @@ import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useGroupScope, UNMAPPED } from '../lib/useGroupScope'
 import { useT } from '../lib/i18n'
-import { fmtCompact, fmtPct, maskEmail, fmtNum } from '../lib/format'
+import { fmtCompact, fmtPct, maskEmail, fmtNum, shortModel } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
 
@@ -131,11 +131,23 @@ const TOKEN_TIER_COLORS: Record<string, string> = {
   uncached: '#CC7722', cache_read: '#4CA371', cache_write: '#6A8EAE', output: '#1F1E1D',
 }
 
-const shortModel = (m: string) =>
-  m.replace(/^claude_/, '').replace(/_v\d+:\d+$/, '').replace(/_\d{8}$/, '').replace(/_/g, ' ')
 // user_cost_report returns hyphenated model ids (claude-opus-4-8); MODEL_COLORS
-// keys + shortModel expect underscores. Normalize before lookup/label.
+// keys expect underscores. Normalize before lookup.
 const normModel = (m: string) => String(m).replace(/-/g, '_')
+
+// Pie slice labels in ink: Recharts paints them in the slice color, which
+// vanishes for pale slices (haiku #F5DCCF) on white. Slices under 3% skip the
+// label and its leader line (they collide); the tooltip, the model table and
+// the product × model chart still carry them.
+const PIE_MIN_LABEL_SHARE = 0.03
+const pieLabel = (text: (e: any) => string) => (e: any) =>
+  e.share < PIE_MIN_LABEL_SHARE ? null : (
+    <text x={e.x} y={e.y} textAnchor={e.textAnchor} dominantBaseline="central" fill="#3F3B32" fontSize={12}>{text(e)}</text>
+  )
+const pieLabelLine = (e: any) =>
+  e.share < PIE_MIN_LABEL_SHARE ? <g /> : (
+    <path d={`M${e.points[0].x},${e.points[0].y}L${e.points[1].x},${e.points[1].y}`} stroke={e.stroke} fill="none" />
+  )
 
 function fmtUsd(v: number) {
   if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`
@@ -288,6 +300,8 @@ export function useCostData(range: { startingDate: string; endingDate: string },
 
 export function Cost() {
   const t = useT()
+  // 'unspecified' = spend with no model (code execution etc.)
+  const modelName = (m: string) => (m === 'unspecified' ? t('cost.model.unspecified') : shortModel(m))
   // freshEnd: the cost family serves today at a ~4h watermark (no 3-day
   // buffer), so '1d' means TODAY here — keep in sync with the
   // <DateRangeControl freshEnd> below.
@@ -459,7 +473,7 @@ export function Cost() {
     const productModelStack = productRows.map((p) => {
       const row: Record<string, any> = { product: p.product }
       for (const m of allModels) {
-        row[shortModel(m)] = matrix.get(p.product)?.get(m) ?? 0
+        row[m] = matrix.get(p.product)?.get(m) ?? 0
       }
       return row
     })
@@ -577,7 +591,7 @@ export function Cost() {
     for (const d of data.daily) {
       spendByModel.set(d.model, (spendByModel.get(d.model) ?? 0) + (d.spend ?? 0))
       const row = byDate.get(d.date) ?? { date: d.date }
-      row[shortModel(d.model)] = (row[shortModel(d.model)] ?? 0) + d.spend
+      row[d.model] = (row[d.model] ?? 0) + d.spend
       byDate.set(d.date, row)
     }
     const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -914,7 +928,7 @@ export function Cost() {
               <PieChart>
                 <Pie data={agg.productRows} dataKey="spend" nameKey="product"
                      innerRadius={50} outerRadius={90}
-                     label={(e: any) => `${productLabel(e.product)} ${(e.share * 100).toFixed(0)}%`}>
+                     label={pieLabel((e) => `${productLabel(e.product)} ${(e.share * 100).toFixed(0)}%`)} labelLine={pieLabelLine}>
                   {agg.productRows.map((p, i) => (
                     <Cell key={p.product} fill={PRODUCT_COLORS[p.product] || FALLBACK[i % FALLBACK.length]} />
                   ))}
@@ -929,7 +943,7 @@ export function Cost() {
               <PieChart>
                 <Pie data={agg.modelRows} dataKey="spend" nameKey="short"
                      innerRadius={50} outerRadius={90}
-                     label={(e: any) => `${e.short} ${(e.share * 100).toFixed(0)}%`}>
+                     label={pieLabel((e) => `${modelName(e.model)} ${(e.share * 100).toFixed(0)}%`)} labelLine={pieLabelLine}>
                   {agg.modelRows.map((m, i) => (
                     <Cell key={m.model} fill={MODEL_COLORS[m.model] || FALLBACK[i % FALLBACK.length]} />
                   ))}
@@ -949,7 +963,7 @@ export function Cost() {
               <Tooltip formatter={(v: number) => fmtUsd(v)} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
               {agg.allModels.map((m, i) => (
-                <Bar key={m} dataKey={shortModel(m)} stackId="m" fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]} radius={i === agg.allModels.length - 1 ? [4, 4, 0, 0] : 0} />
+                <Bar key={m} dataKey={m} name={modelName(m)} stackId="m" fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]} radius={i === agg.allModels.length - 1 ? [4, 4, 0, 0] : 0} />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -971,7 +985,7 @@ export function Cost() {
               <tbody>
                 {agg.modelRows.map((m) => (
                   <tr key={m.model} className="border-t border-ink-100">
-                    <td className="px-3 py-1.5 font-medium text-ink-700">{m.short}</td>
+                    <td className="px-3 py-1.5 font-medium text-ink-700">{modelName(m.model)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-claude-600 font-medium">{fmtUsd(m.spend)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-ink-600">{fmtPct(m.share)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-ink-500">{fmtNum(m.requests)}</td>
@@ -997,9 +1011,8 @@ export function Cost() {
                   <Area
                     key={m}
                     type="monotone"
-                    dataKey={shortModel(m)}
-                    // 'unspecified' = spend with no model (code execution etc.)
-                    name={m === 'unspecified' ? t('cost.model.unspecified') : shortModel(m)}
+                    dataKey={m}
+                    name={modelName(m)}
                     stackId="m"
                     stroke={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
                     fill={MODEL_COLORS[m] || FALLBACK[i % FALLBACK.length]}
@@ -1079,7 +1092,7 @@ export function Cost() {
 
         {/* Per-user × model spend (chargeback): top-10 users stacked by model.
             Live user_cost_report?by=model — cost + requests only (no per-user
-            tokens). Models normalized (hyphen→underscore) for color/label. */}
+            tokens). Models normalized (hyphen→underscore) for the color lookup. */}
         {dataSource === 'live' && (usersByModel.data?.users?.length ?? 0) > 0 && (() => {
           const top = usersByModel.data!.users.filter((u) => inGroup(u.email)).slice(0, 10)
           if (top.length === 0) return null

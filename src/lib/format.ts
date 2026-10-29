@@ -4,11 +4,31 @@ const pf = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDig
 
 export const fmtNum = (n: number | null | undefined) => (n == null ? '—' : nf.format(n))
 
+// Thresholds sit just below each unit so 999_960 reads "1.0M", not "1000.0k".
 export const fmtCompact = (n: number | null | undefined) => {
   if (n == null) return '—'
-  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  const a = Math.abs(n)
+  if (a >= 999_950_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+  if (a >= 999_950) return `${(n / 1_000_000).toFixed(1)}M`
+  if (a >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return nf.format(n)
+}
+
+// claude-opus-4-7 · claude_opus_4_7 · us.anthropic.claude-sonnet-4-5-20250929-v1:0
+// → "opus 4.7" / "sonnet 4.5": drops the vendor prefix, date and Bedrock
+// revision suffixes, then rejoins the version digits with a dot. A context
+// tag such as "[1m]" is set aside first so the date strip still matches.
+export const shortModel = (m: string) => {
+  const s = String(m)
+  const tag = s.match(/\[[^\]]*\]$/)?.[0] ?? ''
+  const label = s.slice(0, s.length - tag.length)
+    .replace(/^(?:[a-z-]+\.)?anthropic\./i, '')
+    .replace(/^claude[-_]/i, '')
+    .replace(/[-_]v\d+:\d+$/, '')
+    .replace(/[-_]\d{8}$/, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/(\d) (?=\d)/g, '$1.')
+  return tag ? `${label} ${tag}` : label
 }
 
 export const fmtCents = (cents: number | null | undefined) => (cents == null ? '—' : cf.format(cents / 100))

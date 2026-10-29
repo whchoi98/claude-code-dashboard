@@ -235,7 +235,8 @@ export function Compliance() {
               <BarChart data={derived.topTypes} layout="vertical" margin={{ top: 8, right: 16, left: 80, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="2 4" />
                 <XAxis type="number" />
-                <YAxis dataKey="type" type="category" width={200} tick={{ fontSize: 10 }} />
+                {/* interval 0: the 26px-per-row height fits every label; Recharts' default thinning hid every other one */}
+                <YAxis dataKey="type" type="category" width={200} tick={{ fontSize: 10 }} interval={0} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#D97757" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -247,7 +248,7 @@ export function Compliance() {
               <BarChart data={derived.topActors} layout="vertical" margin={{ top: 8, right: 16, left: 60, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="2 4" />
                 <XAxis type="number" />
-                <YAxis dataKey="actor" type="category" width={170} tick={{ fontSize: 10 }} />
+                <YAxis dataKey="actor" type="category" width={170} tick={{ fontSize: 10 }} interval={0} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#1F1E1D" radius={[0, 4, 4, 0]} />
               </BarChart>

@@ -13,7 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- Large numbers now read in billions: 11.3 billion input tokens showed as `11317.7M`, and values that round up to the next unit (such as 999,960) no longer read `1000.0k`.
+- Model names keep their version dots: `claude-opus-4-7` reads "opus 4.7" instead of "opus 4 7" on Cost, Agentic, User Search and the user detail panel, and Executive's top model no longer shows the raw id. One shared helper replaces the four copies.
+- Audit: the event-type and top-actor charts label every bar. Every other label had been hidden.
+- Korean UI: the Analyze page subtitle used the wrong particle after "Sonnet 5.5".
 
 ## [2.7.0] - 2026-10-29
 
@@ -919,7 +924,12 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_미출시 변경 사항 없음._
+### 수정
+
+- 큰 수를 십억 단위로 표시합니다. 입력 토큰 113억 개가 `11317.7M`으로 보였고, 999,960처럼 다음 단위로 반올림되는 값이 `1000.0k`로 보이던 문제도 고쳤습니다.
+- 모델명의 버전 점을 살립니다. 비용, 에이전틱, 사용자 검색, 사용자 상세 패널에서 `claude-opus-4-7`이 "opus 4 7" 대신 "opus 4.7"로 보이고, 경영 요약의 최상위 모델도 원본 ID 대신 같은 이름으로 보입니다. 네 곳에 복제돼 있던 함수를 공용 함수 하나로 합쳤습니다.
+- 감사: 이벤트 유형·상위 행위자 차트가 모든 막대에 라벨을 붙입니다. 그동안 라벨이 한 칸씩 건너뛰어 숨겨졌습니다.
+- 한국어 UI: 분석 페이지 부제에서 "Sonnet 5.5" 뒤 조사를 바로잡았습니다.
 
 ## [2.7.0] - 2026-10-29
 

@@ -18,7 +18,7 @@ import { useDateRange } from '../lib/useDateRange'
 import { useGroupScope } from '../lib/useGroupScope'
 import { useSortable } from '../lib/useSortable'
 import { useT } from '../lib/i18n'
-import { fmtNum, fmtCompact, fmtDate, maskEmail } from '../lib/format'
+import { fmtNum, fmtCompact, fmtDate, maskEmail, shortModel } from '../lib/format'
 import type { UserRecord } from '../types'
 import { coworkOf } from '../lib/unified'
 
@@ -37,8 +37,6 @@ type UserRow = {
 }
 type Tt = (k: any, p?: any) => string
 
-const shortModel = (m: string) =>
-  m.replace(/^claude[-_]/i, '').replace(/_v\d+:\d+$/, '').replace(/[-_]\d{8}$/, '').replace(/[-_]/g, ' ')
 const fmtUsd = (v: number) =>
   `$${v.toLocaleString('en-US', { maximumFractionDigits: v >= 100 ? 0 : 2 })}`
 const ccActionTotal = (r: UserRecord) => {

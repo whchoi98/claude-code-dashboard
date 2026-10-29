@@ -12,7 +12,7 @@ import { LoadingState } from '../components/LoadingState'
 import { useFetch } from '../lib/api'
 import { useDateRange } from '../lib/useDateRange'
 import { useT } from '../lib/i18n'
-import { fmtCompact, fmtNum, fmtDate, fmtPct, acceptRate } from '../lib/format'
+import { fmtCompact, fmtNum, fmtDate, fmtPct, acceptRate, shortModel } from '../lib/format'
 import type { Summary, UserRecord } from '../types'
 import { RISK_TYPES } from '../lib/auditTypes'  // shared with the Audit page
 
@@ -328,7 +328,7 @@ export function Executive() {
             proj: snapshot.proj30d != null ? fmtUsd(snapshot.proj30d) : '—',
             score: snapshot.score,
             risk: fmtNum(snapshot.riskEvents),
-            top: snapshot.topModel ? `${snapshot.topModel[0]} (${fmtUsd(snapshot.topModel[1])})` : '—',
+            top: snapshot.topModel ? `${shortModel(snapshot.topModel[0])} (${fmtUsd(snapshot.topModel[1])})` : '—',
           })}
         </div>
 
