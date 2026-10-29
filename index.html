@@ -58,6 +58,8 @@
     font-family:var(--sans); font-size:17px; line-height:1.6;
     font-feature-settings:"ss01","cv01"; -webkit-font-smoothing:antialiased;
     text-rendering:optimizeLegibility; overflow-x:hidden;
+    /* Korean wraps between words, not inside them; long ids may still break. */
+    word-break:keep-all; overflow-wrap:anywhere;
   }
   body::before{
     content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
@@ -79,11 +81,12 @@
   }
   .nav-in{display:flex; align-items:center; gap:24px; height:64px}
   .brand{display:flex; align-items:center; gap:11px; font-weight:600; letter-spacing:-.01em}
+  .nav .brand{white-space:nowrap}
   .brand .mark{width:30px; height:30px}
   .brand b{font-family:var(--serif); font-weight:600; font-size:20px; letter-spacing:-.02em}
   .brand .mono{font-family:var(--mono); font-size:11px; color:var(--text-3); padding:2px 7px; border:1px solid var(--line-2); border-radius:99px; letter-spacing:0}
-  .nav-links{margin-left:auto; display:flex; gap:28px; align-items:center}
-  .nav-links a{font-size:14.5px; color:var(--text-2); transition:color .2s}
+  .nav-links{margin-left:auto; display:flex; gap:22px; align-items:center}
+  .nav-links a{font-size:14.5px; color:var(--text-2); transition:color .2s; white-space:nowrap}
   .nav-links a:hover{color:var(--brand-ink)}
   .nav-gh{display:inline-flex; align-items:center; gap:7px}
   .nav-cta{
@@ -91,7 +94,18 @@
     padding:9px 16px; border-radius:99px; transition:transform .2s, background .2s; white-space:nowrap;
   }
   .nav-cta:hover{background:var(--acc-700); transform:translateY(-1px)}
+  /* Labels never wrap; as the bar narrows, drop the brand pill, then the two
+     anchors whose sections sit next to others still linked. */
+  @media (max-width:1220px){ .nav .brand .mono{display:none} }
+  @media (max-width:1040px){ .nav-links a[href="#value"], .nav-links a[href="#trust"]{display:none} }
   @media (max-width:880px){ .nav-links a:not(.nav-cta){display:none} }
+  @media (max-width:380px){
+    .nav .nav-in{gap:8px}
+    .nav .brand{gap:8px}
+    .nav .brand .mark{width:24px; height:24px}
+    .nav .brand b{font-size:15px}
+    .nav .nav-cta{padding:7px 11px; font-size:13px}
+  }
   @media (max-width:640px){
     .brand .mono{display:none}
     .brand b{font-size:17px; white-space:nowrap}
@@ -278,6 +292,38 @@
   .cta-box .btn-ghost:hover{border-color:var(--paper)}
   .cta-box .mono{font-family:var(--mono); font-size:13px}
 
+  /* ---------- release timeline ---------- */
+  .timeline{list-style:none; margin:0; padding:0; position:relative; display:flex; flex-direction:column; gap:16px; max-width:900px}
+  .timeline::before{content:""; position:absolute; left:11px; top:26px; bottom:26px; width:2px; background:var(--line-2)}
+  .rel{display:grid; grid-template-columns:24px 1fr; gap:18px; position:relative}
+  .rel-dot{width:14px; height:14px; border-radius:99px; background:var(--surface); border:2px solid var(--ink-200); margin:24px auto 0; position:relative; z-index:1}
+  .rel-hi .rel-dot{background:var(--brand); border-color:var(--brand); box-shadow:0 0 0 5px rgba(217,119,87,.18)}
+  .rel-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:20px 24px; box-shadow:var(--shadow-card)}
+  .rel-hi .rel-card{border-color:var(--acc-200); background:linear-gradient(180deg, var(--acc-50), var(--surface) 70%)}
+  .rel-head{display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 12px; margin-bottom:12px}
+  .rel-ver{font-weight:800; font-size:20px; letter-spacing:-.02em; color:var(--text); margin:0}
+  .rel-ver a{color:inherit; text-decoration:none}
+  .rel-ver a:hover{color:var(--brand-ink); text-decoration:underline; text-underline-offset:3px}
+  .rel-ver a::after{content:"↗"; content:"↗" / ""; font-size:.62em; font-weight:600; margin-left:3px; color:var(--text-3); vertical-align:.45em}
+  .rel-ver .sep{color:var(--text-3); font-weight:500; margin:0 2px}
+  .rel-hi .rel-ver{color:var(--brand-ink)}
+  .rel-latest{font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--white); background:var(--brand-ink); border-radius:99px; padding:2px 9px}
+  .rel-date{font-family:var(--mono); font-size:12px; color:var(--text-3)}
+  .rel-theme{font-size:12.5px; color:var(--text-2); background:var(--sunken); border:1px solid var(--line); border-radius:99px; padding:3px 11px}
+  .rel-feats{list-style:none; margin:0; padding:0; display:grid; gap:7px}
+  .rel-feats li{position:relative; padding-left:18px; color:var(--text-2); font-size:14.5px; line-height:1.55}
+  .mono{font-family:var(--mono)}
+  .rel-feats .mono, .checklist .mono{font-size:.92em}
+  .rel-feats li::before{content:""; position:absolute; left:2px; top:.62em; width:6px; height:6px; border-radius:2px; background:var(--brand); opacity:.7}
+  .rel-more{margin-top:28px; display:flex; flex-wrap:wrap; gap:12px}
+  @media (max-width:640px){
+    .timeline::before{left:7px}
+    .rel{grid-template-columns:16px 1fr; gap:12px}
+    .rel-dot{width:12px; height:12px}
+    .rel-card{padding:16px 18px}
+    .rel-ver{font-size:18px}
+  }
+
   /* ---------- footer ---------- */
   footer{border-top:1px solid var(--line); padding:40px 0; margin-top:80px}
   .foot-in{display:flex; flex-direction:column; gap:10px; align-items:center; justify-content:center; text-align:center; font-size:13px; color:var(--text-3)}
@@ -349,6 +395,7 @@
       <a href="#screens">화면 둘러보기</a>
       <a href="#architecture">동작 원리</a>
       <a href="#trust">데이터 & 보안</a>
+      <a href="#releases">릴리스</a>
       <a class="nav-gh" href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener" aria-label="GitHub 저장소 (새 창)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         GitHub
@@ -531,11 +578,11 @@
     <div class="sec-head reveal">
       <div class="kicker">화면 둘러보기</div>
       <h2>대시보드 화면을 <em>미리 보세요</em>.</h2>
-      <p>아래 11장의 캡처는 모두 가상 조직(acme.com)의 합성 데이터입니다. 앱에 mock 모드가 없는 Cost·Audit 화면은 합성 API 응답을 넣어 렌더링했기 때문에 일부 화면에는 Mock 배지가 보입니다. 이메일은 마스킹되어 있습니다.</p>
+      <p>아래 11장의 캡처는 모두 가상 조직(acme.com)의 합성 데이터입니다. 키 없이 띄운 서버가 내장 mock 데이터를 돌려주므로 페이지 머리글에 Mock 배지가 붙습니다. mock 모드가 없는 Cost·Audit 화면과 Users의 캐시 적중률 열에는 합성 API 응답을 넣었고, Cost의 배지도 Mock으로 바꿔 표시했습니다. Audit 화면에는 원래 배지가 없습니다. 이메일은 마스킹되어 있습니다.</p>
     </div>
     <div class="shot-grid">
       <figure class="shot-card wide reveal">
-        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, Claude Code 세션, 추가 LOC, 커밋, PR, Cowork, Design, 도구 수락률 열을 정렬해 보여주는 Users 화면 — 합성 데이터, 이메일 마스킹" width="2400" height="1140"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, Claude Code 세션, 추가 LOC, 커밋, PR, Cowork, Design, 도구 수락률, 캐시 적중률 열을 정렬해 보여주는 Users 화면 — 합성 데이터, 이메일 마스킹" width="2688" height="1520"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Users</div>
           <h3>사용자별 참여도를 한 테이블에</h3>
@@ -543,7 +590,7 @@
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="일간·주간·월간 활성 사용자, 도입률, LOC, 세션, 커밋·PR, 도구 수락률 KPI와 DAU·WAU·MAU 추이, 도구별 수락·거절 차트를 보여주는 Overview 화면 — 합성 데이터" width="1600" height="1188"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="일간·주간·월간 활성 사용자, 도입률, LOC, 세션, 커밋·PR, 도구 수락률 KPI와 DAU·WAU·MAU 추이, 도구별 수락·거절 차트를 보여주는 Overview 화면 — 합성 데이터" width="2688" height="2380"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Overview</div>
           <h3>조직 KPI를 첫 화면에서</h3>
@@ -551,23 +598,23 @@
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="총지출, 입력·출력 토큰, 요청 수, 개발자당 지출, 30일 예측, 7일 평균, 프롬프트 캐시 효율 KPI와 제품·모델별 지출 비중 차트를 보여주는 Cost 화면 — 합성 데이터" width="1600" height="1136"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="총지출, 입력·출력 토큰, 요청 수, 개발자당 지출, 30일 예측, 7일 평균, 프롬프트 캐시 효율 KPI와 제품·모델별 지출 비중 차트를 보여주는 Cost 화면 — 합성 데이터" width="2688" height="2276"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Cost</div>
           <h3>지출과 토큰을 한 화면에</h3>
-          <p>조직·그룹·사용자 단위 지출(USD)과 토큰을 모델·제품별로 분해하고, 30일 예측·캐시 효율·지출 한도까지 같은 화면에서 봅니다. 비용 리포트 API가 기본이고 CSV 지출 리포트는 폴백·대조용입니다.</p>
+          <p>지출(USD)·토큰·30일 예측·캐시 효율을 KPI로 보고, 제품·모델별 지출 비중으로 나눠 봅니다. 같은 화면 아래로 그룹·사용자별 지출과 지출 한도가 이어집니다. 비용 리포트 API가 기본이고 CSV 지출 리포트는 폴백·대조용입니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="활성 개발자, LOC, 커밋·PR, 도구 수락률 KPI와 도구별 수락·거절 막대 차트, 도구별 수락률 방사형 막대 차트를 보여주는 Claude Code 화면 — 합성 데이터" width="1600" height="782"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="활성 개발자, LOC, 커밋·PR, 도구 수락률 KPI와 도구별 수락·거절 막대 차트, 도구별 수락률 방사형 막대 차트를 보여주는 Claude Code 화면 — 합성 데이터" width="2688" height="1588"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Claude Code</div>
           <h3>코드 생산성 지표</h3>
-          <p>추가·삭제 LOC, 커밋, PR, 도구 수락률을 조직 전체와 사용자별로. 도입 효과를 숫자로 증명합니다.</p>
+          <p>추가·삭제 LOC, 커밋, PR, 도구 수락률을 조직 전체 기준으로 보고 도구별 수락률을 비교합니다. 도입 효과를 숫자로 확인할 수 있습니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="활동 점수(0–100) 상위 10명 기여자 막대 차트를 보여주는 User Productivity 화면 — 합성 데이터, 이메일 마스킹" width="1600" height="651"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="활동 점수(0–100) 상위 10명 기여자 막대 차트를 보여주는 User Productivity 화면 — 합성 데이터, 이메일 마스킹" width="2688" height="1306"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">User Productivity</div>
           <h3>활동 점수로 랭킹</h3>
@@ -587,18 +634,18 @@
         <div class="shot-body">
           <div class="shot-kicker">Trends</div>
           <h3>제품별 도입 곡선 추적</h3>
-          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다. Chat·Cowork 통합은 별도 선으로 그려 사용량이 어디로 옮겨 가는지 보여 줍니다.</p>
+          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다. Chat·Cowork 통합은 별도 선으로 그려 사용량이 어디로 옮겨 가는지 보여줍니다.</p>
         </div>
       </figure>
-      <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2400" height="620"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+      <figure class="shot-card wide reveal">
+        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2688" height="1348"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit</div>
-          <h3>감사 로그 피드</h3>
+          <h3>감사 이벤트를 유형·행위자별로</h3>
           <p>Compliance API의 활동 이벤트를 집계해 유형·행위자별로 시각화하고 고위험 이벤트를 분류합니다. 보안·컴플라이언스 팀의 질문에 바로 답합니다.</p>
         </div>
       </figure>
-      <figure class="shot-card reveal">
+      <figure class="shot-card wide reveal">
         <button type="button" class="shot-img" data-lightbox-index="8"><img src="img/directory.png" loading="lazy" alt="멤버 20명, Claude에 대한 지침 35%, Cowork 전역 지침 20%, 지침을 저장한 멤버 9명 KPI와 역할별 멤버 칩을 보여주는 멤버와 사용자 지정 지침 카드 — 합성 데이터, 지침 원문은 표시되지 않음" width="2608" height="652"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit · Members</div>
@@ -734,6 +781,178 @@
   </div>
 </section>
 
+<!-- ===================== RELEASES ===================== -->
+<section class="sec" id="releases" style="padding-top:0" tabindex="-1">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">릴리스 기록 · v0.1 → v2.7</div>
+      <h2>첫 출시부터 지금까지, <em>릴리스로 보는 성장</em>.</h2>
+      <p>11개 화면으로 시작한 v0.1 이후 도구 호출 챗봇(v0.7), 그룹별 비용(v1.6), 멀티 조직(v2.0), 비용 실시간(v2.2)을 거쳐 Chat·Cowork 통합(v2.7)까지 왔습니다. 주요 버전의 핵심 변화를 최신 순으로 모았습니다.</p>
+    </div>
+    <ol class="timeline" role="list" aria-label="릴리스 기록, 최신 순">
+    <li class="rel rel-hi reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.7.0" target="_blank" rel="noopener">v2.7.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <span class="rel-latest">최신</span>
+          <time class="rel-date" datetime="2026-10-29">2026-10-29</time>
+          <span class="rel-theme">Chat·Cowork 통합 · 그룹 활동 · 플러그인 카탈로그</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Chat·Cowork 통합(Chat and Cowork unified) 활동을 Chat·Cowork·사용자·사용자 생산성·사용자 검색·Agentic·도입 집계와 사용자 상세 패널에 합산하고, 추세·Cowork에는 통합 활성 사용자를 별도 선으로 표시</li><li>사용자 생산성에 RBAC 그룹별 활동 비교 표</li><li>감사에 역할별 멤버와 사용자 지정 지침 저장 현황 — 지침 원문은 unmasked 그룹 관리자만 열람</li><li>도입에 Plugins API(beta) 플러그인 카탈로그와 아티팩트 카드, 컬렉터의 <span class="mono">artifacts_daily</span> 일일 보관</li><li>API 버전 2026-10-21의 필드 제거에 대비해 대체 필드(<span class="mono">actor.email_address</span>, <span class="mono">data</span>)로 전환</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.6.0" target="_blank" rel="noopener">v2.6.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-10-29">2026-10-29</time>
+          <span class="rel-theme">Claude Sonnet 5.5</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>AI 분석과 플로팅 챗봇을 Claude Sonnet 4.6에서 Claude Sonnet 5.5(Bedrock 글로벌 추론 프로필)로 전환 — 후속 질문 생성도 같은 모델</li><li>요청이 거절되면 빈 답변 대신 상태 메시지를 표시 — 도구 호출 사이의 진행 메모는 전처럼 표시</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.5.0" target="_blank" rel="noopener">v2.5.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-09-26">2026-09-26</time>
+          <span class="rel-theme">제품별 추세 · 도입 심화 · 감사 정확도</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>추세에 제품별 활성 사용자 차트(Claude Code·Chat·Cowork·Claude Design·Office Agents·Claude Science), DAU/WAU/MAU 전환</li><li>도입에 스킬 사용·지출, 커넥터 읽기·쓰기 호출, <span class="mono">third-party</span> 플러그인 집계</li><li>감사 위험·로그인 분류를 API 활동 타입에 맞추고 행위자 11종을 식별하며, 1,000건 단위 페이지 조회로 감사 API 요청을 약 10분의 1로 줄임</li><li>2026-09-24 이전에 보관된 파일·아티팩트 이름은 관리자만 열람</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.4.0" target="_blank" rel="noopener">v2.4.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-09-22">2026-09-22</time>
+          <span class="rel-theme">탐색 · 내보내기 · 안정성</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Ctrl/⌘+K 메뉴 검색, 사용자·비용 실시간 표의 CSV 내보내기(화면과 같은 마스킹, 수식 실행 방지)</li><li>키보드 정렬·모바일 포커스 관리·조회 재시도와 프런트엔드·브라우저 회귀 테스트</li><li>화면별 지연 로딩과 오류 복구, 오래된 조회 취소·시간 초과 처리</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.2.0" target="_blank" rel="noopener">v2.2.0<span class="sr-only"> 릴리스 노트(새 창)</span></a><span class="sep" aria-hidden="true">·</span><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.3.0" target="_blank" rel="noopener">v2.3.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-09-01">2026-09-01</time>
+          <span class="rel-theme">비용 실시간 · 홈 화면 앱</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Spend Limits API 기반 비용 실시간(MTD) 페이지 — 멤버별 월 누적 지출·한도, 그룹별 합계, 자동 갱신</li><li>v2.3.0(같은 날): 월 누적 지출을 15분마다 S3에 보관해 과거 시점을 조회하고, 보관 전 날짜는 그날 마감 기준 값으로 재구성</li><li>로그인 계정 권한(Cognito <span class="mono">unmasked</span> 그룹)에 따른 이메일 마스킹, iOS·iPadOS 홈 화면 설치</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.0.0" target="_blank" rel="noopener">v2.0.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-07-22">2026-07-22</time>
+          <span class="rel-theme">멀티 조직 · 감사 아카이브</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>두 번째 Anthropic 구독을 사이드바에서 전환하는 멀티 조직 지원</li><li>감사 이벤트를 S3·Athena(<span class="mono">compliance_daily</span>)로 보관하고 이벤트 상세 패널 추가</li><li>31일을 넘는 모든 조회 기간의 수치 오류 수정 — 비용 리포트는 31일 구간으로 나눠 병합</li><li>컬렉터 원본 사이드카 보관, 공개 브로셔(GitHub Pages)</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v1.9.0" target="_blank" rel="noopener">v1.9.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-07-12">2026-07-12</time>
+          <span class="rel-theme">Claude Chat · 모바일</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Claude Chat 페이지 — 대화·프로젝트 사용량과 사용자별 표</li><li>사용자별 캐시 효율, 사용자 표 열 확장, Claude Code 사용자별 표</li><li>모바일 지원 — 슬라이드 메뉴와 반응형 레이아웃</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v1.8.0" target="_blank" rel="noopener">v1.8.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-07-12">2026-07-12</time>
+          <span class="rel-theme">실제 그룹 멤버십 동기화 · 응답 속도</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Compliance 멤버 API로 실제 RBAC 그룹 구성원을 받아 1시간 안에 반영</li><li>비용 페이지에 그룹 범위 적용, 사용자별 모델 지출</li><li>비용 응답 10분 캐시·keep-warm·전송 압축으로 응답 속도 개선</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v1.7.0" target="_blank" rel="noopener">v1.7.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-07-08">2026-07-08</time>
+          <span class="rel-theme">Agentic · 페이지별 그룹 탭</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Agentic 페이지 — 프롬프트당 액션·위임 지표</li><li>그룹 범위를 사이드바 선택에서 페이지별 탭으로 이동, 사용자 상세 패널 확장</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver"><a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v1.6.0" target="_blank" rel="noopener">v1.6.0<span class="sr-only"> 릴리스 노트(새 창)</span></a></h3>
+          <time class="rel-date" datetime="2026-07-04">2026-07-04</time>
+          <span class="rel-theme">그룹별 비용 · 지출 한도</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>그룹별 비용·월간 지출 한도 카드, 라이브 사용자별 토큰 표</li><li>지출 기록으로 그룹 자동 추정, 전용 Compliance 키가 없으면 Analytics 키로 자동 대체</li><li>CSV 지출 리포트를 폴백·대조용으로 전환 — 라이브 비용 리포트가 기본</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver">v1.0 → v1.5</h3>
+          <time class="rel-date" datetime="2026-06-17">2026-06-17</time>
+          <span class="rel-theme">제품별 페이지 · 그룹 범위</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Cowork 페이지(1.0), Office·Design 페이지(1.1)</li><li>비용 효율 점수 재설계(1.2·1.3), 대시보드 전반의 그룹 범위(1.4·1.5)</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver">v0.7 → v0.9</h3>
+          <span class="rel-date"><time datetime="2026-06-09">2026-06-09</time> – <time datetime="2026-06-12">06-12</time></span>
+          <span class="rel-theme">도구 호출 챗봇</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>AI 분석을 다중 턴 도구 호출 챗봇으로 — 모든 화면의 플로팅 채팅과 후속 질문 제안(0.7)</li><li>라이브 사용자별 비용과 비용 페이지 확장(0.8), Office·Design·Cowork 지표 수집(0.9)</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver">v0.2 → v0.6</h3>
+          <span class="rel-date"><time datetime="2026-05-08">2026-05-08</time> – <time datetime="2026-05-10">05-10</time></span>
+          <span class="rel-theme">라이브 비용 · 로그인</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>Analytics API 라이브 비용, Cognito + Lambda@Edge 로그인(0.2)</li><li>사용자 검색·변경 내역 페이지(0.3), PDF·Markdown 내보내기(0.4), 경영 요약(0.5), 통계 표 정렬(0.6)</li></ul>
+      </div>
+    </li>
+    <li class="rel reveal">
+      <span class="rel-dot" aria-hidden="true"></span>
+      <div class="rel-card">
+        <div class="rel-head">
+          <h3 class="rel-ver">v0.1.0</h3>
+          <time class="rel-date" datetime="2026-04-22">2026-04-22</time>
+          <span class="rel-theme">첫 출시</span>
+        </div>
+        <ul class="rel-feats" role="list"><li>React 18 + Vite 대시보드 11개 화면, Analytics·Admin·Compliance API를 묶는 Express 프록시</li><li>S3 일일 스냅샷과 Glue·Athena 조회, Bedrock 자연어 분석</li><li>CloudFront·WAF·ALB·ECS Fargate를 AWS CDK로 배포, 한국어·영어 전환</li></ul>
+      </div>
+    </li>
+    </ol>
+    <div class="rel-more reveal">
+      <a href="https://github.com/whchoi98/claude-code-dashboard/blob/main/CHANGELOG.md" class="btn btn-ghost" target="_blank" rel="noopener">전체 변경 내역 (CHANGELOG)<span class="sr-only">(새 창)</span></a>
+      <a href="https://github.com/whchoi98/claude-code-dashboard/releases" class="btn btn-ghost" target="_blank" rel="noopener">GitHub Releases<span class="sr-only">(새 창)</span></a>
+    </div>
+  </div>
+</section>
+
 <!-- ===================== CLOSING CTA ===================== -->
 <section class="wrap cta" id="start">
   <div class="cta-box reveal">
@@ -759,7 +978,7 @@
       <span>Claude Code Dashboard — Claude Code 조직 분석 대시보드</span>
     </div>
     <div class="mono">Anthropic Analytics · Compliance API — React · Express · ECS Fargate · Bedrock · Athena</div>
-    <div><a href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener">GitHub에서 소스 보기<span class="sr-only">(새 창)</span></a></div>
+    <div><a href="https://github.com/whchoi98/claude-code-dashboard" target="_blank" rel="noopener">GitHub에서 소스 보기<span class="sr-only">(새 창)</span></a> · <a href="https://github.com/whchoi98/claude-code-dashboard/releases/tag/v2.7.0" target="_blank" rel="noopener">최신 릴리스 v2.7.0 (2026-10-29)<span class="sr-only">(새 창)</span></a></div>
     <div>본 대시보드는 독립적으로 개발된 분석 도구로, Anthropic의 공식 제품이 아닙니다. Anthropic, Claude는 Anthropic PBC의 상표이며, Amazon Web Services, AWS 관련 명칭은 Amazon.com, Inc. 또는 계열사의 상표입니다.</div>
   </div>
 </footer>
