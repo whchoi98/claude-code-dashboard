@@ -531,11 +531,11 @@
     <div class="sec-head reveal">
       <div class="kicker">화면 둘러보기</div>
       <h2>대시보드 화면을 <em>미리 보세요</em>.</h2>
-      <p>아래 11장의 캡처는 모두 가상 조직(acme.com)의 합성 데이터입니다. 앱에 mock 모드가 없는 Cost·Audit 화면은 합성 API 응답을 넣어 렌더링했기 때문에 일부 화면에는 Mock 배지가 보입니다. 이메일은 마스킹되어 있습니다.</p>
+      <p>아래 11장의 캡처는 모두 가상 조직(acme.com)의 합성 데이터입니다. 키 없이 띄운 서버가 내장 mock 데이터를 돌려주므로 페이지 머리글에 Mock 배지가 붙습니다. mock 모드가 없는 Cost·Audit 화면과 Users의 캐시 적중률 열에는 합성 API 응답을 넣었고, Cost의 배지도 Mock으로 바꿔 표시했습니다. Audit 화면에는 원래 배지가 없습니다. 이메일은 마스킹되어 있습니다.</p>
     </div>
     <div class="shot-grid">
       <figure class="shot-card wide reveal">
-        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, Claude Code 세션, 추가 LOC, 커밋, PR, Cowork, Design, 도구 수락률 열을 정렬해 보여주는 Users 화면 — 합성 데이터, 이메일 마스킹" width="2400" height="1140"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="0"><img src="img/users.png" loading="lazy" alt="사용자별 메시지, Claude Code 세션, 추가 LOC, 커밋, PR, Cowork, Design, 도구 수락률, 캐시 적중률 열을 정렬해 보여주는 Users 화면 — 합성 데이터, 이메일 마스킹" width="2688" height="1520"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Users</div>
           <h3>사용자별 참여도를 한 테이블에</h3>
@@ -543,7 +543,7 @@
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="일간·주간·월간 활성 사용자, 도입률, LOC, 세션, 커밋·PR, 도구 수락률 KPI와 DAU·WAU·MAU 추이, 도구별 수락·거절 차트를 보여주는 Overview 화면 — 합성 데이터" width="1600" height="1188"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="1"><img src="img/overview.png" loading="lazy" alt="일간·주간·월간 활성 사용자, 도입률, LOC, 세션, 커밋·PR, 도구 수락률 KPI와 DAU·WAU·MAU 추이, 도구별 수락·거절 차트를 보여주는 Overview 화면 — 합성 데이터" width="2688" height="2380"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Overview</div>
           <h3>조직 KPI를 첫 화면에서</h3>
@@ -551,23 +551,23 @@
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="총지출, 입력·출력 토큰, 요청 수, 개발자당 지출, 30일 예측, 7일 평균, 프롬프트 캐시 효율 KPI와 제품·모델별 지출 비중 차트를 보여주는 Cost 화면 — 합성 데이터" width="1600" height="1136"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="2"><img src="img/cost.png" loading="lazy" alt="총지출, 입력·출력 토큰, 요청 수, 개발자당 지출, 30일 예측, 7일 평균, 프롬프트 캐시 효율 KPI와 제품·모델별 지출 비중 차트를 보여주는 Cost 화면 — 합성 데이터" width="2688" height="2276"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Cost</div>
           <h3>지출과 토큰을 한 화면에</h3>
-          <p>조직·그룹·사용자 단위 지출(USD)과 토큰을 모델·제품별로 분해하고, 30일 예측·캐시 효율·지출 한도까지 같은 화면에서 봅니다. 비용 리포트 API가 기본이고 CSV 지출 리포트는 폴백·대조용입니다.</p>
+          <p>지출(USD)·토큰·30일 예측·캐시 효율을 KPI로 보고, 제품·모델별 지출 비중으로 나눠 봅니다. 같은 화면 아래로 그룹·사용자별 지출과 지출 한도가 이어집니다. 비용 리포트 API가 기본이고 CSV 지출 리포트는 폴백·대조용입니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="활성 개발자, LOC, 커밋·PR, 도구 수락률 KPI와 도구별 수락·거절 막대 차트, 도구별 수락률 방사형 막대 차트를 보여주는 Claude Code 화면 — 합성 데이터" width="1600" height="782"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="3"><img src="img/claude-code.png" loading="lazy" alt="활성 개발자, LOC, 커밋·PR, 도구 수락률 KPI와 도구별 수락·거절 막대 차트, 도구별 수락률 방사형 막대 차트를 보여주는 Claude Code 화면 — 합성 데이터" width="2688" height="1568"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Claude Code</div>
           <h3>코드 생산성 지표</h3>
-          <p>추가·삭제 LOC, 커밋, PR, 도구 수락률을 조직 전체와 사용자별로. 도입 효과를 숫자로 증명합니다.</p>
+          <p>추가·삭제 LOC, 커밋, PR, 도구 수락률을 조직 전체 기준으로 보고 도구별 수락률을 비교합니다. 도입 효과를 숫자로 확인할 수 있습니다.</p>
         </div>
       </figure>
       <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="활동 점수(0–100) 상위 10명 기여자 막대 차트를 보여주는 User Productivity 화면 — 합성 데이터, 이메일 마스킹" width="1600" height="651"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+        <button type="button" class="shot-img" data-lightbox-index="4"><img src="img/user-productivity.png" loading="lazy" alt="활동 점수(0–100) 상위 10명 기여자 막대 차트를 보여주는 User Productivity 화면 — 합성 데이터, 이메일 마스킹" width="2688" height="1306"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">User Productivity</div>
           <h3>활동 점수로 랭킹</h3>
@@ -587,18 +587,18 @@
         <div class="shot-body">
           <div class="shot-kicker">Trends</div>
           <h3>제품별 도입 곡선 추적</h3>
-          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다. Chat·Cowork 통합은 별도 선으로 그려 사용량이 어디로 옮겨 가는지 보여 줍니다.</p>
+          <p>DAU·WAU·MAU 추이에 더해 제품별 활성 사용자를 한 차트에서 비교해, 어떤 제품이 조직에 자리 잡는지 확인합니다. Chat·Cowork 통합은 별도 선으로 그려 사용량이 어디로 옮겨 가는지 보여줍니다.</p>
         </div>
       </figure>
-      <figure class="shot-card reveal">
-        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2400" height="620"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
+      <figure class="shot-card wide reveal">
+        <button type="button" class="shot-img" data-lightbox-index="7"><img src="img/audit.png" loading="lazy" alt="총 이벤트, 고위험 이벤트, 로그인 이벤트, 고유 행위자 KPI와 이벤트 유형·상위 행위자 막대 차트를 보여주는 Audit 화면 — 합성 데이터" width="2688" height="1348"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit</div>
-          <h3>감사 로그 피드</h3>
+          <h3>감사 이벤트를 유형·행위자별로</h3>
           <p>Compliance API의 활동 이벤트를 집계해 유형·행위자별로 시각화하고 고위험 이벤트를 분류합니다. 보안·컴플라이언스 팀의 질문에 바로 답합니다.</p>
         </div>
       </figure>
-      <figure class="shot-card reveal">
+      <figure class="shot-card wide reveal">
         <button type="button" class="shot-img" data-lightbox-index="8"><img src="img/directory.png" loading="lazy" alt="멤버 20명, Claude에 대한 지침 35%, Cowork 전역 지침 20%, 지침을 저장한 멤버 9명 KPI와 역할별 멤버 칩을 보여주는 멤버와 사용자 지정 지침 카드 — 합성 데이터, 지침 원문은 표시되지 않음" width="2608" height="652"><span class="zoom-hint">크게 보기 <span aria-hidden="true">⤢</span></span></button>
         <div class="shot-body">
           <div class="shot-kicker">Audit · Members</div>
