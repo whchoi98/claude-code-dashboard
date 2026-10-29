@@ -23,7 +23,7 @@ export function ChatPanel({ chat, variant, onClose }: { chat: ChatStream; varian
       <div className="flex items-center justify-between px-1 pb-3 print-hide">
         <div className="flex items-center gap-2 text-[11px] text-ink-400">
           <ClaudeIcon size={16} />
-          <span className="font-medium text-ink-500">Claude Sonnet 4.6</span>
+          <span className="font-medium text-ink-500">Claude Sonnet 5.5</span>
         </div>
         <div className="flex items-center gap-2">
           {messages.length > 0 && (

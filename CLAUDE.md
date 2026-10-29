@@ -18,7 +18,7 @@ Codex contributor instructions are in [AGENTS.md](AGENTS.md); public documentati
 | Backend | Express 4 on Node 20 · AWS SDK v3 (Bedrock Runtime, S3, Athena, Secrets Manager) |
 | Infra | AWS CDK v2 (TypeScript; `infra/package-lock.json` pins the library and CLI) — 4 stacks (network/storage/compute/collector) |
 | Runtime | Fargate ARM64 · CloudFront + WAF · ALB (CloudFront-prefix-list locked) · Secrets Manager · Lambda |
-| Data | S3 NDJSON archive · Glue Data Catalog · Athena · Bedrock (Claude Sonnet 4.6 via global inference profile) |
+| Data | S3 NDJSON archive · Glue Data Catalog · Athena · Bedrock (Claude Sonnet 5.5 via global inference profile) |
 | External APIs | Anthropic Analytics API · Admin API · Compliance API (the Analytics key's scopes now cover compliance reads — the dedicated Compliance key is optional; server falls back automatically) |
 
 ## Project Structure
@@ -87,7 +87,7 @@ aws lambda invoke --region ap-northeast-2 --function-name ccd-collector-Fn9270CB
 - **Emails**: Always render via `maskEmail()` in UI (keep first 2 chars + domain). Server prompts enforce this in LLM output.
 - **Secrets**: Never hardcoded. Stored in AWS Secrets Manager (`ccd/analytics-key`, `ccd/admin-key`, `ccd/compliance-key`) and injected into ECS tasks via `ecs.Secret.fromSecretsManager`. Local dev reads from gitignored `.env`.
 - **CDK context**: Always pass `--context existingVpcId=vpc-0dfa5610180dfa628` in this account (EIP quota exhausted; reuse shared VPC).
-- **Regions**: ap-northeast-2 primary. Bedrock model: `global.anthropic.claude-sonnet-4-6` (cross-region inference profile).
+- **Regions**: ap-northeast-2 primary. Bedrock model: `global.anthropic.claude-sonnet-5-5` (cross-region inference profile).
 - **Multi-org (ADR-0018)**: a second subscription is org `org2` — key env `ANTHROPIC_ANALYTICS_KEY_2` (secret `ccd/analytics-key-2`), enabled in infra by flipping `enableOrg2` to `true` in `infra/cdk.json` (COMMITTED — a CLI-only flag would silently revert org2 on the next routine deploy). Every server route resolves `orgFromReq(req)`; every response-cache key is org-prefixed; org2 S3/Glue live under `org2/` + `*_org2` tables. New routes/pages MUST thread the org (see server/CLAUDE.md Multi-org rules).
 
 ## Data Sources

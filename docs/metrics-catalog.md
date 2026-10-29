@@ -363,7 +363,7 @@ cache_hit_rate = cache_read_input_tokens / (uncached + cache_read + cache_creati
 | **Adoption** | Analytics `/skills` + `/connectors` + `/apps/chat/projects` | 스킬/커넥터별 사용자, Top 프로젝트 메시지 수 |
 | **Cost** | Analytics `cost_report`+`usage_report`(헤드라인) · `user_cost_report`(사용자별 지출·모델별) · `user_usage_report`(사용자별 토큰) · `cost_report×rbac_group_id`(그룹별) · Spend Limits API(월 한도/누적) · CSV는 31일 초과·장애 폴백 · `/users/range`(효율 조인) | Total spend, 모델별 점유(pie), product × model 스택, **그룹별 비용(실명)**, Top 10 (total/input/output/spend — 선택 기간 라이브), **Spend Limits 소진율**, **경제 생산성 점수** (§4.4) |
 | **Audit** | Compliance `/activities` | KPI(total/risk/login/actors), 이벤트 타입/행위자 Top, 일자별 추이, 최근 이벤트 피드 |
-| **Analyze** | 위 모두 (snapshot) + (SQL 모드) Athena 아카이브 | Bedrock Sonnet 4.6 자연어 분석 (SSE 스트리밍) |
+| **Analyze** | 위 모두 (snapshot) + (SQL 모드) Athena 아카이브 | Bedrock Sonnet 5.5 자연어 분석 (SSE 스트리밍) |
 | **Archive** | S3 + Glue + Athena | 임의 SELECT SQL — NDJSON 파티션 조회 |
 
 ---

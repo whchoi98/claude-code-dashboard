@@ -140,7 +140,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 ### AI 분석
 
-**목적** — 실시간 analytics + 아카이브 SQL에 대한 자연어 질의. Amazon Bedrock의 Claude Sonnet 4.6이 SSE로 스트리밍 응답.
+**목적** — 실시간 analytics + 아카이브 SQL에 대한 자연어 질의. Amazon Bedrock의 Claude Sonnet 5.5이 SSE로 스트리밍 응답.
 
 - **두 가지 모드**:
   - `Direct` — Claude가 현재 실시간 스냅샷(summaries + users + skills + connectors) 직접 분석
@@ -228,7 +228,7 @@ npm run build:edge
 | `ANTHROPIC_ANALYTICS_KEY_2` | 두 번째 조직(`org2`)의 Analytics 키 | (로컬에서는 선택, 커밋된 CDK 설정에서는 활성화) |
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | 호출자의 마스킹 정책을 검증하는 공개 식별자 | (ECS에서 Cognito 설정으로 주입, 없으면 기본 마스킹) |
 | `AWS_REGION` | Bedrock / Athena / S3 리전 | `ap-northeast-2` |
-| `BEDROCK_MODEL_ID` | Bedrock 파운데이션 모델 또는 inference profile | `global.anthropic.claude-sonnet-4-6` |
+| `BEDROCK_MODEL_ID` | Bedrock 파운데이션 모델 또는 inference profile | `global.anthropic.claude-sonnet-5-5` |
 | `ARCHIVE_S3_BUCKET` | NDJSON 아카이브 + spend report용 S3 버킷 | (CDK가 설정) |
 | `ATHENA_WORKGROUP` | Athena 워크그룹 이름 | `claude-code-dashboard` |
 | `ATHENA_DATABASE` | Glue 데이터베이스 이름 | `claude_code_analytics` |
@@ -274,7 +274,7 @@ claude-code-dashboard/
 | CloudFront | 무료 티어 50 GB로 대부분 커버 | 약 $1-3 |
 | Lambda 컬렉터 + EventBridge | 월 30회 호출 · 512 MB · 30초 평균 | 약 $0 (free tier) |
 | **고정 소계** | | **약 $66 – 70** |
-| Bedrock (Claude Sonnet 4.6) | 월 50회 분석 (~$0.20/회) | 약 $10 |
+| Bedrock (Claude Sonnet 5.5) | 월 50회 분석 (~$0.20/회) | 약 $10 |
 | Bedrock (많이 사용) | 월 500회 분석 | 약 $100 |
 | Fargate 오토스케일 피크 | 스파이크 시 최대 6 태스크 | +$10 – 40 |
 | Data transfer (CloudFront out) | 월 약 10 GB | 약 $1 |

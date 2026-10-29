@@ -45,8 +45,8 @@ const compute = new ComputeStack(app, `${prefix}-compute`, {
   analyticsSecretName:  `${prefix}/analytics-key`,
   adminSecretName:      `${prefix}/admin-key`,
   complianceSecretName: `${prefix}/compliance-key`,
-  // Global cross-region inference profile for Claude Sonnet 4.6 — available in ap-northeast-2.
-  bedrockModelId: 'global.anthropic.claude-sonnet-4-6',
+  // Global cross-region inference profile for Claude Sonnet 5.5 — available in ap-northeast-2.
+  bedrockModelId: 'global.anthropic.claude-sonnet-5-5',
   cloudfrontPrefixListId,
 })
 const collector = new CollectorStack(app, `${prefix}-collector`, {

@@ -4,7 +4,7 @@
 
 import {
   maskEmail, maskEmailsDeep, historyToBedrockMessages,
-  parseFollowups, rankUsers, compactOverview, textBlockSeparator,
+  parseFollowups, rankUsers, compactOverview, textBlockSeparator, blocksToBedrockContent,
 } from '../../server/chat-tools.js'
 
 let testNum = 0
@@ -65,6 +65,29 @@ ok('textBlockSeparator: nothing streamed yet → no break', textBlockSeparator('
 ok('textBlockSeparator: pre-tool line → paragraph break', textBlockSeparator('데이터를 가져오겠습니다!') === '\n\n')
 ok('textBlockSeparator: one trailing newline → one more', textBlockSeparator('Done.\n') === '\n')
 ok('textBlockSeparator: already a paragraph end → none', textBlockSeparator('Done.\n\n') === '')
+
+// blocksToBedrockContent — Sonnet 5.5 between-tool notes (reasoning blocks) go back unchanged
+const redactedBytes = new Uint8Array([1, 2, 3])
+const hopContent = blocksToBedrockContent([
+  { type: 'reasoning', text: 'Checking cost first.', signature: 'sig-abc' },
+  undefined,
+  { type: 'tool', toolUseId: 'tu1', name: 'get_cost_summary', json: '{"starting_date":"2026-10-01"}' },
+])
+ok('blocksToBedrockContent: reasoning keeps text + signature, in stream order', eq(hopContent, [
+  { reasoningContent: { reasoningText: { text: 'Checking cost first.', signature: 'sig-abc' } } },
+  { toolUse: { toolUseId: 'tu1', name: 'get_cost_summary', input: { starting_date: '2026-10-01' } } },
+]))
+ok('blocksToBedrockContent: redacted reasoning passes the bytes through',
+  blocksToBedrockContent([{ type: 'reasoning', text: '', signature: '', redacted: redactedBytes }])[0]
+    .reasoningContent.redactedContent === redactedBytes)
+ok('blocksToBedrockContent: unsigned reasoning omits signature', eq(
+  blocksToBedrockContent([{ type: 'reasoning', text: 'note', signature: '' }]),
+  [{ reasoningContent: { reasoningText: { text: 'note' } } }],
+))
+ok('blocksToBedrockContent: text + empty tool input', eq(
+  blocksToBedrockContent([{ type: 'text', text: 'Answer' }, { type: 'tool', toolUseId: 't2', name: 'get_analytics_overview', json: '' }]),
+  [{ text: 'Answer' }, { toolUse: { toolUseId: 't2', name: 'get_analytics_overview', input: {} } }],
+))
 
 // rankUsers (UserRecord shape from src/types.ts)
 const U = (email, loc, commits) => ({

@@ -13,7 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Changed
+
+- Chatbot (Analyze page and floating chat): the model moved from Claude Sonnet 4.6 to Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5` inference profile). The follow-up question generator uses the same model.
+  - Requests no longer send `temperature`. Sonnet 5.5 rejects non-default sampling values.
+  - Extended thinking stays off (`between_tools`). Chat runs at effort `medium`. Without these settings Sonnet 5.5 would think by default, and the follow-up call's small token budget would run out before its JSON.
+  - Sonnet 5.5 returns longer notes between tool calls as reasoning blocks. The chat stream shows them like before and sends them back unchanged on the next tool hop.
+  - A declined request now shows a status message instead of an empty answer.
 
 ## [2.5.1] - 2026-10-05
 
@@ -888,7 +894,13 @@ the three architectural decisions captured in this release.
 
 ## [Unreleased]
 
-_미출시 변경 사항 없음._
+### 변경
+
+- 챗봇(분석 페이지·플로팅 채팅): 모델을 Claude Sonnet 4.6에서 Claude Sonnet 5.5(`global.anthropic.claude-sonnet-5-5` inference profile)로 바꿨습니다. 후속 질문 생성도 같은 모델을 씁니다.
+  - 요청에서 `temperature`를 뺐습니다. Sonnet 5.5는 기본값이 아닌 sampling 값을 거부합니다.
+  - 확장 사고(extended thinking)는 끈 상태(`between_tools`)로 두고, 채팅은 effort `medium`으로 실행합니다. 이 설정이 없으면 Sonnet 5.5가 기본으로 사고를 켜서, 후속 질문 호출의 작은 토큰 예산이 JSON보다 먼저 소진됩니다.
+  - Sonnet 5.5는 도구 호출 사이의 긴 메모를 reasoning 블록으로 돌려줍니다. 채팅 스트림은 이를 전처럼 보여 주고, 다음 도구 호출 단계에 그대로 다시 보냅니다.
+  - 요청이 거절되면 빈 답변 대신 상태 메시지를 보여 줍니다.
 
 ## [2.5.1] - 2026-10-05
 

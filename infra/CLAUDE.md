@@ -44,4 +44,4 @@ Validate application releases with a production image smoke test, then compare t
 
 - WAF is **regional** (attached to the ALB) — it lives in the same region as the ALB, not us-east-1.
 - CloudFront is global but the distribution resource is created in the compute stack's region (CFN accepts this).
-- The Bedrock inference profile `global.anthropic.claude-sonnet-4-6` resolves to whichever region has capacity; no additional IAM scoping beyond the task role needed.
+- The Bedrock inference profile `global.anthropic.claude-sonnet-5-5` resolves to whichever region has capacity; no additional IAM scoping beyond the task role needed.

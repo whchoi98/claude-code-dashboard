@@ -109,7 +109,7 @@ const DICT = {
     'range.tooltip_1d':       'Guaranteed-finalized day (today−3 — conservative; fresher days may already be served)',
     'range.tooltip_1d_today': 'Today (partial data, ~4h refresh)',
     'status.aws_cost.label': 'AWS run-rate',
-    'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 4.6 (light /api/chat/stream use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
+    'status.aws_cost.hint':  'Approximate monthly AWS cost in ap-northeast-2 (Seoul):\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 3 rule groups) ≈ $8\n· CloudFront + Lambda@Edge (low traffic) ≈ $1\n· S3 archive + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (3 secrets) ≈ $1\n· Athena (~30 queries / day) ≈ $2\n· Bedrock Claude Sonnet 5.5 (light /api/chat/stream use) ≈ $5\n· Collector Lambda (1/day) ≈ $0.10\nUsage-driven items (Athena, Bedrock, CloudFront tier) scale with traffic.',
     'org.label':            'Organization',
     'org.hint':             'Switch the Anthropic organization every page reads from. Switching resets the group scope — group maps are per organization.',
     'group.label':          'Group scope',
@@ -625,7 +625,7 @@ const DICT = {
 
     // Analyze
     'analyze.title':    'Analyze',
-    'analyze.subtitle': 'Chat with Claude about your org. Sonnet 4.6 on Amazon Bedrock autonomously queries live analytics, the S3 archive, and cost reports to answer.',
+    'analyze.subtitle': 'Chat with Claude about your org. Sonnet 5.5 on Amazon Bedrock autonomously queries live analytics, the S3 archive, and cost reports to answer.',
     'chat.placeholder':  'Ask anything about your org analytics…',
     'chat.send':         'Send',
     'chat.stop':         'Stop',
@@ -928,7 +928,7 @@ const DICT = {
     'range.tooltip_1d':       '확정 보장일 (오늘−3 — 보수적 기준, 더 최신 일자가 이미 제공될 수 있음)',
     'range.tooltip_1d_today': '오늘 (부분 집계 · 약 4시간 주기 갱신)',
     'status.aws_cost.label': 'AWS 월 예상',
-    'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 4.6 (/api/chat/stream 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
+    'status.aws_cost.hint':  'ap-northeast-2(서울) 기준 예상 월 비용 내역:\n· Fargate (ARM64, 0.25 vCPU / 0.5 GB, 24/7) ≈ $10\n· ALB ≈ $22\n· WAF (ACL + 룰 그룹 3개) ≈ $8\n· CloudFront + Lambda@Edge (저트래픽) ≈ $1\n· S3 아카이브 + Glue + CloudWatch Logs ≈ $2\n· Secrets Manager (시크릿 3개) ≈ $1\n· Athena (~일 30 쿼리) ≈ $2\n· Bedrock Claude Sonnet 5.5 (/api/chat/stream 라이트) ≈ $5\n· Collector Lambda (일 1회) ≈ $0.10\n사용량 기반 항목(Athena, Bedrock, CloudFront)은 트래픽에 따라 변동됩니다.',
     'org.label':            '조직',
     'org.hint':             '모든 페이지가 조회하는 Anthropic 조직을 전환합니다. 그룹 매핑은 조직별이므로 전환 시 그룹 범위가 초기화됩니다.',
     'group.label':          '그룹 범위',
@@ -1435,7 +1435,7 @@ const DICT = {
     'audit.empty':      '일치하는 이벤트 없음',
 
     'analyze.title':    '분석',
-    'analyze.subtitle': 'Claude와 조직 데이터에 대해 대화하세요. Amazon Bedrock의 Sonnet 4.6이 실시간 애널리틱스·S3 아카이브·비용 리포트를 스스로 조회해 답변합니다.',
+    'analyze.subtitle': 'Claude와 조직 데이터에 대해 대화하세요. Amazon Bedrock의 Sonnet 5.5이 실시간 애널리틱스·S3 아카이브·비용 리포트를 스스로 조회해 답변합니다.',
     'chat.placeholder':  '조직 애널리틱스에 대해 무엇이든 물어보세요…',
     'chat.send':         '전송',
     'chat.stop':         '중단',

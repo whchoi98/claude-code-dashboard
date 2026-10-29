@@ -140,7 +140,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 
 ### Analyze (AI)
 
-**Purpose** — Natural-language query over live analytics and archived SQL, answered by Claude Sonnet 4.6 on Amazon Bedrock with SSE streaming.
+**Purpose** — Natural-language query over live analytics and archived SQL, answered by Claude Sonnet 5.5 on Amazon Bedrock with SSE streaming.
 
 - **Two modes**:
   - `Direct` — Claude analyzes the current live snapshot (summaries + users + skills + connectors)
@@ -228,7 +228,7 @@ The deployment commands above update the existing configured account. For anothe
 | `ANTHROPIC_ANALYTICS_KEY_2` | Analytics key for the second organization (`org2`) | (optional locally; enabled in committed CDK context) |
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | Public identifiers used to verify the caller's masking policy | (injected from Cognito config in ECS; masked default if absent) |
 | `AWS_REGION` | AWS region for Bedrock / Athena / S3 | `ap-northeast-2` |
-| `BEDROCK_MODEL_ID` | Bedrock foundation model or inference profile | `global.anthropic.claude-sonnet-4-6` |
+| `BEDROCK_MODEL_ID` | Bedrock foundation model or inference profile | `global.anthropic.claude-sonnet-5-5` |
 | `ARCHIVE_S3_BUCKET` | S3 bucket for NDJSON archive + spend reports | (set by CDK) |
 | `ATHENA_WORKGROUP` | Athena workgroup name | `claude-code-dashboard` |
 | `ATHENA_DATABASE` | Glue database name | `claude_code_analytics` |
@@ -274,7 +274,7 @@ This is the repository's historical planning example, not a refreshed price quot
 | CloudFront | 50 GB free tier covers most small deployments | ~$1-3 |
 | Lambda collector + EventBridge | 30 invocations/month · 512 MB · 30s avg | ~$0 (free tier) |
 | **Fixed subtotal** | | **~$66 – 70** |
-| Bedrock (Claude Sonnet 4.6) | 50 analyze requests/month (~$0.20 each) | ~$10 |
+| Bedrock (Claude Sonnet 5.5) | 50 analyze requests/month (~$0.20 each) | ~$10 |
 | Bedrock (heavy) | 500 analyze requests/month | ~$100 |
 | Fargate auto-scale peaks | Up to 6 tasks during spikes | +$10 – 40 |
 | Data transfer (CloudFront out) | ~10 GB/month | ~$1 |

@@ -35,7 +35,7 @@
 
 | Component | Purpose |
 |-----------|---------|
-| Amazon Bedrock (Claude Sonnet 4.6) | Multi-turn tool-use chatbot (`POST /api/chat/stream`) via `ConverseStreamCommand` + `toolConfig` — SSE to the browser. The model autonomously calls five tools (`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`). See [ADR-0008](decisions/0008-tool-use-chatbot.md). |
+| Amazon Bedrock (Claude Sonnet 5.5) | Multi-turn tool-use chatbot (`POST /api/chat/stream`) via `ConverseStreamCommand` + `toolConfig` — SSE to the browser. The model autonomously calls five tools (`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`). See [ADR-0008](decisions/0008-tool-use-chatbot.md). |
 | Athena workgroup | Ad-hoc SQL over archived partitions; powers the Archive page and the chatbot's `run_athena_sql` tool |
 | Server-side aggregation | `/api/cost/live` joins Analytics `cost_report` + `usage_report` on `(product, model)` and reshapes into the `CsvResp` shape consumed by the Cost page. `/api/cost/users` proxies `user_cost_report` (paginated, raw emails, full selected range — the cost family serves the 3-day buffer with partial data; `?by=model|product` adds a per-user breakdown for the chargeback chart and the user-detail cards) for live per-user USD spend; `/api/cost/user-tokens` proxies the newer `user_usage_report` for live per-user token counts; `/api/cost/groups` proxies `cost_report × rbac_group_id` for per-RBAC-group spend, labeled with real group names from `GET /v1/compliance/groups` (1h-cached, last-good on the upstream 503 flap); `/api/cost/spend-limits` proxies the Spend Limits API for per-member monthly limits + month-to-date spend. `/api/cost/efficiency` joins `user_cost_report` spend with `users/range` productivity on `email`, deliberately window-aligned to `today−3` (the productivity source's buffer) so its ratios don't mix windows. `/api/cost/csv` keeps the manual Spend Report path as fallback for reconciliation and live-report outages; live cost reports chunk up to 186 days. See [ADR-0003](decisions/0003-hybrid-live-cost.md) and [ADR-0009](decisions/0009-live-user-cost.md). |
 
@@ -171,7 +171,7 @@ These amounts preserve the original planning assumptions; current pricing was no
 | S3 + Glue + Athena + CloudWatch | ~$4 | |
 | CloudFront | ~$2 | Free-tier 50 GB covers most usage |
 | Lambda + EventBridge | ~$0 | Within free tier |
-| Bedrock (Claude Sonnet 4.6) | ~$10 (light) to ~$100 (heavy) | $0.20/analyze request avg |
+| Bedrock (Claude Sonnet 5.5) | ~$10 (light) to ~$100 (heavy) | $0.20/analyze request avg |
 | **Baseline total** | **~$80 / month (light)** | ~$130 moderate, ~$250 heavy |
 
 New-VPC path adds one NAT Gateway (~$43/month) plus EIP cost, so reuse an existing VPC whenever possible (`--context existingVpcId=...`).
@@ -216,7 +216,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 
 | 구성요소 | 역할 |
 |---------|------|
-| Amazon Bedrock (Claude Sonnet 4.6) | 멀티턴 tool-use 챗봇 (`POST /api/chat/stream`) — `ConverseStreamCommand` + `toolConfig` + SSE. 모델이 5개 도구(`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`)를 자율적으로 호출. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조. |
+| Amazon Bedrock (Claude Sonnet 5.5) | 멀티턴 tool-use 챗봇 (`POST /api/chat/stream`) — `ConverseStreamCommand` + `toolConfig` + SSE. 모델이 5개 도구(`get_analytics_overview`, `run_athena_sql`, `get_cost_summary`, `search_users`, `get_user_usage`)를 자율적으로 호출. [ADR-0008](decisions/0008-tool-use-chatbot.md) 참조. |
 | Athena 워크그룹 | 아카이브 파티션에 ad-hoc SQL, Archive 페이지와 챗봇의 `run_athena_sql` 도구 구동 |
 | 서버 사이드 집계 | `/api/cost/live`는 Analytics `cost_report` + `usage_report`를 `(product, model)` 단위로 조인해 Cost 페이지의 `CsvResp` 형태로 reshape. `/api/cost/users`는 `user_cost_report`를 페이지네이션해 선택 기간 전체(cost 계열은 3일 버퍼를 부분 데이터로 제공)의 사용자별 라이브 USD spend 제공; `/api/cost/user-tokens`는 신설 `user_usage_report`로 사용자별 라이브 토큰 제공; `/api/cost/groups`는 `cost_report × rbac_group_id`로 RBAC 그룹별 지출을 제공하며 `GET /v1/compliance/groups`에서 조회한 실명 라벨 사용(1h 캐시, upstream 503 플랩 시 last-good); `/api/cost/spend-limits`는 Spend Limits API로 멤버별 월 한도+누적 지출 제공. `/api/cost/efficiency`는 `user_cost_report` 지출과 `users/range` 생산성을 `email`로 조인하되 비율 왜곡 방지를 위해 의도적으로 `today−3` 창 정렬 유지. `/api/cost/csv`는 정산·라이브 장애 폴백으로 사용하며, 라이브 비용은 청크 분할로 최대 186일까지 조회합니다. [ADR-0003](decisions/0003-hybrid-live-cost.md) 및 [ADR-0009](decisions/0009-live-user-cost.md) 참조. |
 
@@ -352,7 +352,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | S3 + Glue + Athena + CloudWatch | 약 $4 | |
 | CloudFront | 약 $2 | Free tier 50 GB로 대부분 커버 |
 | Lambda + EventBridge | 약 $0 | Free tier 내 |
-| Bedrock (Claude Sonnet 4.6) | 약 $10 (경량) ~ 약 $100 (많이 사용) | 분석 요청 1건당 평균 $0.20 |
+| Bedrock (Claude Sonnet 5.5) | 약 $10 (경량) ~ 약 $100 (많이 사용) | 분석 요청 1건당 평균 $0.20 |
 | **기준 합계** | **월 약 $80 (경량)** | 중간 약 $130, 많이 사용 약 $250 |
 
 신규 VPC 경로는 NAT Gateway 1개(월 약 $43) + EIP 비용이 추가되므로 가능한 경우 기존 VPC 재사용(`--context existingVpcId=...`)을 권장합니다.

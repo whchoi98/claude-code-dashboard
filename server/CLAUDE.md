@@ -259,7 +259,16 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     key, a real name beside it would re-identify the person);
     emails masked in tool results
     before reaching the model; dynamic follow-ups generated after each
-    answer). Pure tool helpers + specs live in `server/chat-tools.js`.
+    answer). **Model = Claude Sonnet 5.5** (`BEDROCK_MODEL_ID`): both Converse
+    calls send `additionalModelRequestFields.thinking = {type:'between_tools'}`
+    (its thinking-off setting — an omitted `thinking` runs adaptive, `disabled`
+    is a 400; chat adds `output_config.effort: 'medium'`, which must stay ≤
+    `high` with it) and NO `temperature` (non-default sampling is a 400). Its
+    longer between-tool notes arrive as `reasoningContent` deltas WITH text:
+    the loop streams them like text and `blocksToBedrockContent` replays them
+    unchanged (text + signature) on the next hop. A `content_filtered`/
+    `refusal` stop emits a `status` note instead of an empty answer.
+    Pure tool helpers + specs live in `server/chat-tools.js`.
     `fetchCostSummary()` is shared by `GET /cost/live` and the cost tool.
     Athena execution (`runAthena` polls for up to 60 s and throws an
     explicit timeout error rather than falling through to
@@ -288,7 +297,8 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
     shape). `aggregateTokenTiers` follows the same rule.
 - **`chat-tools.js`** — Pure, dependency-free helpers + tool registry for
   `/api/chat/stream`. Exports: `maskEmail`, `maskEmailsDeep`,
-  `historyToBedrockMessages`, `parseFollowups` (reads the follow-up call's
+  `historyToBedrockMessages`, `blocksToBedrockContent` (one stream hop's
+  text/reasoning/toolUse blocks → the assistant turn), `parseFollowups` (reads the follow-up call's
   structured output — Converse `outputConfig` json_schema `FOLLOWUPS_SCHEMA`),
   `FOLLOWUPS_SCHEMA`, `rankUsers`, `compactOverview`, `TOOL_SPECS`,
   `CHAT_SYSTEM_PROMPT`, `makeToolRunner`.

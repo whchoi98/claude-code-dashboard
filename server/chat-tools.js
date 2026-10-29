@@ -73,6 +73,22 @@ export function textBlockSeparator(prev) {
   return prev.endsWith('\n') ? '\n' : '\n\n'
 }
 
+// Blocks reconstructed from one ConverseStream hop → the assistant turn's
+// Bedrock content. Sonnet 5.5 returns the notes it writes between tool calls
+// as reasoning blocks; they must go back unchanged (text + signature, or the
+// redacted bytes) or the model loses its own progress notes on the next hop.
+export function blocksToBedrockContent(blocks) {
+  return blocks.filter(Boolean).map((b) => {
+    if (b.type === 'text') return { text: b.text }
+    if (b.type === 'reasoning') {
+      return { reasoningContent: b.redacted
+        ? { redactedContent: b.redacted }
+        : { reasoningText: { text: b.text, ...(b.signature && { signature: b.signature }) } } }
+    }
+    return { toolUse: { toolUseId: b.toolUseId, name: b.name, input: b.json ? JSON.parse(b.json) : {} } }
+  })
+}
+
 // Up to 3 follow-up questions from a FOLLOWUPS_SCHEMA response; [] on anything unusable.
 export function parseFollowups(text) {
   try {

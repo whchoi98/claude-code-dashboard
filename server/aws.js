@@ -4,6 +4,7 @@ import { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } from '@a
 import {
   MAX_TOOL_HOPS, TOOL_SPECS, CHAT_SYSTEM_PROMPT, makeToolRunner,
   historyToBedrockMessages, parseFollowups, FOLLOWUPS_SCHEMA, maskEmailsDeep, textBlockSeparator,
+  blocksToBedrockContent,
 } from './chat-tools.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import {
@@ -1140,7 +1141,13 @@ function maskEmailSrv(e) { const at = e.lastIndexOf('@'); if (at < 1) return e; 
 
 export function registerAwsRoutes(app, { fetchAnalytics }) {
   const REGION = process.env.AWS_REGION || 'us-east-1'
-  const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-sonnet-4-6'
+  const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-sonnet-5-5'
+  // Claude Sonnet 5.5 request fields (Converse passthrough). Unlike 4.6, an
+  // omitted `thinking` runs adaptive thinking and `disabled` is a 400 —
+  // `between_tools` is this model's thinking-off setting (effort ≤ high only,
+  // and Sonnet 5.5 ONLY: other models reject it). No temperature/top_p either:
+  // non-default sampling values are a 400 on this model.
+  const THINKING_OFF = { thinking: { type: 'between_tools' } }
 
   const bedrock = new BedrockRuntimeClient({ region: REGION })
   const athena = new AthenaClient({ region: REGION })
@@ -1409,7 +1416,11 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
       const out = await bedrock.send(new ConverseCommand({
         modelId: MODEL_ID,
         messages: [{ role: 'user', content: [{ text: prompt }] }],
-        inferenceConfig: { maxTokens: 300, temperature: 0.4 },
+        // Thinking stays off: adaptive thinking would spend this small budget
+        // before the JSON and parseFollowups would silently return []. 512
+        // leaves room for the Sonnet 5.x tokenizer (~30% more tokens than 4.6).
+        inferenceConfig: { maxTokens: 512 },
+        additionalModelRequestFields: THINKING_OFF,
         outputConfig: { textFormat: { type: 'json_schema', structure: { jsonSchema: { name: 'followups', schema: FOLLOWUPS_SCHEMA } } } },
       }))
       const text = out.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') || ''
@@ -1479,22 +1490,34 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           system: [{ text: CHAT_SYSTEM_PROMPT(locale, today, orgInfo, unmask) }],
           messages,
           toolConfig: { tools: TOOL_SPECS },
-          inferenceConfig: { maxTokens: 16000, temperature: 0.2 },
+          inferenceConfig: { maxTokens: 16000 },
+          // medium: the recalibrated starting point for multistep tool use —
+          // fewer, more consolidated tool calls fit MAX_TOOL_HOPS.
+          additionalModelRequestFields: { ...THINKING_OFF, output_config: { effort: 'medium' } },
         }))
 
-        // Reconstruct assistant content blocks (text + toolUse) from the stream.
-        const blocks = []          // index → { type, text } | { type:'tool', toolUseId, name, json }
+        // Reconstruct assistant content blocks (text + reasoning + toolUse) from the stream.
+        const blocks = []          // index → { type:'text'|'reasoning', text, … } | { type:'tool', toolUseId, name, json }
         for await (const ev of stream.stream) {
           const i = ev.contentBlockStart?.contentBlockIndex ?? ev.contentBlockDelta?.contentBlockIndex
           if (ev.contentBlockStart?.start?.toolUse) {
             const { toolUseId, name } = ev.contentBlockStart.start.toolUse
             blocks[i] = { type: 'tool', toolUseId, name, json: '' }
           }
-          if (ev.contentBlockDelta?.delta?.text) {
-            const t = ev.contentBlockDelta.delta.text
+          // Sonnet 5.5's between-tool notes arrive as reasoning deltas; under
+          // between_tools they carry text and stream to the user like 4.6's
+          // between-tool text blocks did.
+          const r = ev.contentBlockDelta?.delta?.reasoningContent
+          if (r) {
+            blocks[i] ||= { type: 'reasoning', text: '', signature: '' }
+            if (r.signature) blocks[i].signature += r.signature
+            if (r.redactedContent) blocks[i].redacted = r.redactedContent
+          }
+          const t = ev.contentBlockDelta?.delta?.text || r?.text
+          if (t) {
+            blocks[i] ||= { type: 'text', text: '' }
             // The break goes on the stream only; the Bedrock transcript keeps each block's own text.
-            let sep = ''
-            if (!blocks[i]) { blocks[i] = { type: 'text', text: '' }; sep = textBlockSeparator(finalText) }
+            const sep = blocks[i].text ? '' : textBlockSeparator(finalText)
             blocks[i].text += t
             finalText += sep + t
             sseSend(res, 'text', { text: sep + t })
@@ -1506,11 +1529,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           if (ev.metadata?.usage) console.log(`[chat] org=${org} hop=${hop} usage=${JSON.stringify(ev.metadata.usage)}`)
         }
 
-        const assistantContent = blocks.filter(Boolean).map((b) =>
-          b.type === 'text'
-            ? { text: b.text }
-            : { toolUse: { toolUseId: b.toolUseId, name: b.name, input: b.json ? JSON.parse(b.json) : {} } })
-        messages.push({ role: 'assistant', content: assistantContent })
+        messages.push({ role: 'assistant', content: blocksToBedrockContent(blocks) })
 
         if (stopReason !== 'tool_use') break
         // At the hop limit we stop without dispatching the pending toolUse. The
@@ -1536,6 +1555,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
           } })
         }
         messages.push({ role: 'user', content: toolResults })
+      }
+      // Sonnet 5.5's safety classifiers can decline (Anthropic stop_reason
+      // `refusal`, which Converse has no member for — it maps to
+      // content_filtered). Without a note the answer bubble just ends empty.
+      if (stopReason === 'content_filtered' || stopReason === 'refusal') {
+        sseSend(res, 'status', { message: locale === 'ko' ? '모델이 이 요청에 대한 답변을 거절했습니다. 질문을 바꿔 다시 시도해 주세요.' : 'The model declined to answer this request. Try rephrasing the question.' })
       }
 
       const followups = await generateFollowups(message, finalText, locale)
