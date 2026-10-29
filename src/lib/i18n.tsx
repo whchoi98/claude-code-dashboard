@@ -1605,7 +1605,7 @@ const DICT = {
     'audit.empty':      '일치하는 이벤트 없음',
 
     'analyze.title':    '분석',
-    'analyze.subtitle': 'Claude와 조직 데이터에 대해 대화하세요. Amazon Bedrock의 Sonnet 5.5이 실시간 애널리틱스·S3 아카이브·비용 리포트를 스스로 조회해 답변합니다.',
+    'analyze.subtitle': 'Claude와 조직 데이터에 대해 대화하세요. Amazon Bedrock의 Sonnet 5.5가 실시간 애널리틱스·S3 아카이브·비용 리포트를 스스로 조회해 답변합니다.',
     'chat.placeholder':  '조직 애널리틱스에 대해 무엇이든 물어보세요…',
     'chat.send':         '전송',
     'chat.stop':         '중단',
