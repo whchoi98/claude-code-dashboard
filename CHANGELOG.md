@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [2.6.0] - 2026-10-29
+
 ### Changed
 
 - Chatbot (Analyze page and floating chat): the model moved from Claude Sonnet 4.6 to Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5` inference profile). The follow-up question generator uses the same model.
@@ -874,7 +878,8 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...v2.6.0
 [2.5.1]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
@@ -893,6 +898,10 @@ the three architectural decisions captured in this release.
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+_미출시 변경 사항 없음._
+
+## [2.6.0] - 2026-10-29
 
 ### 변경
 
@@ -1253,7 +1262,8 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...v2.6.0
 [2.5.1]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.3.0...v2.4.0
