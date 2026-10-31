@@ -45,9 +45,9 @@ claude-code-dashboard/
 │   ├── bin/app.ts          Entry — 4 stacks with context-driven VPC selection
 │   └── lib/                network-stack · storage-stack · compute-stack · collector-stack
 ├── public/                 Favicon (claude.svg) + iOS/iPadOS PWA assets: manifest.webmanifest (display standalone; the index.html link carries crossorigin="use-credentials" because the manifest fetch passes the Cognito check-auth edge) + apple-touch-icon/icon-192/512/512-maskable PNGs (regenerate via scripts/generate-pwa-icons.mjs). Manifest-only PWA — deliberately NO service worker (a cached shell would break edge session refresh)
-├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots; publish via scripts/deploy-pages.sh → gh-pages branch)
+├── site/                   Public GitHub Pages brochure (self-contained index.html + img/ masked screenshots + og.png link-preview card; publish via scripts/deploy-pages.sh → gh-pages branch)
 ├── docs/                   Architecture, ADRs, runbooks, onboarding, API reference
-├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish) + generate-pwa-icons.mjs (sharp via `npm i --no-save` — NOT a package.json dep)
+├── scripts/                setup + install-hooks + deploy-pages.sh (gh-pages publish) + generate-pwa-icons.mjs (sharp via `npm i --no-save` — NOT a package.json dep) + generate-og-image.mjs (brochure 1200×630 link-preview card → site/img/og.png, via the E2E suite's Playwright Chromium)
 └── tests/                  Server/structure harness + Vitest frontend + Playwright browser tests
 ```
 
