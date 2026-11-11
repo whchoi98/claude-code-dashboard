@@ -44,7 +44,17 @@ interface Props extends cdk.StackProps {
    *     --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing
    */
   cloudfrontPrefixListId?: string
+  /**
+   * Secrets Manager secret (plaintext string, same region) holding the
+   * `X-Origin-Verify` value CloudFront sends to the ALB and the listener rule
+   * requires. Default `ccd/cloudfront-origin-verify`; override via
+   * `--context originVerifySecretName=...` (bin/app.ts).
+   */
+  originVerifySecretName?: string
 }
+
+/** Header CloudFront adds to every origin request; the ALB forwards only when it matches. */
+const ORIGIN_VERIFY_HEADER = 'X-Origin-Verify'
 
 export class ComputeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: Props) {
@@ -86,6 +96,17 @@ export class ComputeStack extends cdk.Stack {
       this, 'CognitoConfigSecret',
       'arn:aws:secretsmanager:ap-northeast-2:061525506239:secret:ccd/cognito-config-SGUykq',
     )
+    // Origin lock, layer 2 (layer 1 = the CloudFront prefix list on the ALB SG,
+    // which admits ALL of CloudFront, i.e. any other account's distribution too):
+    // CloudFront sends X-Origin-Verify and the ALB forwards only on a match. The
+    // value lives only in Secrets Manager and reaches both sides as a
+    // CloudFormation dynamic reference, so it never lands in the template or git.
+    // Referenced by NAME, not via fromSecretNameV2().secretValue: that renders a
+    // partial ARN, and the default name ends in '-verify' (hyphen + 6 chars),
+    // which Secrets Manager can mis-parse as the random suffix — the same trap as
+    // ccd/cognito-config above. A full ARN is impossible until the secret exists.
+    const originVerifySecretName = props.originVerifySecretName ?? 'ccd/cloudfront-origin-verify'
+    const originVerifyValue = cdk.SecretValue.secretsManager(originVerifySecretName).unsafeUnwrap()
 
     const cluster = new ecs.Cluster(this, 'Cluster', {
       vpc: props.vpc,
@@ -216,8 +237,20 @@ export class ComputeStack extends cdk.Stack {
       )
     }
 
-    const listener = alb.addListener('Http', { port: 80, open: false })
-    listener.addTargets('Svc', {
+    // Default = 403; only requests carrying the CloudFront origin header reach
+    // the service. Every forwarding rule MUST carry the X-Origin-Verify
+    // condition. Priority 100: an out-of-band rule (2026-11-11 live hardening)
+    // may still sit at 50000 on the live listener — avoid that number.
+    const listener = alb.addListener('Http', {
+      port: 80,
+      open: false,
+      defaultAction: elbv2.ListenerAction.fixedResponse(403, { contentType: 'text/plain', messageBody: 'Forbidden' }),
+    })
+    // Same 'Svc' id as the former default forward, so the target group keeps
+    // its logical id (AlbHttpSvcGroup…); the new rule is AlbHttpSvcRule….
+    const svcTargetGroup = listener.addTargets('Svc', {
+      priority: 100,
+      conditions: [elbv2.ListenerCondition.httpHeader(ORIGIN_VERIFY_HEADER, [originVerifyValue])],
       port: 8080,
       targets: [service.loadBalancerTarget({ containerName: 'app', containerPort: 8080 })],
       healthCheck: {
@@ -319,6 +352,9 @@ export class ComputeStack extends cdk.Stack {
       // runs 12.8–30s upstream). The keep-warm cache makes these rare, but a
       // genuinely cold 30-day window must be allowed to finish.
       readTimeout: cdk.Duration.seconds(60),
+      // Shared secret the ALB listener rule requires (see originVerifyValue).
+      // A deploy without it would make every origin request hit the 403 default.
+      customHeaders: { [ORIGIN_VERIFY_HEADER]: originVerifyValue },
     })
     const baseBehavior: cf.BehaviorOptions = {
       origin: albOrigin,
@@ -362,6 +398,10 @@ export class ComputeStack extends cdk.Stack {
       httpVersion: cf.HttpVersion.HTTP2_AND_3,
       comment: 'Claude Code Dashboard',
     })
+    // CloudFront changes only after the header rule exists: the ALB accepts the
+    // value before CloudFront sends it, and a failed listener/rule update rolls
+    // back before CloudFront is touched (no rollback can strip the header).
+    distribution.node.addDependency(svcTargetGroup.loadBalancerAttached)
 
     new cdk.CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName })
     new cdk.CfnOutput(this, 'DashboardUrl', { value: `https://${distribution.domainName}` })

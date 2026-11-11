@@ -33,6 +33,12 @@ const CF_PREFIX_LIST_BY_REGION: Record<string, string> = {
 const cloudfrontPrefixListId =
   (app.node.tryGetContext('cloudfrontPrefixListId') as string | undefined) ||
   CF_PREFIX_LIST_BY_REGION[env.region!]
+// X-Origin-Verify shared secret (CloudFront origin header ↔ ALB listener rule).
+// Must exist in Secrets Manager before deploying compute. Override via
+// `--context originVerifySecretName=...`.
+const originVerifySecretName =
+  (app.node.tryGetContext('originVerifySecretName') as string | undefined) ||
+  `${prefix}/cloudfront-origin-verify`
 
 const compute = new ComputeStack(app, `${prefix}-compute`, {
   env,
@@ -48,6 +54,7 @@ const compute = new ComputeStack(app, `${prefix}-compute`, {
   // Global cross-region inference profile for Claude Sonnet 5.5 — available in ap-northeast-2.
   bedrockModelId: 'global.anthropic.claude-sonnet-5-5',
   cloudfrontPrefixListId,
+  originVerifySecretName,
 })
 const collector = new CollectorStack(app, `${prefix}-collector`, {
   env,
