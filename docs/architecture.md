@@ -132,7 +132,7 @@ Browser request → CloudFront → WAF → ALB → Fargate Express → (S3 archi
 | `ccd-network` | VPC (new or looked up), S3 Gateway endpoint |
 | `ccd-storage` | Versioned S3 archive bucket, Glue database + 14 projection-partitioned tables (seven primary tables including plugins/compliance, plus seven `*_org2` mirrors), Athena workgroup |
 | `ccd-compute` | ECS cluster, task definition (ARM64), service (2–6 tasks, CPU auto-scale), ALB + listener + WAF, CloudFront distribution (alias domains `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM cert declared in CDK since 2026-07-12 — a deploy once stripped the console-added values; `/assets/*` CACHING_OPTIMIZED behavior; origin readTimeout 60s), Secrets Manager references |
-| `ccd-collector` | Collector Lambda (15-min timeout) + TWO EventBridge rules — 14:00 UTC analytics-only (`{complianceDays:0}`), 00:30 UTC compliance-only (`{complianceOnly:true}`) + log retention custom resource |
+| `ccd-collector` | Collector Lambda (15-min timeout; since 2026-11-14 in the dashboard VPC's private subnets with its own security group, leaving through the NAT gateways — `collectorFixedEgress`) + TWO EventBridge rules — 14:00 UTC analytics-only (`{complianceDays:0}`), 00:30 UTC compliance-only (`{complianceOnly:true}`) + log retention custom resource |
 
 ## Key design decisions
 
@@ -315,7 +315,7 @@ Gaps tracked for future runbooks: rolling-deploy rollback, collector backfill, c
 | `ccd-network` | VPC (신규 또는 lookup), S3 Gateway endpoint |
 | `ccd-storage` | 버전 관리 S3 아카이브 버킷, Glue 데이터베이스 + projection partition 14개 테이블(plugins·compliance를 포함한 primary 7개 + org2 미러 7개), Athena 워크그룹 |
 | `ccd-compute` | ECS 클러스터, 태스크 정의(ARM64), 서비스(2–6 태스크, CPU 자동 스케일), ALB + listener + WAF, CloudFront 배포(별칭 도메인 `ccdashboard/c4e.whchoi.net` + us-east-1 `*.whchoi.net` ACM 인증서를 2026-07-12부터 CDK에 선언 — 콘솔 추가분이 배포로 제거된 사고 후 코드화; `/assets/*` CACHING_OPTIMIZED 동작; origin readTimeout 60초), Secrets Manager 참조 |
-| `ccd-collector` | Collector Lambda(타임아웃 15분) + EventBridge 규칙 2종 — 14:00 UTC analytics 전용(`{complianceDays:0}`), 00:30 UTC compliance 전용(`{complianceOnly:true}`) + 로그 보존 custom resource |
+| `ccd-collector` | Collector Lambda(타임아웃 15분, 2026-11-14부터 대시보드 VPC의 사설 서브넷에 전용 보안 그룹과 함께 배치돼 NAT 게이트웨이로 나감 — `collectorFixedEgress`) + EventBridge 규칙 2종 — 14:00 UTC analytics 전용(`{complianceDays:0}`), 00:30 UTC compliance 전용(`{complianceOnly:true}`) + 로그 보존 custom resource |
 
 ## 주요 설계 결정
 
