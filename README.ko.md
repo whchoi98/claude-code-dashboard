@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
-[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)](./CHANGELOG.md)
 [![English](https://img.shields.io/badge/README-English-informational)](./README.md)
 
 Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생산성·비용·감사 지표를 통합하고 AI 질의응답 레이어를 제공합니다.
@@ -58,7 +58,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 **목적** — 조직 레벨 도입 추이. 최대 366일 구간 시계열.
 
-- **차트**: DAU/WAU/MAU 라인 · **제품별 활성 사용자**(Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science, DAU/WAU/MAU 전환. 조직에 보고되지 않는 제품은 표시하지 않음) · 좌석 대비 MAU 누적 영역 · 일일 도입률 라인 (API 제공값)
+- **차트**: DAU/WAU/MAU 라인 · **제품별 활성 사용자**(Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science · Slack의 Claude Tag, DAU/WAU/MAU 전환. 조직에 보고되지 않는 제품은 표시하지 않음. Claude Tag는 Claude 계정 연결 여부와 관계없이 Slack 사용자를 세므로 전체 활성 사용자보다 클 수 있음) · 좌석 대비 MAU 누적 영역 · 일일 도입률 라인 (API 제공값)
 - **컨트롤**: 7일/14일/30일 프리셋 + 커스텀 날짜 선택기. URL 쿼리 파라미터로 공유 가능
 - **데이터 소스**: Analytics API `/summaries`
 
@@ -111,7 +111,7 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 | 중단 (`cost02.png`) | 제품 × 모델 지출 누적 막대 · 토큰 유형별 사용량 (누적 영역) · 모델별 일일 비용 · Top 10 사용자 (total/input/output/지출) |
 | 하단 (`cost03.png`) | **경제 생산성 점수** 섹션: 지출 vs 산출 산점도 · Top 10 점수 · 최고 효율 ($/LOC) · 전체 효율 매트릭스 (사용자별) |
 
-- **데이터 소스**: 라이브 Analytics API — `cost_report`+`usage_report`(헤드라인), `user_cost_report`(사용자별 지출·모델별), `user_usage_report`(사용자별 토큰), `cost_report × rbac_group_id`(그룹별 비용, Compliance groups 엔드포인트로 실명 표기), Spend Limits API(월 한도 대비 누적). Spend Report CSV는 선택적 정산·라이브 장애 폴백이며, 라이브 비용은 최대 186일까지 청크로 조회합니다. 생산성 조인: Analytics `/users/range`
+- **데이터 소스**: Usage and Cost Analytics API(베타) — 헤드라인은 `/analytics/cost`와 `/analytics/usage`, 사용자별 지출과 모델별 지출, 토큰은 같은 엔드포인트를 actor로 묶어서, 그룹별 비용은 `rbac_group_id`로 묶어서 읽습니다(그룹 이름은 Compliance groups 엔드포인트의 실명). 여기에 Spend Limits API(월 한도 대비 누적)를 더합니다. 새 API가 호출을 거부하면 서버가 기존 `cost_report`, `usage_report`, `user_cost_report`, `user_usage_report`로 돌아가며 수치는 같습니다([ADR-0023](docs/decisions/0023-usage-cost-analytics-api.md)). Spend Report CSV는 선택적 정산·라이브 장애 폴백이며, 라이브 비용은 최대 186일까지 청크로 조회합니다. 생산성 조인: Analytics `/users/range`
 - **비용 효율 점수 (v3)**: `0.55·value + 0.25·수락률 + 0.12·delivery + 0.08·breadth` — surface별 코호트 내 정규화 (CHANGELOG 1.3.0 참조)
 - **Output 점수**: `LOC + 100·commits + 1000·PRs + 0.5·tool_accepted`
 
@@ -129,10 +129,11 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 
 - **KPI**: 전체 이벤트 · 고위험 이벤트 · 로그인 이벤트 · 고유 행위자
 - **차트**: 이벤트 타입 Top 12 막대 · 상위 행위자 막대 · 일자별 전체/위험 이벤트 라인
+- **보안 태세**: claude.ai 조직 설정의 Security posture 페이지에 있는 통제 항목별 현재 결과를 실패, 미확인, 통과, 참고용 개수로 보여 주고, 실패하거나 확인되지 않은 항목을 현재 값, 권장 값과 함께 먼저 나열합니다. 누가 확인했는지는 표시하지 않습니다.
 - **피드**: 시간/행위자/이벤트/상세/IP 컬럼. 위험 이벤트는 Claude 톤 배경색으로 강조. 드롭다운 + 검색창으로 이벤트 타입/행위자 필터링.
-- **분류**(API 활동 타입 기준): 위험 (역할·RBAC·API 키 변경 · SSO·IP 제한 설정 · 데이터 export · 로그인 실패 · inference hooks 거부 · Anthropic 직원 접근) · 로그인 (SSO·매직 링크·소셜 로그인, 로그아웃) · 활동 (그 밖의 이벤트). 행위자 11종을 구분합니다: 사용자, API·admin 키, 서비스 계정, SCIM, 페더레이션 ID, Anthropic 등.
+- **분류**(API 활동 타입 기준): 위험 (역할·RBAC·API 키 변경 · SSO·IP 제한 설정 · 데이터 export · 로그인 실패 · Security posture 확인 내용 변경 · inference hooks 거부 · Anthropic 직원 접근) · 로그인 (SSO·매직 링크·소셜 로그인, 로그아웃) · 활동 (그 밖의 이벤트). 행위자 11종을 구분합니다: 사용자, API·admin 키, 서비스 계정, SCIM, 페더레이션 ID, Anthropic 등.
 - **이름**: 2026-09-24부터 피드는 파일·아티팩트 이름을 제공하지 않습니다. 그 이전에 보관된 이름은 Cognito `unmasked` 그룹만 볼 수 있고, 다른 세션은 이름을 가린 뷰를 조회합니다.
-- **데이터 소스**: Compliance API `/v1/compliance/activities`(1000건 페이지, 과거 기간은 서버측 `created_at` 범위) · 이력은 Athena `compliance_daily`
+- **데이터 소스**: Compliance API `/v1/compliance/activities`(1000건 페이지, 과거 기간은 서버측 `created_at` 범위) · Security posture 엔드포인트(베타) · 이력은 Athena `compliance_daily`
 
 ![감사](./screenshots/audit.png)
 
@@ -171,7 +172,8 @@ Claude Code 엔터프라이즈 애널리틱스 대시보드 — 참여도·생�
 - **비용 효율 점수** — 라이브 사용자별 지출과 기간을 맞춘 Analytics 활동을 결합하고 CSV는 폴백으로 사용합니다. 사용자별 생산성 페이지는 별도의 활동 점수를 제공합니다. 라이브 비용은 선택 기간을 따르며, CSV로 대체할 때는 파일의 자체 기간과 차이를 안내합니다.
 - **이중 언어 UI** — 영/한 실시간 토글 (localStorage 저장).
 - **로그인 사용자별 개인정보 표시** — 이메일은 기본적으로 마스킹합니다. Cognito `unmasked` 그룹으로 검증된 사용자는 전체 주소를 볼 수 있으며, 표·내보내기·AI 출력은 문서화된 정책을 따릅니다. 보관된 감사 파일·아티팩트 이름도 같은 규칙을 따릅니다.
-- **감사 추적** — Compliance API 이벤트 피드 + 위험 이벤트 하이라이트 (역할·키 변경, SSO·IP 설정, 데이터 export, 로그인 실패, Anthropic 접근 등) + Athena로 조회하는 일일 S3 아카이브.
+- **감사 추적** — Compliance API 이벤트 피드 + 위험 이벤트 하이라이트 (역할·키 변경, SSO·IP 설정, 데이터 export, 로그인 실패, Anthropic 접근 등) + 보안 통제 항목별 현재 결과를 보여 주는 보안 태세 카드 + Athena로 조회하는 일일 S3 아카이브.
+- **IP 허용 목록 대비** — 조직의 IP 허용 목록은 Compliance API에도 적용됩니다. 서버와 컬렉터가 모두 VPC의 NAT 게이트웨이 주소로 나가고, Anthropic이 서버 주소를 거부하면 모든 페이지에 배너가 뜨며, 허용할 주소는 [런북](docs/runbooks/ip-allowlist.md)에 있습니다.
 
 ## 사전 요구 사항
 
@@ -226,6 +228,7 @@ npm run build:edge
 | `ANTHROPIC_ADMIN_KEY_ADMIN` | `/api/admin/*`용 선택적 Admin 키; 라이브 비용은 Analytics 키 사용 | (선택) |
 | `ANTHROPIC_COMPLIANCE_KEY` | 전용 Compliance 키; 없으면 Analytics 키로 폴백 | (선택) |
 | `ANTHROPIC_ANALYTICS_KEY_2` | 두 번째 조직(`org2`)의 Analytics 키 | (로컬에서는 선택, 커밋된 CDK 설정에서는 활성화) |
+| `CCD_COST_API` | `legacy`로 두면 비용 조회를 Usage and Cost Analytics API 대신 기존 리포트 엔드포인트로 고정 | (미설정: 새 API, 호출별 폴백) |
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | 호출자의 마스킹 정책을 검증하는 공개 식별자 | (ECS에서 Cognito 설정으로 주입, 없으면 기본 마스킹) |
 | `AWS_REGION` | Bedrock / Athena / S3 리전 | `ap-northeast-2` |
 | `BEDROCK_MODEL_ID` | Bedrock 파운데이션 모델 또는 inference profile | `global.anthropic.claude-sonnet-5-5` |

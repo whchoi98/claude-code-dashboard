@@ -1,7 +1,7 @@
 # claude-code-dashboard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit/)
-[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)](./CHANGELOG.md)
 [![한국어](https://img.shields.io/badge/README-한국어-informational)](./README.ko.md)
 
 Enterprise analytics dashboard for Claude Code — engagement, productivity, cost, and audit insights with an AI query layer.
@@ -58,7 +58,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 
 **Purpose** — Longitudinal view of organization-level adoption over up to 366 days.
 
-- **Charts**: DAU/WAU/MAU line · **Active users by product** (Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science, with a DAU/WAU/MAU switch; products the organization doesn't report are hidden) · Seats vs MAU stacked area · Daily adoption rate line (from API)
+- **Charts**: DAU/WAU/MAU line · **Active users by product** (Claude Code · Chat · Cowork · Claude Design · Office Agents · Claude Science · Claude Tag in Slack, with a DAU/WAU/MAU switch; products the organization doesn't report are hidden; Claude Tag counts Slack users whether or not they linked a Claude account, so it can exceed total active users) · Seats vs MAU stacked area · Daily adoption rate line (from API)
 - **Controls**: 7d / 14d / 30d preset + custom date picker, shared via URL query params
 - **Data source**: Analytics API `/summaries`
 
@@ -111,7 +111,7 @@ Click any section below to jump directly to it. Every metric shown on these page
 | Middle (`cost02.png`) | Spend by Product × Model stacked bar · Token usage by type (stacked area) · Daily cost by model · Top 10 users (total/input/output/spend) |
 | Bottom (`cost03.png`) | **Economic Productivity Score** section: Spend vs Output scatter · Top 10 score · Most Efficient ($/LOC) · Full efficiency matrix (per-user) |
 
-- **Data sources**: live Analytics API — `cost_report`+`usage_report` (headline), `user_cost_report` (per-user spend & per-model), `user_usage_report` (per-user tokens), `cost_report × rbac_group_id` (Cost by Group, real group names via the Compliance groups endpoint), Spend Limits API (monthly limit vs month-to-date). The Spend Report CSV is a fallback for >31-day reconciliation and live-report outages. Productivity join: Analytics `/users/range`
+- **Data sources**: the Usage and Cost Analytics API (beta) — `/analytics/cost` + `/analytics/usage` for the headline, the same endpoints grouped by actor for per-user spend, per-model spend and tokens, and grouped by `rbac_group_id` for Cost by Group (real group names via the Compliance groups endpoint) — plus the Spend Limits API (monthly limit vs month-to-date). If the new API rejects a call, the server falls back to the legacy `cost_report` / `usage_report` / `user_cost_report` / `user_usage_report` endpoints; figures are the same on both ([ADR-0023](docs/decisions/0023-usage-cost-analytics-api.md)). The Spend Report CSV is a fallback for >31-day reconciliation and live-report outages. Productivity join: Analytics `/users/range`
 - **Cost-Efficiency Score (v3)**: `0.55·value + 0.25·acceptance + 0.12·delivery + 0.08·breadth` — per-surface within-cohort normalization (see CHANGELOG 1.3.0)
 - **Output score**: `LOC + 100·commits + 1000·PRs + 0.5·tool_accepted`
 
@@ -129,10 +129,11 @@ Click any section below to jump directly to it. Every metric shown on these page
 
 - **KPIs**: Total events · High-risk events · Login events · Unique actors
 - **Charts**: Event type top-12 bar · Top actors bar · Daily events + daily risk line
+- **Security posture**: the current result of every control on the Security posture page in claude.ai Organization settings — failed, not attested, passed and informational counts, with the failed and unattested controls listed first beside their current and recommended values. Who attested is never shown.
 - **Feed**: Recent events with time/actor/event/detail/IP columns. Risk events are highlighted with a Claude-tone background. Filter by event type or actor via dropdown + search box.
-- **Classification** (the API's activity types): Risk (role, RBAC and API-key changes · SSO and IP-restriction settings · data exports · failed logins · inference-hook denials · Anthropic staff access) · Login (SSO, magic-link and social sign-ins, logout) · Activity (everything else). All 11 actor kinds are identified: users, API and admin keys, service accounts, SCIM, federated identities, Anthropic and more.
+- **Classification** (the API's activity types): Risk (role, RBAC and API-key changes · SSO and IP-restriction settings · data exports · failed logins · Security posture attestation changes · inference-hook denials · Anthropic staff access) · Login (SSO, magic-link and social sign-ins, logout) · Activity (everything else). All 11 actor kinds are identified: users, API and admin keys, service accounts, SCIM, federated identities, Anthropic and more.
 - **Names**: since 2026-09-24 the feed no longer carries file or artifact names. Names archived earlier are visible to the Cognito `unmasked` group only; other sessions query name-redacted views.
-- **Data source**: Compliance API `/v1/compliance/activities` (1000-event pages; past windows use a server-side `created_at` range) · Athena `compliance_daily` for history
+- **Data source**: Compliance API `/v1/compliance/activities` (1000-event pages; past windows use a server-side `created_at` range) · the Security posture endpoint (beta) · Athena `compliance_daily` for history
 
 ![Audit](./screenshots/audit.png)
 
@@ -171,7 +172,8 @@ The architecture mirrors the [kiro-dashboard](https://github.com/whchoi98/kiro-d
 - **Cost-efficiency score** — joins live per-user spend with window-aligned Analytics activity; CSV is a fallback. The User Productivity page separately reports an activity score. Live Cost aggregates follow the selected period; a CSV fallback retains its own export period and displays that difference.
 - **Bilingual UI** — runtime English / Korean toggle with localStorage persistence.
 - **Identity-aware privacy** — emails are masked by default. Verified members of the Cognito `unmasked` group can see full addresses; tables, exports and AI output follow the documented identity policy. Archived audit file and artifact names follow the same rule.
-- **Audit trail** — Compliance API feed with risk-event highlighting (role and key changes, SSO and IP settings, data exports, failed logins, Anthropic access) plus a daily S3 archive queryable in Athena.
+- **Audit trail** — Compliance API feed with risk-event highlighting (role and key changes, SSO and IP settings, data exports, failed logins, Anthropic access), a Security posture card with the current result of each security control, and a daily S3 archive queryable in Athena.
+- **IP allowlist readiness** — an organization's IP allowlist also covers the Compliance API. The server and the collector both leave through the VPC's NAT gateway addresses, a banner appears on every page when Anthropic refuses the server's address, and a [runbook](docs/runbooks/ip-allowlist.md) lists what to allow.
 
 ## Prerequisites
 
@@ -226,6 +228,7 @@ The deployment commands above update the existing configured account. For anothe
 | `ANTHROPIC_ADMIN_KEY_ADMIN` | Optional Admin API key for `/api/admin/*`; live Cost uses the Analytics key | (optional) |
 | `ANTHROPIC_COMPLIANCE_KEY` | Dedicated Compliance key; falls back to the Analytics key | (optional) |
 | `ANTHROPIC_ANALYTICS_KEY_2` | Analytics key for the second organization (`org2`) | (optional locally; enabled in committed CDK context) |
+| `CCD_COST_API` | `legacy` pins cost reads to the legacy report endpoints instead of the Usage and Cost Analytics API | (unset: new API with per-call fallback) |
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | Public identifiers used to verify the caller's masking policy | (injected from Cognito config in ECS; masked default if absent) |
 | `AWS_REGION` | AWS region for Bedrock / Athena / S3 | `ap-northeast-2` |
 | `BEDROCK_MODEL_ID` | Bedrock foundation model or inference profile | `global.anthropic.claude-sonnet-5-5` |

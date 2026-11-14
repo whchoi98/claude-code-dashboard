@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-11-14
+
 ### Added
 
 - Audit: a "Security posture" card shows the current result of every control on the Security posture page in claude.ai Organization settings: how many failed, were never attested, passed, or are informational. Failed and unattested controls are listed first with their current and recommended values; the full list opens by section. The data comes from the Compliance API's Security posture endpoint (beta). Who attested and any comment are not shown.
@@ -931,7 +933,8 @@ the three architectural decisions captured in this release.
 
 ## Reference links
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.1...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.1...v2.8.0
 [2.7.1]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...v2.6.0
@@ -953,6 +956,8 @@ the three architectural decisions captured in this release.
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+## [2.8.0] - 2026-11-14
 
 ### 추가
 
@@ -1370,7 +1375,8 @@ prompts를 인사이트 중심으로 재작성, 사용자별 드릴다운 대시
 
 ## 참조 링크
 
-[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.1...HEAD
+[Unreleased]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.1...v2.8.0
 [2.7.1]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/whchoi98/claude-code-dashboard/compare/v2.5.1...v2.6.0
