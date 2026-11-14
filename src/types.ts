@@ -95,6 +95,11 @@ export type UserRecord = {
   design_metrics: DesignMetrics
   chat_cowork_unified_metrics?: ChatCoworkUnifiedMetrics | null
   web_search_count: number
+  // Claude Tag (Claude in Slack, 2026-11): activity by a user who linked a
+  // Claude account. OMITTED on deployments without Claude Tag reporting;
+  // counters are null when the data could not be read. Slack users who have
+  // not linked an account appear only in the summaries claude_tag_* counts.
+  claude_tag_metrics?: { active_day_count: number | null; active_message_count: number | null } | null
   // Absolute last-active day (YYYY-MM-DD, independent of the query window).
   // Shipped 2026-08 — absent on older archive days → treat as unknown.
   last_activity_date?: string | null
@@ -127,6 +132,12 @@ export type Summary = {
   science_weekly_active_user_count?: number
   science_monthly_active_user_count?: number
   science_entitled_user_count?: number | null
+  // Claude Tag (Claude in Slack): distinct SLACK users, including people who
+  // have not linked a Claude account — can exceed daily_active_user_count and
+  // assigned_seat_count. Null on unmeasured days and in group-scoped responses.
+  claude_tag_daily_active_user_count?: number | null
+  claude_tag_weekly_active_user_count?: number | null
+  claude_tag_monthly_active_user_count?: number | null
   // Chat and Cowork unified. NOT additive with chat_* / cowork_*: a user can
   // be counted in both on a switch-over day — chart it as its own series.
   chat_cowork_unified_daily_active_user_count?: number

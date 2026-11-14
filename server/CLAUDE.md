@@ -112,6 +112,41 @@ Admin key), `s3PrefixFor(org)` (`''` vs `org2/`), `orgList()` (drives
   instruction TEXT only when `unmask` is true, ADR-0020) and
   `/api/plugins/catalog` (`toPluginCatalog` — owner ids / `created_by`
   dropped). Unit-tested in `tests/server/test-directory.mjs`.
+- **`cost-api.js`** — Usage and Cost Analytics API adapter (ADR-0023). The
+  four report endpoints the cost features were built on are legacy since
+  2026-10-29; `fetchCostSummary`, `fetchUserReport` and `fetchGroupCost`
+  (aws.js) now call `/v1/organizations/analytics/{cost,usage}` first (header
+  `anthropic-beta: analytics-usage-cost-2026-08-24`). The new API answers in
+  ROWS (`{ starting_at, group, cost | usage }`) and emits none for an empty
+  bucket, so `rowsToDailyBuckets` rebuilds the legacy day-bucket body
+  (zero-filled) and `flattenV2Row` the legacy row — everything below the
+  fetch (reshapers, ≤31-day chunking, caches, keep-warm, response shapes) is
+  shared. `makeCostApiSwitch().run(org, attempt)` retries ONCE on the legacy
+  report for 400/403/404 only (429/5xx/network are not retried: same 60 rpm
+  budget, and a second 12–30 s rbac walk would cross the CloudFront 60 s
+  timeout) and keeps the org on legacy for 30 min unless legacy rejected the
+  same call with 400/403/404 (then the query is at fault, not the API). `CCD_COST_API=legacy` pins legacy. Claude Tag stays `claude-tag`
+  (the new API says `claude_tag`); a $0 `session_usage` cost type is dropped.
+  `/cost/live` carries `cost_api: 'v2' | 'legacy'`. Per-user queries are
+  `group_by[]=actor` + `actor_types[]=user_actor`. Any new cost fetcher must
+  go through the switch. Tests: `tests/server/test-cost-api-v2.mjs` (pure) and
+  `test-cost-api-routes.mjs` (real routes against a stubbed upstream).
+- **`posture.js`** — pure shaper for `/api/compliance/security-posture`
+  (index.js): `summarizePosture` turns the Security posture endpoint's
+  controls into counts + sections (worst rating first) and DROPS
+  `attestation.attested_by` / `.comment` (personal data); the route passes
+  `maskEmailsDeep` as `maskText` unless `req.identity.unmask`, so an email
+  inside a control's value is masked like everywhere else. The upstream call
+  takes NO query parameters (any → 400); 404 is cached as `available: false`.
+  Same 1 h cache + failure cooldown as the directory. Tests:
+  `tests/server/test-posture.mjs`.
+- **`ip-allowlist.js`** — `isIpAllowlistBlock(status, body)` recognizes the
+  organization IP-allowlist refusal (403 `permission_error`, "…allowed
+  range") and `makeIpBlockTracker` remembers it per key; `fetchJson` records
+  it, a later Compliance success clears it, `/api/health` exposes
+  `ipAllowlistBlockedAt` and Layout shows a banner. `collector/ip-allowlist.js`
+  is a copy (the Lambda bundle holds only `collector/`). Runbook:
+  `docs/runbooks/ip-allowlist.md`. Tests: `tests/server/test-ip-allowlist.mjs`.
 - **`freshness.js`** — dynamic engagement-freshness tracker: records the
   newest served engagement day per API key (learned from the hourly
   `users?date=today−1` probe + any 400 naming a day) so

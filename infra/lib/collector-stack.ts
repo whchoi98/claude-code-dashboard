@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import { Construct } from 'constructs'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
+import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as targets from 'aws-cdk-lib/aws-events-targets'
 import * as iam from 'aws-cdk-lib/aws-iam'
@@ -12,6 +13,8 @@ import * as path from 'path'
 interface Props extends cdk.StackProps {
   archiveBucket: s3.IBucket
   analyticsSecretName: string
+  /** The dashboard VPC. Used only when the `collectorFixedEgress` context flag is on. */
+  vpc?: ec2.IVpc
 }
 
 export class CollectorStack extends cdk.Stack {
@@ -20,6 +23,19 @@ export class CollectorStack extends cdk.Stack {
 
     const analyticsSecret = secrets.Secret.fromSecretNameV2(
       this, 'AnalyticsSecret', props.analyticsSecretName)
+
+    // Fixed egress (IP allowlist readiness — docs/runbooks/ip-allowlist.md).
+    // Outside a VPC a Lambda leaves from AWS-owned addresses that change, so
+    // an organization IP allowlist (claude.ai, beta 2026-11-05 — it covers the
+    // Compliance API this function archives from) could never list them. With
+    // `collectorFixedEgress` on, the function runs in the dashboard VPC's
+    // private subnets and leaves through the SAME NAT gateways as the Fargate
+    // tasks: one short list of addresses covers the whole deployment. S3 and
+    // Secrets Manager calls ride the NAT too. The flag lives in cdk.json
+    // (committed) — a CLI-only flag would silently drop the function back out
+    // of the VPC on the next routine deploy.
+    const fixedEgressCtx = this.node.tryGetContext('collectorFixedEgress')
+    const fixedEgress = (fixedEgressCtx === true || fixedEgressCtx === 'true') && props.vpc !== undefined
 
     const fn = new lambda.Function(this, 'Fn', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -38,6 +54,10 @@ export class CollectorStack extends cdk.Stack {
         ANTHROPIC_API_URL: 'https://api.anthropic.com',
         ANTHROPIC_VERSION: '2023-06-01',
       },
+      ...(fixedEgress && {
+        vpc: props.vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      }),
     })
 
     // Resolve analytics key from Secrets Manager at invocation (secret value injected via env)

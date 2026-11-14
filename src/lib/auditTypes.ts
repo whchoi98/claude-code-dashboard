@@ -32,6 +32,9 @@ export const RISK_TYPES: ReadonlySet<string> = new Set([
   'claude_artifact_external_sharing_permission_updated',
   // org-wide security & retention settings
   'org_compliance_api_settings_updated',
+  // Security posture (2026-11): someone attested, changed, renewed or cleared a
+  // control's attestation, or it lapsed — incl. accepting a risk
+  'org_security_control_attestation_updated',
   'org_ip_restriction_created', 'org_ip_restriction_updated', 'org_ip_restriction_deleted',
   'org_domain_verified', 'org_domain_removed',
   'org_claude_code_data_sharing_enabled', 'org_claude_code_zero_data_retention_disabled',

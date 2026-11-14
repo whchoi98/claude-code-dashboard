@@ -24,6 +24,10 @@ export function flattenUser(r) {
   const uChat = r.chat_cowork_unified_metrics?.chat
   const uSess = r.chat_cowork_unified_metrics?.sessions
   const ub = (blk, k) => (blk ? blk[k] ?? 0 : null)
+  // Claude Tag (Claude in Slack, 2026-11): the block is omitted on deployments
+  // without Claude Tag reporting, and its counters are null when the data
+  // could not be read — both flatten to NULL, never 0.
+  const tag = r.claude_tag_metrics
   const ubn = (blk, k) => (blk ? blk[k] ?? null : null)
   return {
     user_id:                r.user?.id,
@@ -112,6 +116,8 @@ export function flattenUser(r) {
     unified_session_skills_used:       ub(uSess, 'skills_used_count'),
     unified_session_plugins_used:      ubn(uSess, 'plugins_used_count'),
     unified_session_artifacts_created: ubn(uSess, 'artifacts_created_count'),
+    claude_tag_active_days:            ubn(tag, 'active_day_count'),
+    claude_tag_active_messages:        ubn(tag, 'active_message_count'),
   }
 }
 

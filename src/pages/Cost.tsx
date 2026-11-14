@@ -90,7 +90,7 @@ const PRODUCT_COLORS: Record<string, string> = {
   code_review:      '#CC7722',
   research:         '#6A8EAE',
   office_agent:     '#5B7FA6',
-  'claude-tag':     '#7F8C5A',   // hyphenated upstream id (Claude in Slack)
+  'claude-tag':     '#7F8C5A',   // Claude Tag (Claude in Slack); the server keeps this hyphenated id on both cost APIs
   // Chat and Cowork unified (2026-10): spend moves here from chat/cowork as
   // users migrate; org totals are unchanged.
   chat_cowork_unified: '#6B8E9B',
@@ -105,7 +105,7 @@ const PRODUCT_LABELS: Record<string, string> = {
   code_review: 'Code Review',
   research: 'Research',
   office_agent: 'Office Agents',
-  'claude-tag': 'Claude in Slack',
+  'claude-tag': 'Claude Tag (Slack)',
   chat_cowork_unified: 'Chat & Cowork unified',
   other: 'Other',
 }
@@ -118,6 +118,7 @@ const COST_TYPE_COLORS: Record<string, string> = {
   tokens:         '#D97757',
   web_search:     '#6A8EAE',
   code_execution: '#4CA371',
+  session_usage:  '#9A6FB0',   // Managed Agents session time — new usage/cost API only, hidden while $0
 }
 // usage/cost token_type → display tier (cache_creation 1h+5m fold into "cache_write").
 const TOKEN_TIER_OF: Record<string, string> = {

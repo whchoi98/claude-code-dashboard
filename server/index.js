@@ -7,6 +7,9 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { generateMock } from './mock.js'
 import { registerAwsRoutes, makeTtlCache, utcNextDay } from './aws.js'
 import { summarizeOrgDirectory, toPluginCatalog } from './directory.js'
+import { summarizePosture } from './posture.js'
+import { isIpAllowlistBlock, makeIpBlockTracker } from './ip-allowlist.js'
+import { maskEmailsDeep } from './chat-tools.js'
 import { inflateUser, withUserShape } from './inflate.js'
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, adminKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import { makeIdentityResolver } from './identity.js'
@@ -145,6 +148,12 @@ setInterval(() => {
 // handler is an unhandledRejection that EXITS the Node 20 process (observed:
 // one dead upstream socket killed the whole task). A default 30s timeout
 // bounds hung sockets when the caller doesn't pass its own signal.
+// When Anthropic refuses this server's address under the organization's IP
+// allowlist (403 permission_error — docs/runbooks/ip-allowlist.md), remember
+// it per key so /api/health can say so. The allowlist covers the Compliance
+// and Admin APIs; a later Compliance success clears the mark.
+const ipBlocks = makeIpBlockTracker()
+
 async function fetchJson(path, params, key, { signal, learnFreshness = true, headers: extraHeaders } = {}) {
   const url = new URL(path, API_URL)
   for (const [k, v] of Object.entries(params)) {
@@ -172,6 +181,8 @@ async function fetchJson(path, params, key, { signal, learnFreshness = true, hea
     try { json = JSON.parse(text) } catch { json = { raw: text } }
     const result = { ok: res.ok, status: res.status, body: json }
     if (res.ok) cache.set(cacheKey, { t: Date.now(), data: result })
+    if (isIpAllowlistBlock(res.status, json)) ipBlocks.record(key)
+    else if (res.ok && path.startsWith('/v1/compliance')) ipBlocks.clear(key)
     // Opportunistic freshness learning: an engagement 400 names the newest
     // served day — record it so clampAnalyticsEnd() tracks the real horizon
     // (the hourly probe in the listen callback is the primary source).
@@ -355,6 +366,9 @@ app.get('/api/health', (req, res) => {
       ? 'compliance'
       : complianceKeyFor(org) ? 'analytics-fallback' : 'none',
     orgs: orgList(),
+    // ISO time of the latest refusal under the org's IP allowlist, or null.
+    // The UI turns it into a banner (docs/runbooks/ip-allowlist.md).
+    ipAllowlistBlockedAt: ipBlocks.blockedAt(complianceKeyFor(org)) || ipBlocks.blockedAt(analyticsKeyFor(org)),
     apiUrl: API_URL,
     apiVersion: API_VERSION,
     dataConstraints: {
@@ -1022,6 +1036,59 @@ app.get('/api/compliance/directory', async (req, res) => {
     })
   } catch (err) {
     res.json({ source: 'upstream_error', reason: `upstream ${err?.status ?? 0}`, unmasked: unmask, orgs: [] })
+  }
+})
+
+// ── Security posture: current result of every Security Center control ────
+// GET /v1/compliance/organizations/{uuid}/security_posture (beta, 2026-11-05;
+// read:compliance_org_data — the Analytics key carries it). One call reads
+// one linked organization, takes NO query parameters (any → 400) and is not
+// paginated. Results change only when an admin changes a setting or attests,
+// so the walk is cached for an hour per org behind the same failure cooldown
+// as the directory. A 404 is a definitive answer — the plan has no Security
+// posture, the page is switched off, or the beta is not served for this org —
+// and is cached as `available: false`; transient failures throw so the cache
+// keeps the last good walk. The shaper drops who attested and any comment.
+const postureCache = makeTtlCache({ ttlMs: 3_600_000, cap: 8 })
+async function fetchPostureRaw(key) {
+  const opts = { signal: AbortSignal.timeout(DIRECTORY_BUDGET_MS) }
+  const fail = (what, status) => { const e = new Error(`compliance ${what} ${status}`); e.status = status; return e }
+  const orgs = await fetchAllNextPage('/v1/compliance/organizations', { limit: 100 }, key, opts)
+  if (!orgs.ok) throw fail('organizations', orgs.status)
+  const out = []
+  for (const org of orgs.data.slice(0, DIRECTORY_MAX_ORGS)) {
+    const r = await fetchJson(`/v1/compliance/organizations/${encodeURIComponent(org.uuid)}/security_posture`, {}, key, opts)
+    if (!r.ok && isTransientStatus(r.status)) throw fail('security_posture', r.status)
+    out.push({ org, ok: r.ok, status: r.status, body: r.ok ? r.body : null })
+  }
+  return { orgs: out, truncated: orgs.data.length > DIRECTORY_MAX_ORGS }
+}
+
+app.get('/api/compliance/security-posture', async (req, res) => {
+  const org = orgFromReq(req)
+  const key = complianceKeyFor(org)
+  // Control values are display strings; any email in one is masked unless the
+  // caller is a verified unmasked identity (ADR-0020) — so never cacheable downstream.
+  const maskText = req.identity?.unmask === true ? null : maskEmailsDeep
+  res.set('Cache-Control', 'no-store')
+  try {
+    const cacheKey = `${org}:security_posture`
+    const raw = key
+      ? await postureCache(cacheKey, () => withFailureCooldown(cacheKey, () => fetchPostureRaw(key)))
+      : generateMock.securityPosture()
+    res.json({
+      source: key ? 'live' : 'mock',
+      truncated: raw.truncated === true,
+      ...(raw.stale === true && { stale: true }),
+      orgs: raw.orgs.map(({ org: o, ok, status, body }) => ({
+        uuid: o?.uuid ?? null,
+        name: o?.name ?? null,
+        available: ok,
+        ...(ok ? summarizePosture(body, { maskText }) : { reason: `upstream ${status}` }),
+      })),
+    })
+  } catch (err) {
+    res.json({ source: 'upstream_error', reason: `upstream ${err?.status ?? 0}`, orgs: [] })
   }
 })
 

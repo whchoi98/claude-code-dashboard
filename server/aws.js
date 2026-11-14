@@ -9,6 +9,10 @@ import {
 import { hasOrg2, orgFromReq, analyticsKeyFor, complianceKeyFor, s3PrefixFor, orgList } from './orgs.js'
 import { chatMessagesOf, coworkTotalsOf } from './unified.js'
 import {
+  COST_API_BETA, v2PathFor, dailyReportParamsV2, userReportParamsV2,
+  flattenV2Row, rowsToDailyBuckets, makeCostApiSwitch,
+} from './cost-api.js'
+import {
   AthenaClient, StartQueryExecutionCommand, GetQueryExecutionCommand, GetQueryResultsCommand,
 } from '@aws-sdk/client-athena'
 import {
@@ -1104,7 +1108,11 @@ Tables (all partitioned by string \`date\` in YYYY-MM-DD, projection enabled fro
     (Chat and Cowork unified, since 2026-10: users on the unified experience report
     most chat activity in unified_chat_* and Cowork sessions in unified_session*
     INSTEAD of chat_* / cowork_* — add both families with COALESCE(unified_…, 0)
-    for totals; all NULL = the row had no unified block, not zero activity)
+    for totals; all NULL = the row had no unified block, not zero activity),
+  claude_tag_active_days, claude_tag_active_messages
+    (Claude Tag = Claude in Slack, since 2026-11; only users who linked a Claude
+    account — active_days is 1 per active day, active_messages counts @-mentions,
+    DMs and answered thread posts; NULL = not reported, not zero)
 
 • summaries_daily (one row per day, org-wide):
   date, daily_active_user_count, weekly_active_user_count, monthly_active_user_count,
@@ -1178,6 +1186,12 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
   const bedrock = new BedrockRuntimeClient({ region: REGION })
   const athena = new AthenaClient({ region: REGION })
   const s3 = new S3Client({ region: REGION })
+
+  // Which upstream family serves org cost + per-user reports (ADR-0023): the
+  // Usage and Cost Analytics API by default, the legacy reports when
+  // CCD_COST_API=legacy or — per org, for 30 min — after the new API rejected
+  // a call the legacy report then answered.
+  const costApi = makeCostApiSwitch()
 
   const router = express.Router()
 
@@ -1275,56 +1289,77 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const { chunks, starting: startingDate, clamped } = splitCostWindow(requestedStart, endingDate)
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const buildUrl = (p, dims, s, e) =>
-      `${apiUrl}${p}?${dailyReportParams(s, e, dims, { rbacGroupId: rbac_group_id }).toString()}`
-    const chunked = (p, dims = ['product', 'model']) =>
-      fetchReportPagesChunked((s, e) => buildUrl(p, dims, s, e), headers, chunks)
-    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-    // Each report is PAGINATED via fetchAllReportPages. dailyReportParams
-    // requests limit=31 (the daily-bucket max) so a ≤31-day chunk is ONE page
-    // — the API DEFAULT is 7/page, which made every chunk a ~5-page walk and
-    // saturated the 60rpm budget on long windows (2026-08-27 incident).
-    // Pagination stays as defense (fetching page 1 only once truncated the
-    // month to its first week). cost_type/token_type are
-    // best-effort rollups: fetchAllReportPages returns { ok:false } (never rejects)
-    // on a network error, so a failure leaves them empty without breaking the
-    // primary product×model cost view.
-    // Two waves of 2 instead of 4-wide: halves the instantaneous burst per
-    // key — matters because the keep-warm loop refreshes many windows and
-    // the 60 rpm org budget is shared with real traffic + other prewarms.
-    const [cost, usage] = await Promise.all([
-      chunked('/v1/organizations/analytics/cost_report'),
-      chunked('/v1/organizations/analytics/usage_report'),
-    ])
-    // The optional rollup cards (cost-type split, cache-tier ratio) are only
-    // fetched for single-chunk windows: on a 6-chunk query they would double
-    // the upstream bill for two best-effort widgets. Multi-chunk responses
-    // simply omit them (the UI hides empty sections).
-    const skipped = { ok: false, status: 0, body: {} }
-    const [ct, tt] = chunks.length === 1 ? await Promise.all([
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['cost_type'], chunks[0][0], chunks[0][1]), headers),
-      fetchAllReportPages(buildUrl('/v1/organizations/analytics/cost_report', ['token_type'], chunks[0][0], chunks[0][1]), headers),
-    ]) : [skipped, skipped]
-    if (!cost.ok) {
-      const e = new Error(`cost_report ${cost.status}`)
-      e.code = 'upstream_error'; e.upstream = cost.body
-      throw e
+    const baseHeaders = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
+    // One full fetch against either API family (ADR-0023). `v2` reads the
+    // Usage and Cost Analytics API (/analytics/cost + /analytics/usage, beta
+    // header) and folds its rows back into the legacy day-bucket body, so
+    // everything below the fetch is shared; `false` reads the legacy reports.
+    // costApi.run() retries on legacy when the new API rejects the call.
+    const attempt = async (v2) => {
+      const headers = v2 ? { ...baseHeaders, 'anthropic-beta': COST_API_BETA } : baseHeaders
+      const buildUrl = (report, dims, s, e) => (v2
+        ? `${apiUrl}${v2PathFor(report)}?${dailyReportParamsV2(s, utcNextDay(e), dims, { rbacGroupId: rbac_group_id }).toString()}`
+        : `${apiUrl}/v1/organizations/analytics/${report}?${dailyReportParams(s, e, dims, { rbacGroupId: rbac_group_id }).toString()}`)
+      const asBuckets = (r, s, e) => (v2 && r.ok
+        ? { ...r, body: { ...r.body, data: rowsToDailyBuckets(r.body.data, s, utcNextDay(e)) } }
+        : r)
+      const chunked = async (report, dims = ['product', 'model']) =>
+        asBuckets(await fetchReportPagesChunked((s, e) => buildUrl(report, dims, s, e), headers, chunks), startingDate, endingDate)
+      const single = async (dims) =>
+        asBuckets(await fetchAllReportPages(buildUrl('cost_report', dims, chunks[0][0], chunks[0][1]), headers), chunks[0][0], chunks[0][1])
+      // Each report is PAGINATED via fetchAllReportPages. Legacy:
+      // dailyReportParams requests limit=31 (the daily-bucket max) so a
+      // ≤31-day chunk is ONE page — the API DEFAULT is 7/page, which made
+      // every chunk a ~5-page walk and saturated the 60rpm budget on long
+      // windows (2026-08-27 incident). New API: limit counts ROWS (1000 max),
+      // a 31-day product×model chunk is a few hundred. Pagination stays as
+      // defense (fetching page 1 only once truncated the month to its first
+      // week). cost_type/token_type are best-effort rollups:
+      // fetchAllReportPages returns { ok:false } (never rejects) on a network
+      // error, so a failure leaves them empty without breaking the primary
+      // product×model cost view.
+      // Two waves of 2 instead of 4-wide: halves the instantaneous burst per
+      // key — matters because the keep-warm loop refreshes many windows and
+      // the 60 rpm org budget is shared with real traffic + other prewarms.
+      const [cost, usage] = await Promise.all([chunked('cost_report'), chunked('usage_report')])
+      // Fail before the rollups: once a primary report is down the two
+      // best-effort calls below would only spend budget (twice over when the
+      // switch then retries on the other family).
+      if (!cost.ok) {
+        const e = new Error(`cost_report ${cost.status}`)
+        e.code = 'upstream_error'; e.upstream = cost.body; e.status = cost.status
+        throw e
+      }
+      if (!usage.ok) {
+        const e = new Error(`usage_report ${usage.status}`)
+        e.code = 'upstream_error'; e.upstream = usage.body; e.status = usage.status
+        throw e
+      }
+      // The optional rollup cards (cost-type split, cache-tier ratio) are only
+      // fetched for single-chunk windows: on a 6-chunk query they would double
+      // the upstream bill for two best-effort widgets. Multi-chunk responses
+      // simply omit them (the UI hides empty sections).
+      const skipped = { ok: false, status: 0, body: {} }
+      const [ct, tt] = chunks.length === 1
+        ? await Promise.all([single(['cost_type']), single(['token_type'])])
+        : [skipped, skipped]
+      return { cost, usage, ct, tt, api: v2 ? 'v2' : 'legacy' }
     }
-    if (!usage.ok) {
-      const e = new Error(`usage_report ${usage.status}`)
-      e.code = 'upstream_error'; e.upstream = usage.body
-      throw e
-    }
+    const { cost, usage, ct, tt, api } = await costApi.run(org, attempt)
     const costBody = cost.body
     const usageBody = usage.body
     const ctBody = ct.ok ? ct.body : {}
     const ttBody = tt.ok ? tt.body : {}
     const out = analyticsReportsToCostResp(costBody, usageBody, { starting_date: startingDate, ending_date: endingDate })
-    out.by_cost_type = aggregateCostType(ctBody)
+    // The new API lists a fourth cost type, `session_usage` (Claude Managed
+    // Agents session time). It is $0 for a Claude Enterprise org, so it only
+    // shows once it carries spend — the card stays what the legacy report drew.
+    out.by_cost_type = aggregateCostType(ctBody).filter((c) => c.cost_type !== 'session_usage' || c.spend_usd > 0)
     out.by_token_type = aggregateTokenTypeCost(ttBody)
     out.token_tiers = aggregateTokenTiers(usageBody)
     if (clamped) out.window_clamped = true  // requested span exceeded the chunk cap; period reflects what was served
     if (rbac_group_id) out.rbac_group_id = rbac_group_id  // echo: client can confirm the scope took effect
+    out.cost_api = api  // 'v2' | 'legacy' — which upstream family served this (ADR-0023)
     return out
   }
 
@@ -1359,32 +1394,7 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     const { starting, ending } = resolveUserCostWindow({ starting_date, ending_date })
     const apiUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
     const apiVersion = process.env.ANTHROPIC_VERSION || '2023-06-01'
-    const headers = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
-
-    // One fully-paginated walk over a single ≤31-day window.
-    const fetchWindow = async (s, e) => {
-      const rows = []
-      let page = null
-      let refreshedAt = null
-      const MAX_PAGES = 50
-      for (let i = 0; i < MAX_PAGES; i++) {
-        const params = new URLSearchParams({ starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, limit: '1000' })
-        if (groupBy) params.append('group_by[]', groupBy)
-        if (page) params.set('page', page)
-        // Same per-page timeout as fetchAllReportPages/fetchSpendLimits — this
-        // fetcher sits behind the TTL cache's in-flight dedup, so a hung
-        // connection here would pin every waiting caller for undici's ~300s.
-        const res = await fetch(`${apiUrl}/v1/organizations/analytics/${report}?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
-        const body = await res.json().catch(() => ({}))
-        if (!res.ok) { const e2 = new Error(`${report} ${res.status}`); e2.code = 'upstream_error'; e2.upstream = body; throw e2 }
-        if (Array.isArray(body.data)) rows.push(...body.data)
-        refreshedAt = body.data_refreshed_at ?? refreshedAt
-        if (!body.has_more || !body.next_page) break
-        page = body.next_page
-        if (i === MAX_PAGES - 1) console.warn(`[cost/users] hit ${MAX_PAGES}-page cap; results truncated`)
-      }
-      return { rows, refreshedAt }
-    }
+    const baseHeaders = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
 
     // >31-day windows fan out into ≤31-day chunks (upstream span cap, same
     // policy as fetchCostSummary) and the per-user rows re-aggregate via
@@ -1393,35 +1403,77 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // brush the budget edge by construction, so 429s ride the retry ladder
     // below; single-window behavior is unchanged.
     const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
-    // Same RETRY_WAITS_429 ladder + per-walk sleep budget as
-    // fetchReportPagesChunked: one short retry lands inside the same
-    // saturated 60rpm minute (2026-08-27 incident); the second, longer wait
-    // clears it, and the shared budget keeps a 6-chunk walk's worst case
-    // under the CloudFront 60s origin timeout.
-    let retrySleepBudget = 20_000
-    const fetchWindowRetrying = async (s, e) => {
-      let lastErr
-      try { return await fetchWindow(s, e) } catch (err) { lastErr = err }
-      for (const wait of RETRY_WAITS_429) {
-        if (!/ 429$/.test(lastErr?.message || '')) throw lastErr
-        const jittered = wait + Math.random() * wait * 0.5
-        if (jittered > retrySleepBudget) throw lastErr
-        retrySleepBudget -= jittered
-        await new Promise((r) => setTimeout(r, jittered))
+
+    // One full walk against either API family (ADR-0023). `v2` asks the Usage
+    // and Cost Analytics API for group_by[]=actor rows narrowed to user actors
+    // and flattens each row into the legacy per-user row shape; `false` reads
+    // the legacy user_*_report. Error messages keep the logical report name
+    // either way (the 429 ladder below matches on it).
+    const walk = async (v2) => {
+      const headers = v2 ? { ...baseHeaders, 'anthropic-beta': COST_API_BETA } : baseHeaders
+      // One fully-paginated walk over a single ≤31-day window.
+      const fetchWindow = async (s, e) => {
+        const rows = []
+        let page = null
+        let refreshedAt = null
+        const MAX_PAGES = 50
+        for (let i = 0; i < MAX_PAGES; i++) {
+          let params
+          if (v2) {
+            params = userReportParamsV2(s, utcNextDay(e), groupBy)
+          } else {
+            params = new URLSearchParams({ starting_at: `${s}T00:00:00Z`, ending_at: `${utcNextDay(e)}T00:00:00Z`, limit: '1000' })
+            if (groupBy) params.append('group_by[]', groupBy)
+          }
+          if (page) params.set('page', page)
+          const path = v2 ? v2PathFor(report) : `/v1/organizations/analytics/${report}`
+          // Same per-page timeout as fetchAllReportPages/fetchSpendLimits — this
+          // fetcher sits behind the TTL cache's in-flight dedup, so a hung
+          // connection here would pin every waiting caller for undici's ~300s.
+          const res = await fetch(`${apiUrl}${path}?${params.toString()}`, { headers, signal: AbortSignal.timeout(45_000) })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok) { const e2 = new Error(`${report} ${res.status}`); e2.code = 'upstream_error'; e2.upstream = body; e2.status = res.status; throw e2 }
+          if (Array.isArray(body.data)) rows.push(...(v2 ? body.data.map(flattenV2Row) : body.data))
+          refreshedAt = body.data_refreshed_at ?? refreshedAt
+          if (!body.has_more || !body.next_page) break
+          page = body.next_page
+          if (i === MAX_PAGES - 1) console.warn(`[cost/users] hit ${MAX_PAGES}-page cap; results truncated`)
+        }
+        return { rows, refreshedAt }
+      }
+
+      // Same RETRY_WAITS_429 ladder + per-walk sleep budget as
+      // fetchReportPagesChunked: one short retry lands inside the same
+      // saturated 60rpm minute (2026-08-27 incident); the second, longer wait
+      // clears it, and the shared budget keeps a 6-chunk walk's worst case
+      // under the CloudFront 60s origin timeout.
+      let retrySleepBudget = 20_000
+      const fetchWindowRetrying = async (s, e) => {
+        let lastErr
         try { return await fetchWindow(s, e) } catch (err) { lastErr = err }
+        for (const wait of RETRY_WAITS_429) {
+          if (!/ 429$/.test(lastErr?.message || '')) throw lastErr
+          const jittered = wait + Math.random() * wait * 0.5
+          if (jittered > retrySleepBudget) throw lastErr
+          retrySleepBudget -= jittered
+          await new Promise((r) => setTimeout(r, jittered))
+          try { return await fetchWindow(s, e) } catch (err) { lastErr = err }
+        }
+        throw lastErr
       }
-      throw lastErr
-    }
-    const runChunk = chunks.length > 1 ? fetchWindowRetrying : fetchWindow
-    const all = []
-    let refreshedAt = null
-    for (let i = 0; i < chunks.length; i += 2) {
-      const wave = await Promise.all(chunks.slice(i, i + 2).map(([s, e]) => runChunk(s, e)))
-      for (const w of wave) {
-        all.push(...w.rows)
-        refreshedAt = w.refreshedAt ?? refreshedAt
+      const runChunk = chunks.length > 1 ? fetchWindowRetrying : fetchWindow
+      const all = []
+      let refreshedAt = null
+      for (let i = 0; i < chunks.length; i += 2) {
+        const wave = await Promise.all(chunks.slice(i, i + 2).map(([s, e]) => runChunk(s, e)))
+        for (const w of wave) {
+          all.push(...w.rows)
+          refreshedAt = w.refreshedAt ?? refreshedAt
+        }
       }
+      return { all, refreshedAt }
     }
+    const { all, refreshedAt } = await costApi.run(org, walk)
     const data = chunks.length > 1 ? mergeUserReportRows(all, report) : all
     return {
       data,
@@ -1983,25 +2035,35 @@ export function registerAwsRoutes(app, { fetchAnalytics }) {
     // >31-day windows chunk like /cost/live (aggregateGroupCost accumulates
     // per group across day buckets, so disjoint-chunk concat is exact).
     const { chunks, starting: effStarting, clamped } = splitCostWindow(starting, ending)
-    const urlFor = (s, e) =>
-      `${apiUrl}/v1/organizations/analytics/cost_report?${dailyReportParams(s, e, ['rbac_group_id']).toString()}`
-    // All chunks in one wave: the rbac dimension's cost is WALL-CLOCK
-    // (12-30s per chunk regardless of span), and sequential waves would push
-    // a 3+-chunk window past the CloudFront 60s origin timeout. Request
-    // count stays modest (limit=31 → ~1 page/chunk).
-    const r = await fetchReportPagesChunked(
-      urlFor,
-      { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion },
-      chunks,
-      fetch,
-      { waveSize: COST_MAX_CHUNKS },
-    )
-    if (!r.ok) {
-      const e = new Error(`cost_report(rbac_group_id) ${r.status}`)
-      e.status = r.status
-      e.upstream = r.body
-      throw e
-    }
+    const baseHeaders = { 'x-api-key': ANALYTICS_KEY, 'anthropic-version': apiVersion }
+    // New usage/cost API first, legacy cost_report on a rejected call
+    // (ADR-0023); new-API rows fold back into the legacy day-bucket body that
+    // aggregateGroupCost reads.
+    const r = await costApi.run(org, async (v2) => {
+      const urlFor = (s, e) => (v2
+        ? `${apiUrl}${v2PathFor('cost_report')}?${dailyReportParamsV2(s, utcNextDay(e), ['rbac_group_id']).toString()}`
+        : `${apiUrl}/v1/organizations/analytics/cost_report?${dailyReportParams(s, e, ['rbac_group_id']).toString()}`)
+      // All chunks in one wave: the rbac dimension's cost is WALL-CLOCK
+      // (12-30s per chunk regardless of span), and sequential waves would push
+      // a 3+-chunk window past the CloudFront 60s origin timeout. Request
+      // count stays modest (~1 page/chunk on either API).
+      const got = await fetchReportPagesChunked(
+        urlFor,
+        v2 ? { ...baseHeaders, 'anthropic-beta': COST_API_BETA } : baseHeaders,
+        chunks,
+        fetch,
+        { waveSize: COST_MAX_CHUNKS },
+      )
+      if (!got.ok) {
+        const e = new Error(`cost_report(rbac_group_id) ${got.status}`)
+        e.status = got.status
+        e.upstream = got.body
+        throw e
+      }
+      return v2
+        ? { ...got, body: { ...got.body, data: rowsToDailyBuckets(got.body.data, effStarting, utcNextDay(ending)) } }
+        : got
+    })
     const fresh = {
       source: 'live',
       period: { starting_date: effStarting, ending_date: ending },

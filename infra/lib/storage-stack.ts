@@ -93,6 +93,9 @@ const USER_COLUMNS: glue.CfnTable.ColumnProperty[] = [
   { name: 'unified_session_skills_used', type: 'bigint' },
   { name: 'unified_session_plugins_used', type: 'bigint' },
   { name: 'unified_session_artifacts_created', type: 'bigint' },
+  // Claude Tag (Claude in Slack) — account-linked users only; NULL = not reported
+  { name: 'claude_tag_active_days', type: 'bigint' },
+  { name: 'claude_tag_active_messages', type: 'bigint' },
   { name: 'snapshot_date', type: 'string' },
 ]
 

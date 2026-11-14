@@ -28,6 +28,9 @@ const PRODUCTS = [
   { key: 'claude_design', label: 'Claude Design',  color: '#4CA371' },
   { key: 'office_agent',  label: 'Office Agents',  color: '#5B7FA6' },
   { key: 'science',       label: 'Claude Science', color: '#9A6FB0' },
+  // Claude Tag (Claude in Slack) counts SLACK users, linked to a Claude
+  // account or not — the one series that can exceed org-wide active users.
+  { key: 'claude_tag',    label: 'Claude Tag (Slack)', color: '#7F8C5A' },
   // Chat and Cowork unified: usage MOVES here from chat/cowork as users
   // migrate — a separate line, never summed with them (shared users).
   { key: 'chat_cowork_unified', label: 'Chat & Cowork unified', color: '#6B8E9B' },
@@ -56,7 +59,9 @@ export function Trends() {
       for (const p of present) row[p.key] = productValue(s, p.key, period)
       return row
     })
-    return { present, rows }
+    // The Slack-user caveat only matters once the series carries people.
+    const hasClaudeTag = summaries.some((s) => (productValue(s, 'claude_tag', period) ?? 0) > 0)
+    return { present, rows, hasClaudeTag }
   }, [data, period])
   if (loading) return <LoadingState />
   if (error) return <ErrorState error={error} onRetry={refetch} />
@@ -141,6 +146,9 @@ export function Trends() {
                 ))}
               </LineChart>
             </ResponsiveContainer>
+          )}
+          {byProduct.hasClaudeTag && (
+            <p role="note" className="px-4 pb-3 text-[11px] text-ink-500">{t('trends.by_product.claude_tag_note')}</p>
           )}
         </ChartCard>
 

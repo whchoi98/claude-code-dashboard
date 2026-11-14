@@ -58,6 +58,8 @@ const compute = new ComputeStack(app, `${prefix}-compute`, {
 })
 const collector = new CollectorStack(app, `${prefix}-collector`, {
   env,
+  // Only attached when cdk.json sets `collectorFixedEgress` (IP allowlist readiness).
+  vpc: network.vpc,
   archiveBucket: storage.archiveBucket,
   analyticsSecretName: `${prefix}/analytics-key`,
 })

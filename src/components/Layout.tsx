@@ -443,6 +443,14 @@ export function Layout() {
         {/* Side safe-area insets for page content (landscape notch/rounded
             corners) — env() = 0 everywhere except notched iPhones. */}
         <div className="pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+          {/* The org's IP allowlist is refusing this server (403 on the
+              Compliance API) — every page that reads audit, member or group
+              data is stale until an owner adds the egress addresses. */}
+          {health?.ipAllowlistBlockedAt && (
+            <div role="alert" className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 lg:mx-8 print:hidden">
+              <span className="font-semibold">{t('ipblock.title')}</span>{' '}{t('ipblock.body')}
+            </div>
+          )}
           <PageErrorBoundary key={`${location.pathname}:${org}`}>
             <Suspense fallback={<LoadingState />}>
               <Outlet />

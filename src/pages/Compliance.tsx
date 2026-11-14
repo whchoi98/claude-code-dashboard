@@ -17,6 +17,7 @@ import { fmtNum, fmtDate, maskEmail, isUnmasked } from '../lib/format'
 import { useSortable } from '../lib/useSortable'
 import { SortableTh } from '../components/SortableTh'
 import { DirectoryCard } from '../components/DirectoryCard'
+import { SecurityPostureCard } from '../components/SecurityPostureCard'
 import {
   RISK_TYPES, LOGIN_TYPES, MACHINE_ACTOR_TYPES, auditCategory, actorKey, actorLabel, isNameRedactedType,
   type AuditActor,
@@ -319,6 +320,8 @@ export function Compliance() {
             <AuditFeedTable events={filtered} onSelect={setSelected} />
           )}
         </ChartCard>
+
+        <SecurityPostureCard />
 
         <DirectoryCard />
       </div>

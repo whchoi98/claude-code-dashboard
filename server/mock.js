@@ -207,6 +207,10 @@ export const generateMock = {
         chat_cowork_unified_daily_active_user_count: Math.floor(dau * 0.2),
         chat_cowork_unified_weekly_active_user_count: Math.floor(wau * 0.22),
         chat_cowork_unified_monthly_active_user_count: Math.floor(mau * 0.25),
+        // Claude Tag (Claude in Slack): Slack users, linked or not. Derived (no rand()).
+        claude_tag_daily_active_user_count: Math.floor(dau * 0.1) + 1,
+        claude_tag_weekly_active_user_count: Math.floor(wau * 0.12) + 1,
+        claude_tag_monthly_active_user_count: Math.floor(mau * 0.15) + 1,
         assigned_seat_count: SEAT_COUNT,
         pending_invite_count: Math.max(0, Math.floor(2 + rand() * 3)),
         daily_adoption_rate:   Number(((dau / SEAT_COUNT) * 100).toFixed(2)),
@@ -357,6 +361,43 @@ export const generateMock = {
     }))
     return {
       orgs: [{ org: { uuid: '00000000-0000-4000-8000-000000000001', name: 'Acme' }, users: { ok: true, data: users }, prefs: { ok: true, data: prefs } }],
+      truncated: false,
+    }
+  },
+
+  // Raw Security posture walk, the shape fetchPostureRaw returns: one linked
+  // organization with a handful of controls across the upstream sections.
+  securityPosture() {
+    const c = (id, display_name, section, rating, current_value, desired_state, status = rating, attestation = null) =>
+      ({ id, display_name, section, setting_name: id, status, rating, current_value, desired_state, attestation })
+    return {
+      orgs: [{
+        org: { uuid: '00000000-0000-4000-8000-000000000001', name: 'Acme' },
+        ok: true,
+        status: 200,
+        body: {
+          type: 'security_posture',
+          organization_id: '00000000-0000-4000-8000-000000000001',
+          evaluated_at: `${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+          comments_status: 'not_enabled',
+          controls: [
+            c('sso_enabled', 'Single sign-on (SSO)', 'identity_access', 'passed', 'On', 'On'),
+            c('sso_claude_ai_enforced', 'Require SSO for Claude', 'identity_access', 'failed', 'Off', 'On'),
+            c('directory_sync_enabled', 'Directory sync (SCIM)', 'identity_access', 'passed', 'Off', 'On', 'failed_check_accepted_risk',
+              { state: 'in_force', attested_at: `${new Date().toISOString().slice(0, 10)}T00:00:00Z` }),
+            c('rbac_least_privilege_roles', 'RBAC least-privilege roles', 'identity_access', 'not_attested', null, 'Completed'),
+            c('allowed_invite_domains', 'Allowed email domains', 'identity_access', 'descriptive', 'acme.com', null),
+            c('number_of_admins', 'Number of owners', 'identity_access', 'passed', '2', '10 or fewer owners'),
+            c('data_retention_periods', 'Data retention', 'data_privacy', 'failed', 'Indefinite', 'Any time limit (not indefinite)'),
+            c('compliance_api_enabled', 'Compliance API', 'data_privacy', 'passed', 'On', 'On'),
+            c('claude_ai_chat_sharing_enabled', 'Share chats', 'data_privacy', 'descriptive', 'On', null),
+            c('web_search_enabled', 'Web search', 'capabilities', 'descriptive', 'On', null),
+            c('oauth_conditional_access', 'OAuth conditional access on connected SaaS', 'connectors_integrations', 'not_attested', null, 'Completed'),
+            c('claude_code_bash_sandbox', 'Bash sandbox (Mac and Linux)', 'claude_code_managed_settings', 'not_attested', null, 'sandbox.enabled: true'),
+            c('analytics_api_enabled', 'Analytics API', 'healthy_adoption', 'descriptive', 'Enabled', null),
+          ],
+        },
+      }],
       truncated: false,
     }
   },

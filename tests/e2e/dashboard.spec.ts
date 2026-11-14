@@ -183,6 +183,9 @@ test('shows per-product active users from the summaries breakdown', async ({ pag
   await expect(periods.getByRole('button', { name: 'MAU', exact: true })).toHaveAttribute('aria-pressed', 'true')
   const main = page.getByRole('main')
   await expect(main.getByText('Office Agents').first()).toBeVisible()
+  // Claude Tag counts Slack users (linked or not) → its own series plus the caveat.
+  await expect(main.getByText('Claude Tag (Slack)').first()).toBeVisible()
+  await expect(main.getByRole('note').filter({ hasText: 'have not linked a Claude account' })).toBeVisible()
   // science_* is omitted by the mock → absent products are not drawn as zero.
   await expect(main.getByText('Claude Science')).toHaveCount(0)
 })
@@ -255,6 +258,13 @@ test('shows group activity, the plugin catalog, artifacts and the member directo
   // A masked viewer gets counts only — never the saved instruction text.
   await expect(main).toContainText('shown only to administrators in the unmasked group')
   await expect(main).not.toContainText('Keep answers brief')
+  // Security posture: failed and unattested controls listed first; who attested never rendered.
+  await expect(main.getByRole('heading', { name: 'Security posture' })).toBeVisible()
+  const attention = main.getByRole('table', { name: 'Needs attention' })
+  await expect(attention.getByRole('cell', { name: 'Require SSO for Claude' })).toBeVisible()
+  // A passed control is not in the attention list; it is in the full list.
+  await expect(attention.getByRole('cell', { name: 'Compliance API', exact: true })).toHaveCount(0)
+  await expect(main.getByText('Includes 1 accepted risk')).toBeVisible()
   await expect(main).not.toContainText('NaN')
 })
 

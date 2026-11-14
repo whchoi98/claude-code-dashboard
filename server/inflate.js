@@ -111,6 +111,14 @@ export function inflateUser(f) {
     },
     science_metrics: { skills_used_count: f.science_skills_used ?? 0 },
     ...(unified && { chat_cowork_unified_metrics: unified }),
+    // Claude Tag (2026-11): present only when the archived row carried the
+    // block — absent stays absent ("not reported"), never a fabricated 0.
+    ...((f.claude_tag_active_days != null || f.claude_tag_active_messages != null) && {
+      claude_tag_metrics: {
+        active_day_count: f.claude_tag_active_days ?? null,
+        active_message_count: f.claude_tag_active_messages ?? null,
+      },
+    }),
     web_search_count: f.web_search_count ?? 0,
     // Staged rollout: rows archived before the field appeared (or from an
     // un-enabled org) carry null — never fabricate a date.

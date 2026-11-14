@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import { generateMock } from '../../server/mock.js'
 import { summarizeOrgDirectory, toPluginCatalog } from '../../server/directory.js'
+import { summarizePosture } from '../../server/posture.js'
 
 export const today = new Date().toISOString().slice(0, 10)
 const nextDate = (date: string, offset: number) =>
@@ -56,6 +57,10 @@ export function apiFixture(url: URL): unknown {
   if (path === '/api/compliance/directory') return {
     source: 'live', unmasked: false, truncated: false,
     orgs: generateMock.directory().orgs.map((o) => summarizeOrgDirectory(o, { unmask: false })),
+  }
+  if (path === '/api/compliance/security-posture') return {
+    source: 'live', truncated: false,
+    orgs: generateMock.securityPosture().orgs.map(({ org, ok, body }) => ({ uuid: org.uuid, name: org.name, available: ok, ...summarizePosture(body, { maskText: null }) })),
   }
   if (path === '/api/plugins/catalog') return { source: 'live', ...toPluginCatalog(...generateMock.pluginCatalog()) }
   if (path === '/api/compliance/activities') return {

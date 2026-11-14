@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Audit: a "Security posture" card shows the current result of every control on the Security posture page in claude.ai Organization settings: how many failed, were never attested, passed, or are informational. Failed and unattested controls are listed first with their current and recommended values; the full list opens by section. The data comes from the Compliance API's Security posture endpoint (beta). Who attested and any comment are not shown.
+- Audit: a change to a Security posture attestation (`org_security_control_attestation_updated`) now counts as a risk event.
+- Trends: Claude Tag (Claude in Slack) active users appear as their own line in "Active users by product". The count is Slack users, including people who have not linked a Claude account, so it can be higher than total active users; a note says so when the line has people on it.
+- The collector archives each linked user's Claude Tag active days and messages in two new `claude_code_analytics` columns, and the chatbot's SQL tool knows about them.
+- IP allowlist readiness. An organization owner can now restrict the organization to a list of IP ranges, and that list also covers the Compliance API.
+  - When Anthropic refuses the server's address, every page shows a banner that says why, and `/api/health` reports the time of the refusal.
+  - The collector Lambda can run inside the dashboard VPC so it leaves through the same NAT gateway addresses as the server (`collectorFixedEgress` in `infra/cdk.json`, on). It takes effect when the collector stack is next deployed.
+  - A runbook lists the addresses to allow and the recovery steps.
+
+### Changed
+
+- Cost data now comes from the Usage and Cost Analytics API (beta). Anthropic marked the four report endpoints the Cost pages were built on as legacy on 2026-10-29. Figures are the same: a live comparison matched to six decimals.
+  - If the new API rejects a call, the server retries on the legacy report and keeps that organization there for 30 minutes. `CCD_COST_API=legacy` pins the legacy reports.
+  - `/api/cost/live` reports which API served it in `cost_api`.
+- Cost: the Claude in Slack product is labeled "Claude Tag (Slack)", the name Trends uses.
+
 ## [2.7.1] - 2026-10-31
 
 ### Changed
@@ -935,6 +953,24 @@ the three architectural decisions captured in this release.
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
 ## [Unreleased]
+
+### 추가
+
+- 감사: "보안 태세" 카드를 추가했습니다. claude.ai 조직 설정의 Security posture 페이지에 있는 통제 항목별 현재 결과를 실패, 미확인, 통과, 참고용 개수로 보여 줍니다. 실패하거나 확인되지 않은 항목을 현재 값, 권장 값과 함께 먼저 나열하고, 전체 목록은 섹션별로 펼쳐 볼 수 있습니다. 데이터는 Compliance API의 Security posture 엔드포인트(베타)에서 가져옵니다. 누가 확인했는지와 코멘트는 표시하지 않습니다.
+- 감사: Security posture 확인 내용이 바뀐 이벤트(`org_security_control_attestation_updated`)를 위험 이벤트로 분류합니다.
+- 추세: "제품별 활성 사용자"에 Claude Tag(Slack의 Claude) 활성 사용자를 별도 선으로 그립니다. Claude 계정을 연결하지 않은 사람까지 포함한 Slack 사용자 수라서 전체 활성 사용자보다 클 수 있고, 선에 사용자가 있을 때 이를 안내합니다.
+- 컬렉터가 계정을 연결한 사용자의 Claude Tag 활동일과 메시지 수를 `claude_code_analytics`의 새 컬럼 두 개로 보관하고, 챗봇의 SQL 도구도 이 컬럼을 압니다.
+- IP 허용 목록 대비. 조직 소유자가 조직을 IP 범위 목록으로 제한할 수 있게 됐고, 이 목록은 Compliance API에도 적용됩니다.
+  - Anthropic이 서버 주소를 거부하면 모든 페이지에 이유를 알리는 배너를 띄우고, `/api/health`가 거부 시각을 알려 줍니다.
+  - 컬렉터 Lambda를 대시보드 VPC 안에서 실행해 서버와 같은 NAT 게이트웨이 주소로 나가게 할 수 있습니다(`infra/cdk.json`의 `collectorFixedEgress`, 켜짐). 컬렉터 스택을 다음에 배포할 때 적용됩니다.
+  - 허용할 주소와 복구 절차를 런북으로 정리했습니다.
+
+### 변경
+
+- 비용 데이터를 Usage and Cost Analytics API(베타)에서 가져옵니다. 비용 페이지가 쓰던 리포트 네 개를 Anthropic이 2026-10-29에 legacy로 지정했습니다. 수치는 같습니다. 실데이터 비교에서 소수 여섯 자리까지 일치했습니다.
+  - 새 API가 호출을 거부하면 서버가 기존 리포트로 다시 시도하고 그 조직을 30분 동안 기존 리포트에 둡니다. `CCD_COST_API=legacy`로 기존 리포트를 고정할 수 있습니다.
+  - `/api/cost/live`가 어느 API로 응답했는지 `cost_api`로 알립니다.
+- 비용: Claude in Slack 제품 라벨을 추세 페이지와 같은 "Claude Tag (Slack)"로 바꿨습니다.
 
 ## [2.7.1] - 2026-10-31
 

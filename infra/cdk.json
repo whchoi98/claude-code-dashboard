@@ -3,6 +3,7 @@
   "context": {
     "@aws-cdk/aws-lambda:recognizeVersionProps": true,
     "@aws-cdk/aws-ecs:enableExecuteCommand": true,
-    "enableOrg2": true
+    "enableOrg2": true,
+    "collectorFixedEgress": true
   }
 }

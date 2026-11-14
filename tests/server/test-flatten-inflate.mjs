@@ -225,5 +225,18 @@ ok('flattenProject emits exactly its 8 documented columns', PROJECT_COLUMN_NAMES
     && /table\('artifacts_daily_org2', ARTIFACT_COLUMNS, 'org2\/artifacts'\)/.test(stack))
 }
 
+// Claude Tag (2026-11): the block round-trips; an absent block stays absent.
+{
+  const tagged = flattenUser({ user: { id: 't1', email_address: 't@acme.com' }, claude_tag_metrics: { active_day_count: 1, active_message_count: 7 } })
+  ok('flatten maps claude_tag_metrics to columns', tagged.claude_tag_active_days === 1 && tagged.claude_tag_active_messages === 7)
+  const back = inflateUser(tagged)
+  ok('round-trip claude tag counters', back.claude_tag_metrics?.active_day_count === 1 && back.claude_tag_metrics?.active_message_count === 7)
+  const unread = flattenUser({ user: { id: 't2', email_address: 'u@acme.com' }, claude_tag_metrics: { active_day_count: null, active_message_count: null } })
+  ok('unreadable claude tag counters flatten to NULL, not 0', unread.claude_tag_active_days === null && unread.claude_tag_active_messages === null)
+  const none = flattenUser({ user: { id: 't3', email_address: 'n@acme.com' } })
+  ok('a row without the block flattens to NULL', none.claude_tag_active_days === null && none.claude_tag_active_messages === null)
+  ok('…and inflates without a claude_tag_metrics block', !('claude_tag_metrics' in inflateUser(none)))
+}
+
 console.log(`\n1..${n}`)
 process.exit(failed === 0 ? 0 : 1)

@@ -94,6 +94,8 @@ Per-user engagement + Claude Code productivity for a single day. Response is `{ 
 | `cowork_metrics.connectors_used_count` | number | |
 | `cowork_metrics.distinct_connectors_used_count` | number | |
 | `web_search_count` | number | per-user web-search invocations |
+| `claude_tag_metrics.active_day_count` | number \| null | Claude Tag (Claude in Slack), users who linked a Claude account only: 1 on an active day. Block omitted on deployments without Claude Tag reporting; null = could not be read. Archived as `claude_tag_active_days` |
+| `claude_tag_metrics.active_message_count` | number \| null | Slack messages that made the user active (@-mentions, DMs, answered thread posts). Archived as `claude_tag_active_messages` |
 
 > ⚠ No USD / cost / token field on this endpoint. Use `cost_report` + `usage_report` for spend, joined client-side.
 
@@ -118,6 +120,7 @@ Org-wide daily roll-up over the requested range. Returns `{ data: Summary[] }` (
 | `daily_adoption_rate` | number | percent (0-100) — DAU ÷ assigned_seat_count |
 | `weekly_adoption_rate` | number | percent |
 | `monthly_adoption_rate` | number | percent |
+| `claude_tag_{daily,weekly,monthly}_active_user_count` | number \| null | Claude Tag (Claude in Slack): distinct SLACK users, including people who have not linked a Claude account — can exceed `daily_active_user_count` and `assigned_seat_count`. Null on unmeasured days and in group-scoped responses; omitted where Claude Tag reporting is not offered. Drawn on Trends as its own series |
 
 ### `GET /v1/organizations/analytics/skills?date=YYYY-MM-DD`
 
@@ -236,6 +239,21 @@ Per-user USD spend for the requested period. Paginated via `?page=` token (same 
 
 ---
 
+### Usage and Cost Analytics API (beta, 2026-10-29) — the default cost source since ADR-0023
+
+`GET /v1/organizations/analytics/cost` and `/usage`, header `anthropic-beta: analytics-usage-cost-2026-08-24`, same Analytics key. The four report endpoints above are legacy since the same date (still served; the dashboard falls back to them per call). Guide: <https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api>.
+
+| Topic | Contract |
+|---|---|
+| Row shape | `{ starting_at, ending_at, group: {every dimension, null unless grouped}, cost \| usage }` — metric fields inside `cost` / `usage` are the legacy row's (`amount`, `list_amount`, `currency`, `requests`; token counts, `cache_creation`, `server_tool_use`, `total_tokens`, `requests`) |
+| Buckets | `time_bucket_width` = `1m` \| `1h` \| `1d`, no default, `ending_at` required with it; a bucket without data has NO row (the legacy reports listed empty buckets) |
+| Paging | `limit` counts rows (1–1000, default 20); `cost_type` / `token_type` fan-out rows do not count toward it; `has_more` + `next_page` |
+| Grouping | up to 5 of `actor`, `actor_type`, `product`, `model`, `rbac_group_id`, `context_window`, `inference_geo`, `speed`, `slack_channel_id`, `claude_tag_category`, `claude_tag_user_id`, `organization_id`, plus Console-only dimensions; `cost_type` and `token_type` (cost only) are extra |
+| Per user | `group_by[]=actor&actor_types[]=user_actor` — `group.actor` = `{ type, user_id, email_address, name, deleted }` (no `email`) |
+| Values that differ | product `claude_tag` (legacy: `claude-tag`); cost type adds `session_usage` |
+| Span / freshness | 31 days per request, 365-day lookback, `data_refreshed_at` watermark (~4 h), values revised until about 7 days after month end — all as on the legacy reports |
+| Verified live 2026-11-13 | totals equal the legacy reports to 6 decimals; per-user rows identical; `ending_at` = tomorrow accepted; the response `group` also carries `claude_project_id`, `slack_conversation_type`, `teams_channel_id` |
+
 ## 3. Compliance API
 
 Canonical references: [Compliance API overview](https://platform.claude.com/docs/en/manage-claude/compliance-api) · [Activity Feed guide](https://platform.claude.com/docs/en/manage-claude/compliance-activity-feed) · [`GET /v1/compliance/activities` API ref](https://platform.claude.com/docs/en/api/compliance/activities/list).
@@ -243,6 +261,20 @@ Canonical references: [Compliance API overview](https://platform.claude.com/docs
 ### `GET /v1/compliance/activities?starting_date=&ending_date=&type=&after_id=&limit=`
 
 Response: `{ data: ActivityEvent[], has_more: boolean }`. Pagination is **`after_id`-cursor**, NOT `next_page` (ADR-0004) — derive the cursor from `data[data.length - 1].id` on each page.
+
+### `GET /v1/compliance/organizations/{org_uuid}/security_posture` (beta, 2026-11-05)
+
+Current result of every control on the claude.ai Security posture page. Scope `read:compliance_org_data`. One organization per call, **no query parameters** (any → 400), not paginated. 404 on other plans, while the page is switched off, and for some eligible organizations. Verified live 2026-11-13 (primary org: 63 controls in 10 sections).
+
+| Field | Type | Notes |
+|---|---|---|
+| `evaluated_at` | string | ISO 8601 — when the results were computed |
+| `comments_status` | string | e.g. `not_enabled` |
+| `controls[].id` / `display_name` / `section` / `setting_name` | string | `section` ∈ `identity_access`, `data_privacy`, `capabilities`, `connectors_integrations`, `chats_desktop_mdm`, `cowork_admin_console`, `cowork_desktop_mdm`, `claude_code_admin_console`, `claude_code_managed_settings`, `healthy_adoption` (as observed) |
+| `controls[].rating` | string | `passed` \| `failed` \| `not_attested` \| `descriptive` |
+| `controls[].status` | string | finer than `rating`: also `failed_check_accepted_risk` (rated `passed`), `not_applicable` (rated `descriptive`) |
+| `controls[].current_value` / `desired_state` | string \| null | display strings; `desired_state` null on information-only controls |
+| `controls[].attestation` | object \| null | `{ state, attested_at, comment, attested_by }` — the dashboard forwards `state` and `attested_at` only |
 
 ### Activity envelope (every event)
 
@@ -274,6 +306,8 @@ Categorized as the dashboard does internally (`src/pages/Compliance.tsx:RISK_TYP
 | `org_user_invite_deleted` | `user_email` |
 | `org_user_deleted` | `user_email` |
 | `org_sso_toggled` | (no event-specific field — actor identity is the signal) |
+| `org_security_control_attestation_updated` | Security posture (2026-11): `control`, `action` (`attested` / `changed` / `renewed` / `cleared` / `lapsed`), `status`, `previous_status`, `review_date`; actor is `system_actor` for an automatic lapse |
+| `org_ip_restriction_created` / `_updated` / `_deleted` | changes to the organization's IP allowlist (see `docs/runbooks/ip-allowlist.md`) |
 | `org_sso_connection_deleted` | |
 | `org_data_export_started` | |
 | `org_data_export_completed` | |

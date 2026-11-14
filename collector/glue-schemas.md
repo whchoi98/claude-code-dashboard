@@ -91,6 +91,8 @@ All tables are **partitioned by `date` (string)**, stored as NDJSON under
 | unified_session_skills_used         | bigint  |
 | unified_session_plugins_used        | bigint  |
 | unified_session_artifacts_created   | bigint  |
+| claude_tag_active_days              | bigint  |
+| claude_tag_active_messages          | bigint  |
 | snapshot_date                | string  |
 
 Partition: `date` (string, YYYY-MM-DD)

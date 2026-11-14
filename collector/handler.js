@@ -17,6 +17,7 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 import { flattenUser, flattenSkill, flattenConnector, flattenProject, flattenPlugin, flattenArtifact, flattenActivity } from './flatten.js'
+import { isIpAllowlistBlock } from './ip-allowlist.js'
 
 const API_URL = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com'
 const API_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01'
@@ -100,6 +101,13 @@ async function fetchJson(path, params, { signal, org = 'primary' } = {}) {
   })
   if (!r.ok) {
     const body = await r.text()
+    // The org's IP allowlist refused this function's egress address — not a
+    // key problem and not retryable; say so where the operator will read it.
+    let parsed = null
+    try { parsed = JSON.parse(body) } catch { /* non-JSON error body */ }
+    if (isIpAllowlistBlock(r.status, parsed)) {
+      throw new Error(`upstream 403 ${path}: blocked by the organization's IP allowlist — add the collector's egress address (docs/runbooks/ip-allowlist.md)`)
+    }
     throw new Error(`upstream ${r.status} ${path}: ${body.slice(0, 200)}`)
   }
   return r.json()
